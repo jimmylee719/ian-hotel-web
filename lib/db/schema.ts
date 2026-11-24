@@ -138,7 +138,7 @@ export const reservations = sqliteTable(
     code: text("code").notNull().unique(),
     guestId: text("guest_id").notNull().references(() => guests.id),
     status: text("status", {
-      enum: ["pending_payment", "paid_pending_confirm", "confirmed", "confirm_failed_refunded", "cancelled"],
+      enum: ["pending_payment", "paid_pending_confirm", "confirmed", "confirm_failed_refunded", "cancelled", "expired"],
     }).notNull(),
     channel: text("channel", { enum: ["direct", "siteminder_ota"] }).notNull(),
     smConfirmation: text("sm_confirmation"),
@@ -151,10 +151,23 @@ export const reservations = sqliteTable(
     totalAmount: integer("total_amount").notNull(),
     promoCode: text("promo_code"),
     syncState: text("sync_state", { enum: ["not_required", "pending", "synced", "failed"] }).notNull(),
+    /** Epoch ms when the inventory hold lapses; null = no inventory currently held. */
+    holdExpiresAt: integer("hold_expires_at"),
+    idempotencyKey: text("idempotency_key").unique(),
+    syncAttempts: integer("sync_attempts").notNull().default(0),
+    nextSyncAt: integer("next_sync_at"),
+    lastSyncError: text("last_sync_error"),
+    cancelledAt: integer("cancelled_at"),
+    refundedAmount: integer("refunded_amount").notNull().default(0),
+    /** Lower-cased guest email, for lookups. */
+    guestEmailLower: text("guest_email_lower").notNull(),
     createdAt: ms("created_at"),
     updatedAt: ms("updated_at"),
   },
-  (t) => [index("reservations_property_checkin").on(t.propertyId, t.checkIn)],
+  (t) => [
+    index("reservations_property_checkin").on(t.propertyId, t.checkIn),
+    index("reservations_guest_email_lower").on(t.guestEmailLower),
+  ],
 );
 
 export const reservationRooms = sqliteTable("reservation_rooms", {
@@ -166,18 +179,57 @@ export const reservationRooms = sqliteTable("reservation_rooms", {
 });
 
 /** Never add card number / CVV / expiry columns here (PCI-DSS). */
-export const payments = sqliteTable("payments", {
+export const payments = sqliteTable(
+  "payments",
+  {
+    id: id(),
+    reservationId: text("reservation_id").notNull().references(() => reservations.id),
+    kind: text("kind", { enum: ["charge", "preauth", "capture", "refund", "front_desk"] }).notNull(),
+    method: text("method", { enum: ["sinopac_online", "edc", "cash", "transfer"] }).notNull(),
+    amount: integer("amount").notNull(),
+    status: text("status", { enum: ["pending", "succeeded", "failed"] }).notNull(),
+    providerRef: text("provider_ref"),
+    authCode: text("auth_code"),
+    last4: text("last4"),
+    createdAt: ms("created_at"),
+  },
+  (t) => [uniqueIndex("payments_provider_ref_unique").on(t.providerRef)], // NULLs never collide
+);
+
+/** Full log of every payment-provider callback, for audit and reconciliation. */
+export const paymentEvents = sqliteTable("payment_events", {
   id: id(),
-  reservationId: text("reservation_id").notNull().references(() => reservations.id),
-  kind: text("kind", { enum: ["charge", "preauth", "capture", "refund", "front_desk"] }).notNull(),
-  method: text("method", { enum: ["sinopac_online", "edc", "cash", "transfer"] }).notNull(),
-  amount: integer("amount").notNull(),
-  status: text("status", { enum: ["pending", "succeeded", "failed"] }).notNull(),
+  provider: text("provider").notNull(),
   providerRef: text("provider_ref"),
-  authCode: text("auth_code"),
-  last4: text("last4"),
-  createdAt: ms("created_at"),
+  reservationCode: text("reservation_code"),
+  rawBody: text("raw_body").notNull(),
+  verdict: text("verdict", {
+    enum: ["accepted", "duplicate", "bad_signature", "amount_mismatch", "unknown_reservation"],
+  }).notNull(),
+  at: ms("at"),
 });
+export type PaymentEventVerdict = typeof paymentEvents.$inferSelect["verdict"];
+
+export const notifications = sqliteTable(
+  "notifications",
+  {
+    id: id(),
+    reservationId: text("reservation_id").notNull().references(() => reservations.id),
+    kind: text("kind", {
+      enum: [
+        "booking_confirmed", "booking_failed_refunded", "cancelled", "pre_arrival",
+        "staff_new_booking", "staff_sync_failed", "staff_payment_alert",
+      ],
+    }).notNull(),
+    to: text("to").notNull(),
+    status: text("status", { enum: ["sent", "failed"] }).notNull(),
+    providerId: text("provider_id"),
+    at: ms("at"),
+  },
+  // The same email is never sent twice.
+  (t) => [uniqueIndex("notifications_unique_send").on(t.reservationId, t.kind, t.to)],
+);
+export type NotificationKind = typeof notifications.$inferSelect["kind"];
 
 export const addons = sqliteTable("addons", {
   id: id(),

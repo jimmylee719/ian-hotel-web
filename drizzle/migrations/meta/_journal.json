@@ -22,6 +22,13 @@
       "when": 1795534268946,
       "tag": "0002_shocking_otto_octavius",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1795536039534,
+      "tag": "0003_rainy_warlock",
+      "breakpoints": true
     }
   ]
 }
