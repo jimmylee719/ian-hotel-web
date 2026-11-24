@@ -7,7 +7,7 @@ import type { Quote } from "@/lib/domain/quote";
 import { followChargeStart, rememberBooking, startBooking } from "./client";
 import { countryOptions, DIAL_CODES, LOCALE_COUNTRY } from "./countries";
 import { formatPrice } from "./format";
-import { idempotencyKeyFor, sessionStore } from "./idempotency";
+import { clearKey, idempotencyKeyFor, retryWithFreshKey, sessionStore, type StaySelection } from "./idempotency";
 import { StayFolio } from "./StayFolio";
 
 export type Stay = {
@@ -51,14 +51,17 @@ export function BookingForm({ stay, addons, initialQuote, policyText }: { stay: 
 
   // One key per stay selection, kept in sessionStorage: a double submit, or coming back from the
   // payment page and submitting again, replays the same booking instead of holding a second one.
+  // Keys expire with the 20-minute hold (KEY_TTL_MS), so a lapsed booking is never replayed.
   const addonSig = addons.filter((a) => selected[a.slug]).map((a) => a.slug).join(",");
+  const selection = (): StaySelection => ({
+    propertySlug: stay.propertySlug, unitTypeSlug: stay.unitTypeSlug, ratePlanSlug: stay.ratePlanSlug,
+    checkIn: stay.checkIn, checkOut: stay.checkOut, adults: stay.adults, children: stay.children, rooms: stay.rooms,
+    addons: addonSig ? addonSig.split(",").map((slug) => ({ slug, qty: 1 })) : [],
+  });
+  const currentKey = () => idempotencyKeyFor(selection(), sessionStore(), () => crypto.randomUUID());
   useEffect(() => {
-    const list = addonSig ? addonSig.split(",").map((slug) => ({ slug, qty: 1 })) : [];
-    setIdempotencyKey(idempotencyKeyFor({
-      propertySlug: stay.propertySlug, unitTypeSlug: stay.unitTypeSlug, ratePlanSlug: stay.ratePlanSlug,
-      checkIn: stay.checkIn, checkOut: stay.checkOut, adults: stay.adults, children: stay.children, rooms: stay.rooms,
-      addons: list,
-    }, sessionStore(), () => crypto.randomUUID()));
+    setIdempotencyKey(currentKey());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- currentKey only reads the values listed
   }, [addonSig, stay.propertySlug, stay.unitTypeSlug, stay.ratePlanSlug, stay.checkIn, stay.checkOut, stay.adults, stay.children, stay.rooms]);
 
   const chosenAddons = addons.filter((a) => selected[a.slug]).map((a) => ({ slug: a.slug, qty: 1 }));
@@ -142,15 +145,26 @@ export function BookingForm({ stay, addons, initialQuote, policyText }: { stay: 
     if (!idempotencyKey) return;
     setStatus({ kind: "submitting" });
     const dial = fields.dial.trim().startsWith("+") ? fields.dial.trim() : `+${fields.dial.trim()}`;
-    const body = {
+    const bodyWith = (key: string) => ({
       ...priceBody(promo.applied),
       guest: {
         firstName: fields.firstName.trim(), lastName: fields.lastName.trim(), email: fields.email.trim(),
         phone: `${dial} ${fields.phone.trim()}`, country: fields.country,
       },
-      locale, idempotencyKey, acceptTerms: true,
-    };
-    const r = await startBooking(body);
+      locale, idempotencyKey: key, acceptTerms: true,
+    });
+    // Re-read at submit time: the key may have aged past the hold while the guest was typing.
+    let body = bodyWith(currentKey());
+    let r = await startBooking(body);
+    // The key belongs to a booking that is no longer payable (confirmed, cancelled or expired):
+    // start a new booking with a fresh key, once.
+    for (let attempt = 0; retryWithFreshKey(r, attempt); attempt++) {
+      clearKey(selection(), sessionStore());
+      const fresh = currentKey();
+      setIdempotencyKey(fresh);
+      body = bodyWith(fresh);
+      r = await startBooking(body);
+    }
     if (r.ok) {
       rememberBooking(r.code, { email: body.guest.email, body });
       followChargeStart(r.start);

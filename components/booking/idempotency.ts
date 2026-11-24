@@ -16,7 +16,10 @@ export type StaySelection = {
   addons: { slug: string; qty: number }[];
 };
 
-type KeyStore = Pick<Storage, "getItem" | "setItem">;
+type KeyStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+/** A stored key is reused for at most the inventory hold (HOLD_MINUTES); after that the booking it made has lapsed. */
+export const KEY_TTL_MS = 20 * 60_000;
 
 /** FNV-1a 32-bit, hex. Only needs to tell selections apart within one tab. */
 function fnv1a(s: string): string {
@@ -35,22 +38,50 @@ export function selectionSlot(s: StaySelection): string {
   return `nk-idem:${fnv1a(canonical)}`;
 }
 
-/** The key stored for this selection, or a new one (stored when storage works). */
-export function idempotencyKeyFor(s: StaySelection, storage: KeyStore | null, generate: () => string): string {
-  const slot = selectionSlot(s);
+function readKey(storage: KeyStore | null, slot: string, now: number): string | null {
   try {
-    const existing = storage?.getItem(slot);
-    if (existing) return existing;
+    const raw = storage?.getItem(slot);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { key?: unknown; createdAt?: unknown };
+    if (typeof v?.key !== "string" || typeof v.createdAt !== "number") return null;
+    return now - v.createdAt < KEY_TTL_MS ? v.key : null;
   } catch {
-    /* storage blocked: fall through to a fresh key */
+    return null; // storage blocked, or not our record
   }
+}
+
+/** The key stored for this selection if it is younger than KEY_TTL_MS, or a new one (stored when storage works). */
+export function idempotencyKeyFor(s: StaySelection, storage: KeyStore | null, generate: () => string, now = Date.now()): string {
+  const slot = selectionSlot(s);
+  const existing = readKey(storage, slot, now);
+  if (existing) return existing;
   const key = generate();
   try {
-    storage?.setItem(slot, key);
+    storage?.setItem(slot, JSON.stringify({ key, createdAt: now }));
   } catch {
     /* private mode: the key still works for this page view */
   }
   return key;
+}
+
+/** Forget the key for this selection, so the next idempotencyKeyFor mints a new one. */
+export function clearKey(s: StaySelection, storage: KeyStore | null): void {
+  try {
+    storage?.removeItem(selectionSlot(s));
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+type SubmitOutcome = { ok: true } | { ok: false; status: number; error?: string; detail?: string };
+
+/**
+ * After a failed submit: should the client drop its key and submit again with a fresh one?
+ * Only when the key belongs to a booking that is no longer payable (ALREADY_PROCESSED: confirmed,
+ * cancelled or expired), and only on the first attempt, so it can never loop.
+ */
+export function retryWithFreshKey(r: SubmitOutcome, attempt: number): boolean {
+  return attempt === 0 && !r.ok && r.error === "INVALID_INPUT" && r.detail === "ALREADY_PROCESSED";
 }
 
 /** sessionStorage, or null where reading it throws (blocked cookies / storage). */
