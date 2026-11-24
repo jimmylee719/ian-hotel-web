@@ -4,7 +4,8 @@ export const LOCALES = ["zh-TW", "en", "ja", "ko"] as const;
 export type Locale = (typeof LOCALES)[number];
 export type I18n = Record<Locale, string>;
 
-export type CancelPolicy = { rules: { daysBefore: number; refundPct: number }[] };
+import type { CancelPolicy } from "../domain/cancellation";
+export type { CancelPolicy };
 
 const id = () => text("id").primaryKey();
 const i18n = (name: string) => text(name, { mode: "json" }).$type<I18n>().notNull();
