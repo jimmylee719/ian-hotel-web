@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { clearKey, idempotencyKeyFor, KEY_TTL_MS, retryWithFreshKey, selectionSlot, type StaySelection } from "@/components/booking/idempotency";
+import { clearKey, idempotencyKeyFor, KEY_TTL_MS, paidBookingReturnPath, retryWithFreshKey, selectionSlot, type StaySelection } from "@/components/booking/idempotency";
 
 const sel = (over: Partial<StaySelection> = {}): StaySelection => ({
   propertySlug: "nk-hostel", unitTypeSlug: "deluxe-room", ratePlanSlug: "direct-flex",
@@ -75,11 +75,13 @@ test("a stored value that is not a {key, createdAt} record is treated as stale",
   expect(idempotencyKeyFor(sel(), storage, () => "fresh")).toBe("fresh");
 });
 
-test("retry with a fresh key exactly once, and only for ALREADY_PROCESSED", () => {
-  const processed = { ok: false as const, status: 400, error: "INVALID_INPUT", detail: "ALREADY_PROCESSED" };
-  expect(retryWithFreshKey(processed, 0)).toBe(true);
-  expect(retryWithFreshKey(processed, 1)).toBe(false);
+test("retry with a fresh key exactly once, and only for EXPIRED", () => {
+  const expired = { ok: false as const, status: 400, error: "INVALID_INPUT", detail: "EXPIRED" };
+  expect(retryWithFreshKey(expired, 0)).toBe(true);
+  expect(retryWithFreshKey(expired, 1)).toBe(false);
   for (const r of [
+    { ok: false as const, status: 400, error: "INVALID_INPUT", detail: "ALREADY_PAID", code: "NK-ABCDEF" },
+    { ok: false as const, status: 400, error: "INVALID_INPUT", detail: "ALREADY_PROCESSED" },
     { ok: false as const, status: 409, error: "SOLD_OUT" },
     { ok: false as const, status: 409, error: "NOT_AVAILABLE" },
     { ok: false as const, status: 400, error: "INVALID_INPUT", detail: "guest.email" },
@@ -87,4 +89,13 @@ test("retry with a fresh key exactly once, and only for ALREADY_PROCESSED", () =
     { ok: false as const, status: 429 },
     { ok: false as const, status: 0 },
   ]) expect(retryWithFreshKey(r, 0), JSON.stringify(r)).toBe(false);
+});
+
+test("a paid booking behind the key sends the guest to its return page instead of a new booking", () => {
+  const paid = { ok: false as const, status: 400, error: "INVALID_INPUT", detail: "ALREADY_PAID", code: "NK-ABCDEF" };
+  expect(paidBookingReturnPath(paid, "ja")).toBe("/ja/book/return/NK-ABCDEF");
+  expect(paidBookingReturnPath({ ...paid, code: "../evil" }, "ja")).toBeNull();
+  expect(paidBookingReturnPath({ ...paid, code: undefined }, "ja")).toBeNull();
+  expect(paidBookingReturnPath({ ok: false as const, status: 400, error: "INVALID_INPUT", detail: "EXPIRED" }, "en")).toBeNull();
+  expect(paidBookingReturnPath({ ok: true }, "en")).toBeNull();
 });

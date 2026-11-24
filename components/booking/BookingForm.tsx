@@ -4,10 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import type { Quote } from "@/lib/domain/quote";
-import { followChargeStart, rememberBooking, startBooking } from "./client";
+import { followChargeStart, recallBooking, rememberBooking, startBooking } from "./client";
 import { countryOptions, DIAL_CODES, LOCALE_COUNTRY } from "./countries";
 import { formatPrice } from "./format";
-import { clearKey, idempotencyKeyFor, retryWithFreshKey, sessionStore, type StaySelection } from "./idempotency";
+import { clearKey, idempotencyKeyFor, paidBookingReturnPath, retryWithFreshKey, sessionStore, type StaySelection } from "./idempotency";
 import { StayFolio } from "./StayFolio";
 
 export type Stay = {
@@ -156,8 +156,15 @@ export function BookingForm({ stay, addons, initialQuote, policyText }: { stay: 
     // Re-read at submit time: the key may have aged past the hold while the guest was typing.
     let body = bodyWith(currentKey());
     let r = await startBooking(body);
-    // The key belongs to a booking that is no longer payable (confirmed, cancelled or expired):
-    // start a new booking with a fresh key, once.
+    // The key's booking was already paid (e.g. Back from the payment page, then submit again):
+    // show that booking instead of creating a second one.
+    const paidPath = paidBookingReturnPath(r, locale);
+    if (!r.ok && paidPath && r.code) {
+      if (!recallBooking(r.code)) rememberBooking(r.code, { email: body.guest.email, body });
+      window.location.assign(paidPath);
+      return; // leave "submitting" on while the browser navigates
+    }
+    // The key's booking lapsed unpaid: start a new booking with a fresh key, once.
     for (let attempt = 0; retryWithFreshKey(r, attempt); attempt++) {
       clearKey(selection(), sessionStore());
       const fresh = currentKey();

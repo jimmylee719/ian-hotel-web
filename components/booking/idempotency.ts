@@ -73,15 +73,23 @@ export function clearKey(s: StaySelection, storage: KeyStore | null): void {
   }
 }
 
-type SubmitOutcome = { ok: true } | { ok: false; status: number; error?: string; detail?: string };
+type SubmitOutcome = { ok: true } | { ok: false; status: number; error?: string; detail?: string; code?: string };
 
 /**
  * After a failed submit: should the client drop its key and submit again with a fresh one?
- * Only when the key belongs to a booking that is no longer payable (ALREADY_PROCESSED: confirmed,
- * cancelled or expired), and only on the first attempt, so it can never loop.
+ * Only when the key's booking lapsed unpaid (EXPIRED), and only on the first attempt, so it can
+ * never loop. A paid booking (ALREADY_PAID) is never retried: see paidBookingReturnPath.
  */
 export function retryWithFreshKey(r: SubmitOutcome, attempt: number): boolean {
-  return attempt === 0 && !r.ok && r.error === "INVALID_INPUT" && r.detail === "ALREADY_PROCESSED";
+  return attempt === 0 && !r.ok && r.error === "INVALID_INPUT" && r.detail === "EXPIRED";
+}
+
+const CODE_RE = /^[A-Z0-9-]{1,32}$/;
+
+/** The key's booking was already paid: the return page of that booking, or null for any other outcome. */
+export function paidBookingReturnPath(r: SubmitOutcome, locale: string): string | null {
+  if (r.ok || r.detail !== "ALREADY_PAID" || !r.code || !CODE_RE.test(r.code)) return null;
+  return `/${locale}/book/return/${r.code}`;
 }
 
 /** sessionStorage, or null where reading it throws (blocked cookies / storage). */

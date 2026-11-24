@@ -31,7 +31,7 @@ export type CreateInput = {
 export type CreateError = "INVALID_INPUT" | "NOT_AVAILABLE" | "PRICE_CHANGED" | "PROMO_INVALID" | "SOLD_OUT";
 export type CreateResult =
   | { ok: true; code: string; start: ChargeStart }
-  | { ok: false; error: CreateError; detail?: string };
+  | { ok: false; error: CreateError; detail?: string; code?: string };
 
 type Deps = { db: Db; gateway: PaymentGateway; baseUrl: string };
 
@@ -123,9 +123,18 @@ async function replayExisting(deps: Deps, idempotencyKey: string, locale: Locale
   const { db } = deps;
   const [existing] = await db.select().from(reservations).where(eq(reservations.idempotencyKey, idempotencyKey));
   if (!existing) return null;
-  if (existing.status !== "pending_payment") return fail("INVALID_INPUT", "ALREADY_PROCESSED");
-  const [charge] = await db.select().from(payments)
+  const charges = await db.select().from(payments)
     .where(and(eq(payments.reservationId, existing.id), eq(payments.kind, "charge")));
+  if (existing.status !== "pending_payment") {
+    // EXPIRED: the hold lapsed unpaid, so the client may start over with a fresh key. Anything else
+    // was paid (pending confirmation, confirmed, refunded or cancelled): send the guest to that
+    // booking instead of letting a second submit create (and charge) another one.
+    const paid = existing.status !== "expired" || charges.some((c) => c.status === "succeeded");
+    return paid
+      ? { ok: false, error: "INVALID_INPUT", detail: "ALREADY_PAID", code: existing.code }
+      : fail("INVALID_INPUT", "EXPIRED");
+  }
+  const [charge] = charges;
   if (!charge) throw new Error(`Reservation ${existing.code} has no charge row`);
   const start = await startCharge(deps, existing.code, charge.amount, (existing.locale as Locale) ?? locale, now);
   return { ok: true, code: existing.code, start };

@@ -40,6 +40,15 @@ describe("POST /api/bookings", () => {
     expect((await reservation(body.code)).status).toBe("pending_payment");
   });
 
+  test("resubmitting the key of a paid booking returns ALREADY_PAID with its code", async () => {
+    const { deps, db } = await bookingSetup();
+    const first = (await (await handleCreateBooking(deps, post("/api/bookings", bookingInput()), NOW)).json()) as { code: string };
+    await db.update(reservations).set({ status: "confirmed" }).where(eq(reservations.code, first.code));
+    const res = await handleCreateBooking(deps, post("/api/bookings", bookingInput()), NOW);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "INVALID_INPUT", detail: "ALREADY_PAID", code: first.code });
+  });
+
   test("a sold-out room is a 409", async () => {
     const { deps } = await bookingSetup({ available: 0 });
     const res = await handleCreateBooking(deps, post("/api/bookings", bookingInput()), NOW);

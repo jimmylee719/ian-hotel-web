@@ -66,12 +66,12 @@ export async function fetchStatus(code: string, email: string): Promise<StatusRe
 }
 
 /** POST /api/bookings with a stored body (idempotent: the same key restarts the same booking's payment). */
-export async function startBooking(body: unknown): Promise<{ ok: true; code: string; start: ChargeStart } | { ok: false; status: number; error?: string; detail?: string }> {
+export async function startBooking(body: unknown): Promise<{ ok: true; code: string; start: ChargeStart } | { ok: false; status: number; error?: string; detail?: string; code?: string }> {
   try {
     const res = await fetch("/api/bookings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const json = (await res.json().catch(() => ({}))) as { code?: string; start?: ChargeStart; error?: string; detail?: string };
     if (res.ok && json.code && json.start) return { ok: true, code: json.code, start: json.start };
-    return { ok: false, status: res.status, error: json.error, detail: json.detail };
+    return { ok: false, status: res.status, error: json.error, detail: json.detail, code: json.code };
   } catch {
     return { ok: false, status: 0 };
   }

@@ -86,13 +86,37 @@ test("the same idempotency key returns the same reservation and holds once", asy
   expect(await db.select().from(payments)).toHaveLength(1);
 });
 
-test("a replay of a reservation that is no longer pending is refused", async () => {
+test("a replay of an expired, unpaid reservation answers EXPIRED", async () => {
   const { db, deps } = await setup();
   const a = await createReservation(deps, input(), NOW);
   if (!a.ok) throw new Error(JSON.stringify(a));
   await db.update(reservations).set({ status: "expired" }).where(eq(reservations.code, a.code));
   expect(await createReservation(deps, input(), NOW))
-    .toEqual({ ok: false, error: "INVALID_INPUT", detail: "ALREADY_PROCESSED" });
+    .toEqual({ ok: false, error: "INVALID_INPUT", detail: "EXPIRED" });
+});
+
+test("a replay of a paid reservation answers ALREADY_PAID with its code and creates nothing", async () => {
+  for (const status of ["paid_pending_confirm", "confirmed", "confirm_failed_refunded", "cancelled"] as const) {
+    const { db, deps, avail } = await setup();
+    const a = await createReservation(deps, input(), NOW);
+    if (!a.ok) throw new Error(JSON.stringify(a));
+    await db.update(reservations).set({ status }).where(eq(reservations.code, a.code));
+    expect(await createReservation(deps, input(), NOW), status)
+      .toEqual({ ok: false, error: "INVALID_INPUT", detail: "ALREADY_PAID", code: a.code });
+    expect(await db.select().from(reservations), status).toHaveLength(1);
+    expect(await avail("2026-12-01"), status).toBe(2);
+  }
+});
+
+test("an expired reservation whose charge succeeded anyway answers ALREADY_PAID", async () => {
+  const { db, deps } = await setup();
+  const a = await createReservation(deps, input(), NOW);
+  if (!a.ok) throw new Error(JSON.stringify(a));
+  const [res] = await db.select().from(reservations).where(eq(reservations.code, a.code));
+  await db.update(reservations).set({ status: "expired" }).where(eq(reservations.id, res.id));
+  await db.update(payments).set({ status: "succeeded" }).where(eq(payments.reservationId, res.id));
+  expect(await createReservation(deps, input(), NOW))
+    .toEqual({ ok: false, error: "INVALID_INPUT", detail: "ALREADY_PAID", code: a.code });
 });
 
 test("a promo code discounts the rooms; an expired one is refused without touching inventory", async () => {

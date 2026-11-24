@@ -42,7 +42,8 @@ export async function handleCreateBooking(deps: Deps, req: Request, now: Date): 
   const body = await readJson(req);
   if (!body || typeof body !== "object") return json(400, { error: "INVALID_INPUT" });
   const r = await createReservation(deps, body as CreateInput, now); // validated inside
-  if (!r.ok) return json(CREATE_STATUS[r.error], { error: r.error, ...(r.detail ? { detail: r.detail } : {}) });
+  if (!r.ok)
+    return json(CREATE_STATUS[r.error], { error: r.error, ...(r.detail ? { detail: r.detail } : {}), ...(r.code ? { code: r.code } : {}) });
   return json(200, { code: r.code, start: r.start });
 }
 
