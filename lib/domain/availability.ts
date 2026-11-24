@@ -20,7 +20,7 @@ export type Offer = {
 
 /**
  * Decide whether one (room type, rate plan) can be sold for the stay.
- * A night with no ARI row counts as unavailable.
+ * A night with no ARI row, or priced 0 (rates not loaded yet), counts as unavailable.
  */
 export function evaluateOffer(
   ids: { unitTypeId: string; ratePlanId: string },
@@ -31,7 +31,7 @@ export function evaluateOffer(
 ): Offer | null {
   const byDate = new Map(rows.map((r) => [r.date, r]));
   const stay = nights.map((d) => byDate.get(d));
-  if (stay.some((n) => !n || n.stopSell || n.available < rooms)) return null;
+  if (stay.some((n) => !n || n.stopSell || n.price <= 0 || n.available < rooms)) return null;
   const first = stay[0]!;
   if (first.closedToArrival || nights.length < first.minStay) return null;
   if (byDate.get(checkOut)?.closedToDeparture) return null;

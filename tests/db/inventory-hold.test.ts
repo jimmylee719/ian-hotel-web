@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { holdInventory, releaseInventory } from "@/lib/db/inventory-hold";
-import { ariDaily } from "@/lib/db/schema";
+import { inventoryDaily } from "@/lib/db/schema";
 import { seedNk } from "@/lib/db/seed-nk";
 import { createTestDb } from "@/tests/helpers/test-db";
 import { fillAri, idsFor, setAri } from "@/tests/helpers/ari";
@@ -12,7 +12,7 @@ async function setup(available: number) {
   await fillAri(db, propertyId, "2026-12-01", 3, { available });
   const ids = await idsFor(db, "mixed-cube");
   const avail = async (date: string) =>
-    (await db.select().from(ariDaily).where(and(eq(ariDaily.unitTypeId, ids.unitTypeId), eq(ariDaily.ratePlanId, ids.ratePlanId), eq(ariDaily.date, date))))[0].available;
+    (await db.select().from(inventoryDaily).where(and(eq(inventoryDaily.unitTypeId, ids.unitTypeId), eq(inventoryDaily.date, date))))[0].available;
   return { db, ids, avail };
 }
 

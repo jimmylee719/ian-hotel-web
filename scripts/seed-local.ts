@@ -14,7 +14,7 @@ import * as schema from "../lib/db/schema";
 import { seedNk } from "../lib/db/seed-nk";
 import { todayInTaipei } from "../lib/domain/dates";
 
-const TABLES = ["ari_daily", "rate_plans", "unit_types", "properties"];
+const TABLES = ["inventory_daily", "ari_daily", "rate_plans", "unit_types", "properties"];
 
 async function main() {
   const sqlite = new Database(":memory:");
@@ -26,13 +26,16 @@ async function main() {
   const types = await db.select().from(schema.unitTypes);
   const start = new Date(`${todayInTaipei()}T00:00:00`);
   for (const u of types)
-    for (let i = 0; i < 14; i++)
+    for (let i = 0; i < 14; i++) {
+      const day = addDays(start, i);
+      const date = format(day, "yyyy-MM-dd");
+      await db.insert(schema.inventoryDaily).values({ propertyId, unitTypeId: u.id, date, available: 3, source: "siteminder", syncedAt: Date.now() });
       await db.insert(schema.ariDaily).values({
-        propertyId, unitTypeId: u.id, ratePlanId: plan.id,
-        date: format(addDays(start, i), "yyyy-MM-dd"),
-        available: 3, price: 2000 + u.sortOrder * 150 + ([5, 6].includes(addDays(start, i).getDay()) ? 400 : 0),
+        propertyId, unitTypeId: u.id, ratePlanId: plan.id, date,
+        price: 2000 + u.sortOrder * 150 + ([5, 6].includes(day.getDay()) ? 400 : 0),
         source: "siteminder", syncedAt: Date.now(),
       });
+    }
 
   const q = (v: unknown) => (v === null ? "NULL" : typeof v === "number" ? String(v) : `'${String(v).replaceAll("'", "''")}'`);
   const lines = TABLES.map((t) => `DELETE FROM ${t};`);

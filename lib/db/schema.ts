@@ -74,7 +74,7 @@ export const ratePlans = sqliteTable(
   (t) => [uniqueIndex("rate_plans_property_slug").on(t.propertyId, t.slug)],
 );
 
-/** Daily availability/rates/restrictions. Phase 1: a cache of SiteMinder. */
+/** Daily rates + restrictions per (room type, rate plan). Phase 1: a cache of SiteMinder. */
 export const ariDaily = sqliteTable(
   "ari_daily",
   {
@@ -82,8 +82,7 @@ export const ariDaily = sqliteTable(
     unitTypeId: text("unit_type_id").notNull().references(() => unitTypes.id),
     ratePlanId: text("rate_plan_id").notNull().references(() => ratePlans.id),
     date: text("date").notNull(),
-    available: integer("available").notNull().default(0),
-    price: integer("price").notNull().default(0),
+    price: integer("price").notNull(),
     minStay: integer("min_stay").notNull().default(1),
     closedToArrival: bool("closed_to_arrival"),
     closedToDeparture: bool("closed_to_departure"),
@@ -94,8 +93,28 @@ export const ariDaily = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.unitTypeId, t.ratePlanId, t.date] }),
     index("ari_property_date").on(t.propertyId, t.date),
+  ],
+);
+
+/**
+ * Sellable rooms per (room type, date) — shared by every rate plan, as in SiteMinder.
+ * Phase 1: a cache of SiteMinder, decremented locally by holds.
+ */
+export const inventoryDaily = sqliteTable(
+  "inventory_daily",
+  {
+    propertyId: text("property_id").notNull().references(() => properties.id),
+    unitTypeId: text("unit_type_id").notNull().references(() => unitTypes.id),
+    date: text("date").notNull(),
+    available: integer("available").notNull(),
+    source: text("source", { enum: ["siteminder", "local"] }).notNull(),
+    syncedAt: ms("synced_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.unitTypeId, t.date] }),
+    index("inventory_property_date").on(t.propertyId, t.date),
     // Last line of defence against overselling: a hold that would go negative aborts its transaction.
-    check("ari_available_nonnegative", sql`${t.available} >= 0`),
+    check("inventory_available_nonnegative", sql`${t.available} >= 0`),
   ],
 );
 

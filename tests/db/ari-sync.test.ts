@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { applyAriUpdates } from "@/lib/db/ari-sync";
-import { ariDaily, ratePlans, unitTypes } from "@/lib/db/schema";
+import { ariDaily, inventoryDaily, ratePlans, unitTypes } from "@/lib/db/schema";
 import { seedNk } from "@/lib/db/seed-nk";
 import { createTestDb } from "@/tests/helpers/test-db";
 
@@ -21,16 +21,17 @@ test("known codes are applied as SiteMinder rows; unknown codes are reported", a
     { smRoomCode: "MIX", smRatePlanCode: "DIRECT", date: "2026-12-02", available: 2, price: 2300 },
     { smRoomCode: "XX", smRatePlanCode: "DIRECT", date: "2026-12-01", available: 1 },
   ], now);
-  expect(r).toEqual({ applied: 2, unknownCodes: ["XX"] });
+  expect(r).toEqual({ applied: 2, unknownCodes: ["XX"], rejected: [] });
   const rows = await db.select().from(ariDaily);
   expect(rows).toHaveLength(2);
   expect(rows.every((x) => x.source === "siteminder" && x.syncedAt === now.getTime())).toBe(true);
+  expect((await db.select().from(inventoryDaily)).map((x) => x.available).sort()).toEqual([2, 4]);
 });
 
 test("a price-only update keeps the existing availability", async () => {
   const { db, propertyId } = await setup();
   await applyAriUpdates(db, propertyId, [{ smRoomCode: "MIX", smRatePlanCode: "DIRECT", date: "2026-12-01", available: 4, price: 2100 }], new Date());
   await applyAriUpdates(db, propertyId, [{ smRoomCode: "MIX", smRatePlanCode: "DIRECT", date: "2026-12-01", price: 2500 }], new Date());
-  const [row] = await db.select().from(ariDaily);
-  expect(row).toMatchObject({ available: 4, price: 2500 });
+  expect((await db.select().from(ariDaily))[0].price).toBe(2500);
+  expect((await db.select().from(inventoryDaily))[0].available).toBe(4);
 });
