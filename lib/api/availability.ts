@@ -10,6 +10,7 @@ const Query = z.object({
   checkIn: z.string(),
   checkOut: z.string(),
   adults: z.coerce.number().int().min(1).max(12),
+  children: z.coerce.number().int().min(0).max(6).default(0),
   rooms: z.coerce.number().int().min(1).max(6).default(1),
 });
 
@@ -24,7 +25,7 @@ export async function handleAvailability(db: Db, url: URL, today?: ISODate): Pro
   const [property] = await db.select({ id: properties.id }).from(properties).where(eq(properties.slug, q.property));
   if (!property) return json(404, { error: "PROPERTY_NOT_FOUND" });
 
-  const r = await searchAvailability(db, { propertyId: property.id, checkIn: q.checkIn, checkOut: q.checkOut, adults: q.adults, rooms: q.rooms, today });
+  const r = await searchAvailability(db, { propertyId: property.id, checkIn: q.checkIn, checkOut: q.checkOut, adults: q.adults, children: q.children, rooms: q.rooms, today });
   if (!r.ok) return json(400, { error: r.error });
 
   return json(200, {

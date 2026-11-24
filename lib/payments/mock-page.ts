@@ -1,7 +1,10 @@
 import { MockSinoPacGateway } from "./mock-sinopac";
 
+/** Signing secret when MOCK_PAYMENT_SECRET is not set (mock mode only; the gateway and the pay page share it). */
+export const MOCK_DEFAULT_SECRET = "mock-secret";
+
 /** The mock pay page exists only when PAYMENT_MODE is "mock". */
-export function isMockPaymentMode(env: Record<string, string | undefined> = process.env): boolean {
+export function isMockPaymentMode(env: { PAYMENT_MODE?: string } = process.env as { PAYMENT_MODE?: string }): boolean {
   return env.PAYMENT_MODE === "mock";
 }
 

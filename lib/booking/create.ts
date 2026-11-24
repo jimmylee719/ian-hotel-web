@@ -1,16 +1,13 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { searchAvailability } from "@/lib/db/ari-repo";
 import { runAtomic } from "@/lib/db/atomic";
 import { holdStatements, isCheckViolation, type HoldItem } from "@/lib/db/inventory-hold";
-import {
-  addons as addonsTable, guests, LOCALES, payments, promoCodes, properties, reservationRooms, reservations, type Locale,
-} from "@/lib/db/schema";
+import { guests, LOCALES, payments, reservationRooms, reservations, type Locale } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
-import { parseStay, todayInTaipei } from "@/lib/domain/dates";
-import { quote, type AddonLine, type Promo } from "@/lib/domain/quote";
+import { parseStay } from "@/lib/domain/dates";
 import type { ChargeStart, PaymentGateway } from "@/lib/payments/types";
 import { newReservationCode } from "./code";
+import { PriceInput, priceStay } from "./pricing";
 
 export const HOLD_MINUTES = 20;
 
@@ -38,25 +35,13 @@ export type CreateResult =
 
 type Deps = { db: Db; gateway: PaymentGateway; baseUrl: string };
 
-const str = (max: number) => z.string().trim().min(1).max(max);
-
-const Input = z.object({
-  propertySlug: str(64),
-  checkIn: z.string(),
-  checkOut: z.string(),
-  adults: z.number().int().min(1).max(12),
-  children: z.number().int().min(0).max(6),
-  rooms: z.number().int().min(1).max(6),
-  unitTypeSlug: str(64),
-  ratePlanSlug: str(64),
-  addons: z.array(z.object({ slug: str(64), qty: z.number().int().min(1).max(20) })).max(20),
-  promoCode: z.string().trim().max(32).optional(),
+const Input = PriceInput.extend({
   guest: z.object({
-    firstName: str(100),
-    lastName: str(100),
+    firstName: z.string().trim().min(1).max(100),
+    lastName: z.string().trim().min(1).max(100),
     email: z.email().max(254),
-    phone: str(40),
-    country: str(64),
+    phone: z.string().trim().min(1).max(40),
+    country: z.string().trim().min(1).max(64),
   }),
   locale: z.enum(LOCALES),
   idempotencyKey: z.string().min(8).max(128),
@@ -79,51 +64,14 @@ export async function createReservation(deps: Deps, raw: CreateInput, now: Date)
   const replay = await replayExisting(deps, input.idempotencyKey, input.locale);
   if (replay) return replay;
 
-  const [property] = await db.select({ id: properties.id }).from(properties).where(eq(properties.slug, input.propertySlug));
-  if (!property) return fail("INVALID_INPUT", "PROPERTY_NOT_FOUND");
-
-  // 3. Re-price from current availability.
-  const search = await searchAvailability(db, {
-    propertyId: property.id, checkIn: input.checkIn, checkOut: input.checkOut,
-    adults: input.adults, rooms: input.rooms, today: todayInTaipei(now),
-  });
-  if (!search.ok) return fail("INVALID_INPUT", search.error);
-  const offer = search.offers.find((o) => o.unitType.slug === input.unitTypeSlug && o.ratePlan.slug === input.ratePlanSlug);
-  if (!offer) return replayOr(deps, input.idempotencyKey, input.locale, "NOT_AVAILABLE");
-
-  // 4. Promo code (usage is counted on confirmation, not here).
-  let promo: Promo | undefined;
-  if (input.promoCode) {
-    const [p] = await db.select().from(promoCodes)
-      .where(and(eq(promoCodes.propertyId, property.id), eq(promoCodes.code, input.promoCode)));
-    const valid = p && p.active
-      && (!p.validFrom || p.validFrom <= input.checkIn)
-      && (!p.validTo || input.checkIn <= p.validTo)
-      && (p.maxUses == null || p.usedCount < p.maxUses);
-    if (!valid) return fail("PROMO_INVALID");
-    promo = { code: p.code, kind: p.kind, value: p.value };
-  }
-
-  // 5. Add-ons and quote.
-  const slugs = input.addons.map((a) => a.slug);
-  const addonRows = slugs.length
-    ? await db.select().from(addonsTable)
-      .where(and(eq(addonsTable.propertyId, property.id), eq(addonsTable.active, true), inArray(addonsTable.slug, slugs)))
-    : [];
-  const addonLines: AddonLine[] = [];
-  for (const a of input.addons) {
-    const row = addonRows.find((r) => r.slug === a.slug);
-    if (!row) return fail("INVALID_INPUT", `ADDON_NOT_FOUND:${a.slug}`);
-    addonLines.push({ addonId: row.id, unit: row.unit, unitPrice: row.price, qty: a.qty });
-  }
-  const q = quote({
-    offer, nights: stay.nights.length, adults: input.adults, rooms: input.rooms, addons: addonLines, promo,
-    paymentMode: offer.ratePlan.paymentMode, depositPct: offer.ratePlan.depositPct,
-  });
+  // 3–5. Re-price from current availability, promo code and add-ons (shared with the quote API).
+  const price = await priceStay(db, input, now);
+  if (!price.ok) return price.error === "NOT_AVAILABLE" ? replayOr(deps, input.idempotencyKey, input.locale, "NOT_AVAILABLE") : price;
+  const { propertyId, nights, offer, promo, quote: q } = price.priced;
 
   // 6 + 7. Hold inventory and persist everything in ONE batch, so nobody can see the hold without
   // the reservation (and its idempotency key) or vice versa.
-  const hold: HoldItem[] = [{ unitTypeId: offer.unitTypeId, ratePlanId: offer.ratePlanId, nights: stay.nights, rooms: input.rooms }];
+  const hold: HoldItem[] = [{ unitTypeId: offer.unitTypeId, ratePlanId: offer.ratePlanId, nights, rooms: input.rooms }];
   const holdStmts = await holdStatements(db, hold);
   if (!holdStmts) return replayOr(deps, input.idempotencyKey, input.locale, "SOLD_OUT");
   const code = newReservationCode();
@@ -134,9 +82,9 @@ export async function createReservation(deps: Deps, raw: CreateInput, now: Date)
   try {
     await runAtomic(db, [
       ...holdStmts,
-      db.insert(guests).values({ id: guestId, propertyId: property.id, ...input.guest, locale: input.locale, createdAt: at }),
+      db.insert(guests).values({ id: guestId, propertyId, ...input.guest, locale: input.locale, createdAt: at }),
       db.insert(reservations).values({
-        id: reservationId, propertyId: property.id, code, guestId, status: "pending_payment", channel: "direct",
+        id: reservationId, propertyId, code, guestId, status: "pending_payment", channel: "direct",
         checkIn: input.checkIn, checkOut: input.checkOut, adults: input.adults, children: input.children,
         locale: input.locale, quote: q, totalAmount: q.total, promoCode: promo?.code ?? null,
         syncState: "not_required", holdExpiresAt: at + HOLD_MINUTES * 60_000, idempotencyKey: input.idempotencyKey,

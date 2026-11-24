@@ -1,0 +1,107 @@
+import { and, desc, eq, sql } from "drizzle-orm";
+import { createReservation, type CreateError, type CreateInput } from "@/lib/booking/create";
+import { cancelReservation, findReservation } from "@/lib/booking/manage";
+import type { Deps } from "@/lib/booking/notify";
+import { handlePaymentNotice } from "@/lib/booking/payment-notice";
+import { PriceInput, priceStay } from "@/lib/booking/pricing";
+import { payments, reservations } from "@/lib/db/schema";
+import type { Db } from "@/lib/db/types";
+import { checkRate, clientIp, RATE, tooManyRequests } from "./rate-limit";
+
+/**
+ * Booking API handlers. Each takes its dependencies, the Request and the time, and returns a
+ * Response, so it can be tested without the Workers runtime; app/api/**\/route.ts only adapts.
+ */
+
+const MAX_BODY = 20_000;
+const json = (status: number, body: unknown) =>
+  Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+
+async function readJson(req: Request): Promise<unknown> {
+  if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY) return null;
+  const text = await req.text().catch(() => "");
+  if (text.length > MAX_BODY) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+const CREATE_STATUS: Record<CreateError, number> = {
+  INVALID_INPUT: 400,
+  PROMO_INVALID: 400,
+  NOT_AVAILABLE: 409,
+  SOLD_OUT: 409,
+  PRICE_CHANGED: 409,
+};
+
+/** POST /api/bookings → 200 `{ code, start }`; the client follows `start` to the payment page. */
+export async function handleCreateBooking(deps: Deps, req: Request, now: Date): Promise<Response> {
+  if (!(await checkRate(deps.db, `create:${clientIp(req)}`, RATE.create, 60, now))) return tooManyRequests();
+  const body = await readJson(req);
+  if (!body || typeof body !== "object") return json(400, { error: "INVALID_INPUT" });
+  const r = await createReservation(deps, body as CreateInput, now); // validated inside
+  if (!r.ok) return json(CREATE_STATUS[r.error], { error: r.error, ...(r.detail ? { detail: r.detail } : {}) });
+  return json(200, { code: r.code, start: r.start });
+}
+
+/**
+ * GET /api/bookings/[code]/status?email= → the guest's view of the booking, plus whether the latest
+ * payment attempt failed (the booking then stays payable until its hold lapses).
+ */
+export async function handleBookingStatus(db: Db, code: string, req: Request, now: Date): Promise<Response> {
+  if (!(await checkRate(db, `lookup:${clientIp(req)}`, RATE.lookup, 60, now))) return tooManyRequests();
+  const email = new URL(req.url).searchParams.get("email") ?? "";
+  const view = email ? await findReservation(db, code, email, now) : null;
+  if (!view) return json(404, { error: "NOT_FOUND" });
+  let lastPaymentFailed = false;
+  if (view.status === "pending_payment") {
+    const [last] = await db.select({ status: payments.status }).from(payments)
+      .innerJoin(reservations, eq(reservations.id, payments.reservationId))
+      .where(and(eq(reservations.code, view.code), eq(payments.kind, "charge")))
+      .orderBy(desc(payments.createdAt), desc(sql`payments.rowid`)) // rowid: insertion order within one ms
+      .limit(1);
+    lastPaymentFailed = last?.status === "failed";
+  }
+  return json(200, { ...view, lastPaymentFailed });
+}
+
+/** POST /api/bookings/[code]/cancel `{ email }`. */
+export async function handleCancelBooking(deps: Deps, code: string, req: Request, now: Date): Promise<Response> {
+  if (!(await checkRate(deps.db, `cancel:${clientIp(req)}`, RATE.cancel, 60, now))) return tooManyRequests();
+  const body = (await readJson(req)) as { email?: unknown } | null;
+  const email = typeof body?.email === "string" ? body.email : "";
+  if (!email) return json(404, { error: "NOT_FOUND" });
+  const r = await cancelReservation(deps, code, email, now);
+  if (r.ok) return json(200, { refunded: r.refunded, alreadyCancelled: r.alreadyCancelled });
+  const status = r.error === "NOT_FOUND" ? 404 : r.error === "NOT_CANCELLABLE" ? 409 : 502;
+  return json(status, { error: r.error });
+}
+
+/** POST /api/payments/notify: the payment provider's server-to-server notice. */
+export async function handleNotify(deps: Deps, req: Request, now: Date): Promise<Response> {
+  const body = await req.text();
+  const headers: Record<string, string> = {};
+  req.headers.forEach((v, k) => (headers[k] = v));
+  const r = await handlePaymentNotice(deps, { headers, body }, now);
+  return new Response(r.status === 200 ? "OK" : "BAD_REQUEST", { status: r.status, headers: { "Cache-Control": "no-store" } });
+}
+
+/**
+ * POST /api/quote: the price the details page shows, computed exactly as createReservation will.
+ * An invalid promo code is not an error here: the undiscounted quote comes back with `promo: "invalid"`.
+ */
+export async function handleQuote(db: Db, req: Request, now: Date): Promise<Response> {
+  const parsed = PriceInput.safeParse(await readJson(req));
+  if (!parsed.success) return json(400, { error: "INVALID_INPUT" });
+  const input = parsed.data;
+  let r = await priceStay(db, input, now);
+  let promo: "none" | "applied" | "invalid" = input.promoCode?.trim() ? "applied" : "none";
+  if (!r.ok && r.error === "PROMO_INVALID") {
+    promo = "invalid";
+    r = await priceStay(db, { ...input, promoCode: undefined }, now);
+  }
+  if (!r.ok) return json(r.error === "NOT_AVAILABLE" ? 409 : 400, { error: r.error });
+  return json(200, { quote: r.priced.quote, promo });
+}

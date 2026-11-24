@@ -320,3 +320,11 @@ export const members = sqliteTable("members", {
   tier: text("tier").notNull(),
   points: integer("points").notNull().default(0),
 });
+
+/** Fixed-window request counters (lib/api/rate-limit.ts). One row per key, e.g. `create:<ip>`. */
+export const rateLimits = sqliteTable("rate_limits", {
+  key: text("key").primaryKey(),
+  /** Epoch ms at which the current window started. */
+  windowStart: integer("window_start").notNull(),
+  count: integer("count").notNull(),
+});

@@ -2,18 +2,18 @@ import { eq } from "drizzle-orm";
 import { properties, ratePlans, unitTypes, type I18n } from "./schema";
 import type { Db } from "./types";
 
-/** zh-TW + en from the current site; ja/ko fall back to English until translated (Plan 2). */
-const t = (zh: string, en: string): I18n => ({ "zh-TW": zh, en, ja: en, ko: en });
+/** zh-TW + en from the current site; ja/ko are machine translations (messages/_review.md). */
+const t = (zh: string, en: string, ja = en, ko = en): I18n => ({ "zh-TW": zh, en, ja, ko });
 
-const ROOMS: [slug: string, zh: string, en: string, maxOccupancy: number][] = [
-  ["mixed-cube", "男.女混合雙人旅艙", "MIXED CUBE", 2],
-  ["female-cube", "女性雙人旅艙", "FEMALE CUBE", 2],
-  ["buddy-room", "旅伴四人客房", "BUDDY ROOM", 4],
-  ["buddy-room-six", "六人行客房", "BUDDY ROOM FOR SIX", 6],
-  ["mini-room", "迷你雙人套房", "MINI ROOM", 2],
-  ["classic-room", "經典雙人套房", "CLASSIC ROOM", 2],
-  ["deluxe-room", "景緻雙人套房", "DELUXE ROOM", 2],
-  ["connecting-room", "行政四人套房（連通房）", "CONNECTING ROOM", 4],
+const ROOMS: [slug: string, name: I18n, maxOccupancy: number][] = [
+  ["mixed-cube", t("男.女混合雙人旅艙", "MIXED CUBE", "男女共用ダブルカプセル", "남녀 공용 2인 캡슐"), 2],
+  ["female-cube", t("女性雙人旅艙", "FEMALE CUBE", "女性専用ダブルカプセル", "여성 전용 2인 캡슐"), 2],
+  ["buddy-room", t("旅伴四人客房", "BUDDY ROOM", "バディルーム（4名）", "버디 룸 (4인)"), 4],
+  ["buddy-room-six", t("六人行客房", "BUDDY ROOM FOR SIX", "バディルーム（6名）", "버디 룸 (6인)"), 6],
+  ["mini-room", t("迷你雙人套房", "MINI ROOM", "ミニダブルルーム", "미니 더블룸"), 2],
+  ["classic-room", t("經典雙人套房", "CLASSIC ROOM", "クラシックダブルルーム", "클래식 더블룸"), 2],
+  ["deluxe-room", t("景緻雙人套房", "DELUXE ROOM", "デラックスダブルルーム", "디럭스 더블룸"), 2],
+  ["connecting-room", t("行政四人套房（連通房）", "CONNECTING ROOM", "コネクティングルーム（4名）", "커넥팅 룸 (4인)"), 4],
 ];
 
 export async function seedNk(db: Db): Promise<{ propertyId: string }> {
@@ -25,7 +25,7 @@ export async function seedNk(db: Db): Promise<{ propertyId: string }> {
     id: propertyId,
     slug: "nk-hostel",
     type: "hotel",
-    name: t("小公館人文旅舍", "NK Hostel"),
+    name: t("小公館人文旅舍", "NK Hostel"), // brand: identical in ja/ko on purpose
     timezone: "Asia/Taipei",
     currency: "TWD",
     address: t(
@@ -38,11 +38,11 @@ export async function seedNk(db: Db): Promise<{ propertyId: string }> {
   });
 
   await db.insert(unitTypes).values(
-    ROOMS.map(([slug, zh, en, occ], i) => ({
+    ROOMS.map(([slug, name, occ], i) => ({
       id: crypto.randomUUID(),
       propertyId,
       slug,
-      name: t(zh, en),
+      name,
       description: t("", ""),
       maxAdults: occ,
       maxOccupancy: occ,
@@ -56,7 +56,7 @@ export async function seedNk(db: Db): Promise<{ propertyId: string }> {
     id: crypto.randomUUID(),
     propertyId,
     slug: "direct-flex",
-    name: t("官網專屬・彈性取消", "Direct Exclusive · Flexible"),
+    name: t("官網專屬・彈性取消", "Direct Exclusive · Flexible", "公式サイト限定・フレキシブルプラン", "공식 홈페이지 전용 · 유연한 취소"),
     directOnly: true,
     paymentMode: "full",
     depositPct: 0,

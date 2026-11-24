@@ -5,7 +5,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { addDaysIso, bookingSearchPath, defaultStay, nightsBetween, type BookingSearch } from "@/lib/booking-search";
 
-const LIMITS = { adults: [1, 12], children: [0, 8], rooms: [1, 6] } as const;
+const LIMITS = { adults: [1, 12], children: [0, 6], rooms: [1, 6] } as const;
 type Counter = keyof typeof LIMITS;
 
 /** Date range, adults, children and rooms; submits to /{locale}/book?checkIn=&checkOut=&adults=&children=&rooms= */

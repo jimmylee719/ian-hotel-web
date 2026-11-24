@@ -35,3 +35,27 @@ describe("GET /api/availability", () => {
     expect(body.offers[0]).toMatchObject({ unitType: { slug: "mixed-cube" }, ratePlan: { slug: "direct-flex" }, roomSubtotal: 2000 });
   });
 });
+
+describe("children and occupancy", () => {
+  const slugs = async (qs: string) => {
+    const res = await handleAvailability(await setup(), url(`property=nk-hostel&checkIn=2026-12-01&checkOut=2026-12-02&${qs}`), "2026-11-24");
+    expect(res.status).toBe(200);
+    return new Set(((await res.json()) as { offers: { unitType: { slug: string } }[] }).offers.map((o) => o.unitType.slug));
+  };
+
+  test("children default to 0", async () => {
+    expect((await slugs("adults=2")).has("mixed-cube")).toBe(true);
+  });
+
+  test("adults + children per room must fit the room's max occupancy", async () => {
+    const s = await slugs("adults=2&children=1");
+    expect(s.has("mixed-cube")).toBe(false); // sleeps 2
+    expect(s.has("buddy-room")).toBe(true); // sleeps 4
+    expect((await slugs("adults=2&children=2&rooms=2")).has("mixed-cube")).toBe(true);
+  });
+
+  test("a negative children count is a 400", async () => {
+    const res = await handleAvailability(await setup(), url("property=nk-hostel&checkIn=2026-12-01&checkOut=2026-12-02&adults=2&children=-1"), "2026-11-24");
+    expect(res.status).toBe(400);
+  });
+});

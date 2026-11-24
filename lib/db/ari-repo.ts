@@ -4,7 +4,12 @@ import { parseStay, todayInTaipei, type ISODate } from "@/lib/domain/dates";
 import { ariDaily, inventoryDaily, ratePlans, unitTypes } from "./schema";
 import type { Db } from "./types";
 
-export type SearchQuery = { propertyId: string; checkIn: string; checkOut: string; adults: number; rooms?: number; today?: ISODate };
+export type SearchQuery = {
+  propertyId: string; checkIn: string; checkOut: string; adults: number;
+  /** Children count toward occupancy like adults. Default 0. */
+  children?: number;
+  rooms?: number; today?: ISODate;
+};
 export type RichOffer = Offer & { unitType: typeof unitTypes.$inferSelect; ratePlan: typeof ratePlans.$inferSelect };
 export type SearchResult = { ok: true; offers: RichOffer[] } | { ok: false; error: string };
 
@@ -13,7 +18,8 @@ export async function searchAvailability(db: Db, q: SearchQuery): Promise<Search
   if (!stay.ok) return stay;
   if (q.checkIn < (q.today ?? todayInTaipei())) return { ok: false, error: "CHECKIN_IN_PAST" };
   const rooms = q.rooms ?? 1;
-  const perRoom = Math.ceil(q.adults / rooms);
+  // Guests per room (adults + children), spread as evenly as possible: the fullest room must fit.
+  const perRoom = Math.ceil((q.adults + (q.children ?? 0)) / rooms);
   const dates = [...stay.nights, q.checkOut];
 
   const [types, plans, rates, inventory] = await Promise.all([
