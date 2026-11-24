@@ -11,13 +11,20 @@ test("the worker entry is worker.ts and it runs every 5 minutes", () => {
 });
 
 test("local/preview vars use the mock payment and channel modes", () => {
-  expect(cfg.vars).toMatchObject({ PAYMENT_MODE: "mock", CHANNEL_MODE: "mock" });
+  expect(cfg.vars).toMatchObject({ PAYMENT_MODE: "mock", CHANNEL_MODE: "mock", ENVIRONMENT: "local" });
+});
+
+test("neither env is published on workers.dev", () => {
+  expect(cfg.workers_dev).toBe(false);
+  expect(cfg.env.production.workers_dev).toBe(false);
 });
 
 test("production is a separate env that never sets PAYMENT_MODE=mock (/dev/pay would mark bookings paid)", () => {
   const prod = cfg.env.production;
   expect(prod).toBeTruthy();
-  expect(prod.vars ?? {}).not.toHaveProperty("PAYMENT_MODE");
+  expect(prod.vars.ENVIRONMENT).toBe("production");
+  expect(prod.vars).not.toHaveProperty("PAYMENT_MODE");
+  expect(prod.vars).not.toHaveProperty("CHANNEL_MODE");
   expect(JSON.stringify(prod.vars ?? {})).not.toContain("mock");
   // Wrangler does not inherit bindings or triggers into an env, so each must be repeated.
   expect(prod.main ?? cfg.main).toBe("worker.ts");

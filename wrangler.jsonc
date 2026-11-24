@@ -1,4 +1,10 @@
 {
+  // The top level is the local / preview environment. It sets the mock payment and channel modes, so:
+  //  - workers_dev is false: a stray bare `wrangler deploy` must not publish a mock-pay Worker on workers.dev;
+  //  - ENVIRONMENT is "local": getDeps accepts the mock modes only then (lib/runtime/deps.ts), so even a
+  //    deployed copy of this env cannot take bookings anywhere but a local dev server.
+  // Production is env.production: no PAYMENT_MODE / CHANNEL_MODE (booking stays off until Plans 4 and 5),
+  // ENVIRONMENT "production" (mock modes refused, /dev/pay 404s), served on a custom domain, not workers.dev.
   "$schema": "node_modules/wrangler/config-schema.json",
   "main": "worker.ts",
   "name": "nk-booking",
@@ -7,7 +13,8 @@
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "nk-booking" }],
   "triggers": { "crons": ["*/5 * * * *"] },
-  "vars": { "PAYMENT_MODE": "mock", "CHANNEL_MODE": "mock" },
+  "workers_dev": false,
+  "vars": { "ENVIRONMENT": "local", "PAYMENT_MODE": "mock", "CHANNEL_MODE": "mock" },
   "d1_databases": [
     {
       "binding": "DB",
@@ -24,7 +31,8 @@
       "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
       "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "nk-booking-production" }],
       "triggers": { "crons": ["*/5 * * * *"] },
-      "vars": {},
+      "workers_dev": false,
+      "vars": { "ENVIRONMENT": "production" },
       "d1_databases": [
         {
           "binding": "DB",

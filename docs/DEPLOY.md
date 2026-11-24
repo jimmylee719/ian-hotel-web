@@ -5,15 +5,24 @@
 | | default env (`nk-booking`) | `env.production` (`nk-booking-production`) |
 |---|---|---|
 | Used for | `wrangler dev`, `npm run preview`, a private staging Worker | the public site |
+| `ENVIRONMENT` | `local` | `production` |
 | `PAYMENT_MODE` | `mock` | **unset** |
-| `CHANNEL_MODE` | `mock` | unset (defaults to mock until SiteMinder, Plan 4) |
+| `CHANNEL_MODE` | `mock` | **unset** |
+| `workers_dev` | `false` | `false` (use a custom domain) |
 | D1 `database_id` | `local` (local only) | `REPLACE_WITH_PRODUCTION_D1_ID` in `wrangler.jsonc` |
 
 - **Never deploy `PAYMENT_MODE=mock` to a public host.** `/dev/pay` would let anyone mark a booking as
   paid. `npm run deploy` always targets `--env production`, so it never ships the mock vars.
 - Wrangler does not inherit bindings, vars or triggers into an env, which is why `env.production`
   repeats them. `wrangler dev --env production` warns that top-level vars are not inherited; that is intended.
-- While `PAYMENT_MODE` is unset, production fails closed: `/api/bookings`, `/api/payments/notify` and
+- Online booking is on only when **both** `PAYMENT_MODE` and `CHANNEL_MODE` are set, and a `mock` value is
+  accepted only when `ENVIRONMENT=local`. Anything else (`PAYMENT_MODE_NOT_SET`, `CHANNEL_MODE_NOT_SET`,
+  `MOCK_MODE_IN_PRODUCTION`) makes `getDeps` throw and the routes answer 503. `/dev/pay` also 404s whenever
+  `ENVIRONMENT=production`. The default env has `workers_dev: false` and `ENVIRONMENT=local`, so a stray bare
+  `wrangler deploy` neither gets a public workers.dev URL nor can take bookings.
+- The cron never fails as a whole on config: if payments or the channel are missing or broken it logs a
+  warning and skips only the sync retry; hold expiry, pre-arrival emails and pruning still run.
+- While booking is off, production fails closed: `/api/bookings`, `/api/payments/notify` and
   cancel answer `503 BOOKING_DISABLED`, and `/book` and `/book/details` show an "online booking is coming
   soon, please contact us" notice in all four languages. Content pages, `/api/inquiry` (group inquiry
   email) and the cron worker keep running. To open booking, Plan 5 sets `PAYMENT_MODE=sinopac` in
@@ -35,7 +44,7 @@ by the build; each step is yours to run.
    **`BASE_URL`** (for example `https://www.nkhostel.com`) is also required: the cron worker has no
    request to take the site's address from, and the pre-arrival email's "manage booking" link uses it.
    Set it as a var in `env.production.vars` or as a secret. `.dev.vars.example` lists the local equivalents.
-   Do **not** set `PAYMENT_MODE` yet.
+   Do **not** set `PAYMENT_MODE` or `CHANNEL_MODE` yet.
 4. **Migrations.** `npx wrangler d1 migrations apply nk-booking --remote --env production`.
    - Verified: all 9 migrations apply on a fresh local D1 (`wrangler d1 migrations apply nk-booking --local --persist-to <empty dir>`)
      and on better-sqlite3 with `foreign_keys` both ON and OFF. That includes 0004, which adds
@@ -93,7 +102,7 @@ older than a day. Each job runs on its own, so one failing does not stop the oth
 - [ ] `npm run deploy` runs `scripts/fetch-fonts.ts` itself before the build (as does `npm run preview`),
   so the machine running it needs internet access.
 - [ ] `BASE_URL` is set for `env.production` (cron emails link to it).
-- [ ] Confirm production has no `PAYMENT_MODE` (`npx wrangler secret list --env production` and
+- [ ] Confirm production has no `PAYMENT_MODE`/`CHANNEL_MODE`, and `ENVIRONMENT=production` (`npx wrangler secret list --env production` and
   `vars` in `wrangler.jsonc`) until SinoPac is configured; `/dev/pay/x` must answer 404 and
   `POST /api/bookings` must answer 503.
 - [ ] Resend: verify the sending domain (SPF, DKIM) for `EMAIL_FROM`, then send a test inquiry.

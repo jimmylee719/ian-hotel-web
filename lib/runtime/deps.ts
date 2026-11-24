@@ -12,20 +12,32 @@ import type { PaymentGateway } from "@/lib/payments/types";
 import { appEnv, type AppEnv } from "./env";
 
 /**
- * Thrown when online booking is switched off because PAYMENT_MODE is not set (production before
- * SinoPac is configured). Routes turn it into a 503; pages show the "booking coming soon" notice.
- * The message stays "PAYMENT_MODE_NOT_SET" so logs say why.
+ * Thrown when online booking is switched off: PAYMENT_MODE or CHANNEL_MODE is unset (production before
+ * SinoPac / SiteMinder are configured), or a mock mode is set outside ENVIRONMENT=local. Routes turn
+ * it into a 503; pages show the "booking coming soon" notice. The message is the reason code, so logs say why.
  */
 export class BookingDisabledError extends Error {
-  constructor() {
-    super("PAYMENT_MODE_NOT_SET");
+  constructor(readonly reason: string = "PAYMENT_MODE_NOT_SET") {
+    super(reason);
     this.name = "BookingDisabledError";
   }
 }
 
-/** Is online booking on? False while PAYMENT_MODE is unset (fail closed). */
+/**
+ * Why online booking must stay off, or null if it may run. Fails closed: both modes must be set, and
+ * the mock modes are accepted only when ENVIRONMENT === "local" (wrangler.jsonc sets it for the default
+ * env; env.production sets "production"), so mock payments can never serve a public host.
+ */
+export function bookingDisabledReason(env: AppEnv): string | null {
+  if (!env.PAYMENT_MODE) return "PAYMENT_MODE_NOT_SET";
+  if (!env.CHANNEL_MODE) return "CHANNEL_MODE_NOT_SET";
+  if ((env.PAYMENT_MODE === "mock" || env.CHANNEL_MODE === "mock") && env.ENVIRONMENT !== "local") return "MOCK_MODE_IN_PRODUCTION";
+  return null;
+}
+
+/** Is online booking on? */
 export function paymentsConfigured(env: AppEnv): boolean {
-  return !!env.PAYMENT_MODE;
+  return bookingDisabledReason(env) === null;
 }
 
 export async function bookingEnabled(): Promise<boolean> {
@@ -58,21 +70,36 @@ export async function getDeps(origin: string): Promise<Deps> {
 }
 
 export function buildDeps(env: AppEnv, db: Db, origin: string): Deps {
+  const reason = bookingDisabledReason(env);
+  if (reason) throw new BookingDisabledError(reason);
   const core = buildCoreDeps(env, db, origin);
   return { ...core, gateway: paymentGateway(env, core.baseUrl), channel: channelManager(env) };
 }
 
+export type ScheduledDeps = Deps & { syncSkipReason: string | null };
+
 /**
- * Deps for the cron worker. Hold expiry and pre-arrival emails need no gateway, so they keep running
- * while payments are not configured; the gateway then refuses any use.
+ * Deps for the cron worker. Never throws: the email deps always build, and a missing or broken payment
+ * or channel config only switches the channel-dependent job (sync retry) off, so hold expiry,
+ * pre-arrival emails and pruning keep running. `syncSkipReason` says why sync is off, else null.
  */
-export function buildScheduledDeps(env: AppEnv, db: Db): Deps {
+export function buildScheduledDeps(env: AppEnv, db: Db): ScheduledDeps {
   const core = buildCoreDeps(env, db, "http://localhost:8787");
-  return {
-    ...core,
-    gateway: paymentsConfigured(env) ? paymentGateway(env, core.baseUrl) : disabledGateway,
-    channel: channelManager(env),
-  };
+  let syncSkipReason = bookingDisabledReason(env);
+  let gateway = disabledGateway;
+  let channel = disabledChannel;
+  if (!syncSkipReason) {
+    try {
+      gateway = paymentGateway(env, core.baseUrl);
+      channel = channelManager(env);
+    } catch (e) {
+      console.error("scheduled: payment/channel config failed; sync retry is off", e);
+      gateway = disabledGateway;
+      channel = disabledChannel;
+      syncSkipReason = e instanceof Error ? e.message : String(e);
+    }
+  }
+  return { ...core, gateway, channel, syncSkipReason };
 }
 
 const disabledGateway: PaymentGateway = {
@@ -81,6 +108,12 @@ const disabledGateway: PaymentGateway = {
   async startCharge() { throw new BookingDisabledError(); },
   async verifyNotice() { throw new BookingDisabledError(); },
   async refund() { throw new BookingDisabledError(); },
+};
+
+const disabledChannel: ChannelManager = {
+  async pushReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
+  async modifyReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
+  async cancelReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
 };
 
 function paymentGateway(env: AppEnv, baseUrl: string): PaymentGateway {
@@ -98,7 +131,10 @@ function paymentGateway(env: AppEnv, baseUrl: string): PaymentGateway {
 }
 
 function channelManager(env: AppEnv): ChannelManager {
-  switch (env.CHANNEL_MODE ?? "mock") {
+  switch (env.CHANNEL_MODE) {
+    case undefined:
+    case "":
+      throw new BookingDisabledError("CHANNEL_MODE_NOT_SET");
     case "mock":
       return new MockChannelManager();
     case "siteminder":

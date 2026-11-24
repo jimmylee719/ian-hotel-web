@@ -5,6 +5,8 @@ import { MockChannelManager } from "@/lib/channel/mock";
 import { notifications, rateLimits } from "@/lib/db/schema";
 import { runExpireHolds } from "@/lib/jobs/expire-holds";
 import { pruneRateLimits } from "@/lib/jobs/rate-limits";
+import { buildScheduledDeps } from "@/lib/runtime/deps";
+import { runCron } from "@/lib/jobs/cron";
 import { runScheduled } from "@/lib/jobs/scheduled";
 import { bookingSetup, NOW, STAFF } from "@/tests/helpers/booking";
 
@@ -70,4 +72,27 @@ test("the staff address is untouched by pre-arrival", async () => {
   const rows = await db.select().from(notifications).where(eq(notifications.kind, "pre_arrival"));
   expect(rows.map((r) => r.to)).toEqual(["mei@example.com"]);
   expect(rows[0].to).not.toBe(STAFF);
+});
+
+test("the cron with no channel configured still expires holds and sends pre-arrival, and skips the sync", async () => {
+  const { db, reservation, b } = await scenario();
+  const sched = buildScheduledDeps({ PAYMENT_MODE: "mock", ENVIRONMENT: "local" }, db);
+  expect(sched.syncSkipReason).toBe("CHANNEL_MODE_NOT_SET");
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  expect(await runScheduled(sched, RUN, { skipSyncReason: sched.syncSkipReason })).toEqual({ expired: 1, attempted: 0, preArrival: 1 });
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining("CHANNEL_MODE_NOT_SET"));
+  expect((await reservation(b)).status).toBe("paid_pending_confirm");
+  warn.mockRestore();
+});
+
+test("runCron survives a channel builder that throws: expiry and pre-arrival still run, sync is skipped", async () => {
+  const { db, reservation, b } = await scenario();
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  await runCron({ PAYMENT_MODE: "mock", CHANNEL_MODE: "bogus", ENVIRONMENT: "local" } as never, RUN, db);
+  expect(log).toHaveBeenCalledWith(expect.stringContaining("expired=1 attempted=0 preArrival=1"));
+  expect((await reservation(b)).status).toBe("paid_pending_confirm");
+  expect(error).toHaveBeenCalled();
+  log.mockRestore(); warn.mockRestore(); error.mockRestore();
 });

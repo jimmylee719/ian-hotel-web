@@ -12,7 +12,8 @@ import { runScheduled } from "./scheduled";
  */
 export async function runCron(env: AppEnv & { DB: D1Database }, now: Date, db?: Db): Promise<void> {
   const database = db ?? (drizzle(env.DB, { schema }) as unknown as Db);
-  const result = await runScheduled(buildScheduledDeps(env, database), now);
+  const deps = buildScheduledDeps(env, database);
+  const result = await runScheduled(deps, now, { skipSyncReason: deps.syncSkipReason });
   let pruned = 0;
   try {
     pruned = (await pruneRateLimits(database, now)).pruned;

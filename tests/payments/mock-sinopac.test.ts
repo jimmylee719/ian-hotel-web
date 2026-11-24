@@ -84,6 +84,8 @@ describe("mock pay page logic", () => {
     expect(isMockPaymentMode({ PAYMENT_MODE: "mock" })).toBe(true);
     expect(isMockPaymentMode({ PAYMENT_MODE: "sinopac" })).toBe(false);
     expect(isMockPaymentMode({})).toBe(false);
+    expect(isMockPaymentMode({ PAYMENT_MODE: "mock", ENVIRONMENT: "production" })).toBe(false); // /dev/pay 404s in production
+    expect(isMockPaymentMode({ PAYMENT_MODE: "mock", ENVIRONMENT: "local" })).toBe(true);
   });
 
   it("extracts the reservation code from a ref", () => {

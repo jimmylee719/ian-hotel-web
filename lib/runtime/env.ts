@@ -2,6 +2,8 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 /** Vars and secrets this app reads (wrangler `vars`, secrets, or `.dev.vars` locally). */
 export type AppEnv = {
+  /** "local" (default wrangler env) or "production". Mock modes are accepted only when "local". */
+  ENVIRONMENT?: string;
   PAYMENT_MODE?: string;
   CHANNEL_MODE?: string;
   MOCK_PAYMENT_SECRET?: string;

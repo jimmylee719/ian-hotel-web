@@ -1,5 +1,9 @@
 # Local secrets and vars for wrangler dev / `npm run preview` (copy to .dev.vars).
 
+# Where this runs. Mock payment/channel modes are accepted only when ENVIRONMENT=local (wrangler.jsonc
+# sets it for the default env; env.production sets "production", which refuses mocks and 404s /dev/pay).
+ENVIRONMENT=local
+
 # Payments: "mock" (dev pay page at /dev/pay, no money moves) or "sinopac" (Plan 5).
 # wrangler.jsonc already sets mock for local dev and preview. NEVER set mock on the public production
 # host: /dev/pay would let anyone mark bookings paid. Production leaves PAYMENT_MODE unset, which
@@ -7,7 +11,7 @@
 PAYMENT_MODE=mock
 # Signs mock payment notices; any string locally.
 MOCK_PAYMENT_SECRET=change-me
-# Channel manager: "mock" or "siteminder" (Plan 4). Defaults to mock.
+# Channel manager: "mock" or "siteminder" (Plan 4). Unset = booking is off (fails closed).
 CHANNEL_MODE=mock
 # Absolute site URL for payment return/notify URLs and email links. Unset = the request's origin.
 # BASE_URL=https://www.nkhostel.com
