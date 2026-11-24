@@ -87,6 +87,28 @@ test("cancelling on check-in day refunds nothing but still cancels and tells Sit
   expect(await avail10()).toBe(3);
 });
 
+test("after check-in day the booking cannot be cancelled: nothing is refunded, released or sent to SiteMinder", async () => {
+  const { db, deps, gateway, channel, code, reservation, avail10 } = await confirmedBooking();
+  const refund = vi.spyOn(gateway, "refund");
+  const cancel = vi.spyOn(channel, "cancelReservation");
+  const DAY_AFTER = new Date("2026-12-10T16:00:00Z"); // 2026-12-11 Taipei: night 2
+  const AFTER_CHECKOUT = new Date("2026-12-12T16:00:00Z"); // 2026-12-13 Taipei
+  expect(await avail10()).toBe(2);
+
+  for (const at of [DAY_AFTER, AFTER_CHECKOUT]) {
+    expect(await findReservation(db, code, GUEST, at)).toMatchObject({ status: "confirmed", canCancel: false, refundIfCancelledNow: 0 });
+    expect(await cancelReservation(deps, code, GUEST, at)).toEqual({ ok: false, error: "NOT_CANCELLABLE" });
+  }
+  const res = await reservation(code);
+  expect(res.status).toBe("confirmed");
+  expect(res.cancelledAt).toBeNull();
+  expect(refund).not.toHaveBeenCalled();
+  expect(cancel).not.toHaveBeenCalled();
+  expect(channel.pushed.map((p) => p.code)).toEqual([code]);
+  expect(await avail10()).toBe(2);
+  expect((await findReservation(db, code, GUEST, LATE))!.canCancel).toBe(true);
+});
+
 test("cancelling twice refunds once", async () => {
   const { deps, gateway, code, avail10 } = await confirmedBooking();
   const refund = vi.spyOn(gateway, "refund");

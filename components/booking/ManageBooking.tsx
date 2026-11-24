@@ -67,7 +67,7 @@ export function ManageBooking({ code, hotelPhone, hotelEmail }: { code: string; 
     } else if (json?.error === "NOT_CANCELLABLE") {
       // Another request is cancelling it, or it moved on: say where it stands rather than "error".
       if (now?.status === "cancelled") setNotice({ kind: "info", text: t("cancelledNoRefund") });
-      else if (now?.status === "confirmed") setNotice({ kind: "info", text: t("inProgress") });
+      else if (now?.status === "confirmed") setNotice({ kind: "info", text: now.canCancel ? t("inProgress") : t("pastCheckIn") });
       else if (now) setNotice({ kind: "info", text: t("notCancellable", { status: s(`status_${now.status}`) }) });
     } else if (json?.error === "REFUND_FAILED") setNotice({ kind: "error", text: t("refundFailed") });
     else if (res?.status === 429) setNotice({ kind: "error", text: s("rateLimited") });
@@ -121,7 +121,7 @@ export function ManageBooking({ code, hotelPhone, hotelEmail }: { code: string; 
               )}
             </>
           ) : (
-            <p>{view.status === "cancelled" ? s("cancelled") : t("onlineOnlyConfirmed")}</p>
+            <p>{view.status === "cancelled" ? s("cancelled") : view.status === "confirmed" ? t("pastCheckIn") : t("onlineOnlyConfirmed")}</p>
           )}
           <p className="muted small">{t("contact", { phone: hotelPhone, email: hotelEmail })}</p>
         </section>

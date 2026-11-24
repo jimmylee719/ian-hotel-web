@@ -356,6 +356,7 @@
     "notCancellable": "目前的狀態無法在線上取消：{status}。",
     "refundFailed": "退款沒能自動完成，訂房尚未取消。櫃台已收到通知，會盡快用 Email 與你聯絡。",
     "onlineOnlyConfirmed": "只有已確認的訂房可以在線上取消。",
+    "pastCheckIn": "入住日之後無法在線上取消，請聯絡櫃台。",
     "contact": "有問題請來電 {phone} 或寫信到 {email}。",
     "error": "暫時無法完成，請稍後再試。"
   }

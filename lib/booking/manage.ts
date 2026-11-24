@@ -3,6 +3,7 @@ import type { CancelResult } from "@/lib/channel/types";
 import { releaseInventory } from "@/lib/db/inventory-hold";
 import { payments, ratePlans, reservationRooms, reservations, unitTypes, type I18n } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
+import { todayInTaipei } from "@/lib/domain/dates";
 import { refundAmount } from "@/lib/domain/cancellation";
 import type { Quote } from "@/lib/domain/quote";
 import { holdItemsFor, MAX_SYNC_ATTEMPTS, refundOnce, SYNC_LEASE_MS, SYNC_RETRY_MS, type RefundOutcome } from "./confirm";
@@ -52,7 +53,7 @@ export async function findReservation(db: Db, code: string, email: string, now: 
     .innerJoin(ratePlans, eq(ratePlans.id, reservationRooms.ratePlanId))
     .where(eq(reservationRooms.reservationId, res.id));
   const room = rooms[0];
-  const canCancel = res.status === "confirmed";
+  const canCancel = res.status === "confirmed" && withinCancelWindow(res, now);
   return {
     code: res.code,
     status: res.status,
@@ -69,6 +70,15 @@ export async function findReservation(db: Db, code: string, email: string, now: 
     refundIfCancelledNow: canCancel ? await cancellationRefund(db, res, now) : 0,
     canCancel,
   };
+}
+
+/**
+ * Guests may cancel up to and including check-in day (Taipei). After that the stay has begun or ended:
+ * releasing its nights would let the room be resold while occupied, so the front desk handles it.
+ * A cancellation already claimed (in flight) is judged at its claim time, so it can still finish.
+ */
+function withinCancelWindow(res: Reservation, now: Date): boolean {
+  return todayInTaipei(new Date(res.cancelledAt ?? now.getTime())) <= res.checkIn;
 }
 
 /** The one refund row of a guest cancellation; every attempt at that cancellation converges on it. */
@@ -112,7 +122,7 @@ export async function cancelReservation(deps: Deps, code: string, email: string,
   const res = await lookup(db, code, email);
   if (!res) return { ok: false, error: "NOT_FOUND" };
   if (res.status === "cancelled") return { ok: true, refunded: res.refundedAmount, alreadyCancelled: true };
-  if (res.status !== "confirmed") return { ok: false, error: "NOT_CANCELLABLE" };
+  if (res.status !== "confirmed" || !withinCancelWindow(res, now)) return { ok: false, error: "NOT_CANCELLABLE" };
 
   const claim = await claimCancellation(db, res.id, now);
   if (!claim) return settledElsewhere(db, res.id);
