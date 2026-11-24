@@ -1,4 +1,5 @@
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const LOCALES = ["zh-TW", "en", "ja", "ko"] as const;
 export type Locale = (typeof LOCALES)[number];
@@ -93,6 +94,8 @@ export const ariDaily = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.unitTypeId, t.ratePlanId, t.date] }),
     index("ari_property_date").on(t.propertyId, t.date),
+    // Last line of defence against overselling: a hold that would go negative aborts its transaction.
+    check("ari_available_nonnegative", sql`${t.available} >= 0`),
   ],
 );
 
