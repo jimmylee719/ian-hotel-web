@@ -111,7 +111,7 @@ async function settle(deps: Deps, reservationId: string, charge: ChargeRow, now:
  * booking is filled by the first success). It is never stray, whatever the booking's status or
  * balance: what the hotel keeps after a cancellation is Task 6's business, not ours.
  */
-async function payingChargeId(db: Db, reservationId: string): Promise<string | undefined> {
+export async function payingChargeId(db: Db, reservationId: string): Promise<string | undefined> {
   const [first] = await db.select({ id: payments.id }).from(payments)
     .where(and(eq(payments.reservationId, reservationId), eq(payments.kind, "charge"), eq(payments.status, "succeeded")))
     .orderBy(asc(payments.createdAt), asc(payments.id))
