@@ -7,6 +7,7 @@ import type { Quote } from "@/lib/domain/quote";
 import { followChargeStart, rememberBooking, startBooking } from "./client";
 import { countryOptions, DIAL_CODES, LOCALE_COUNTRY } from "./countries";
 import { formatPrice } from "./format";
+import { idempotencyKeyFor, sessionStore } from "./idempotency";
 import { StayFolio } from "./StayFolio";
 
 export type Stay = {
@@ -48,8 +49,17 @@ export function BookingForm({ stay, addons, initialQuote, policyText }: { stay: 
   const [status, setStatus] = useState<{ kind: "idle" | "submitting" } | { kind: "error"; message: string }>({ kind: "idle" });
   const quoteSeq = useRef(0);
 
-  // One key per visit to this page: a double submit or a retry returns the same booking.
-  useEffect(() => setIdempotencyKey(crypto.randomUUID()), []);
+  // One key per stay selection, kept in sessionStorage: a double submit, or coming back from the
+  // payment page and submitting again, replays the same booking instead of holding a second one.
+  const addonSig = addons.filter((a) => selected[a.slug]).map((a) => a.slug).join(",");
+  useEffect(() => {
+    const list = addonSig ? addonSig.split(",").map((slug) => ({ slug, qty: 1 })) : [];
+    setIdempotencyKey(idempotencyKeyFor({
+      propertySlug: stay.propertySlug, unitTypeSlug: stay.unitTypeSlug, ratePlanSlug: stay.ratePlanSlug,
+      checkIn: stay.checkIn, checkOut: stay.checkOut, adults: stay.adults, children: stay.children, rooms: stay.rooms,
+      addons: list,
+    }, sessionStore(), () => crypto.randomUUID()));
+  }, [addonSig, stay.propertySlug, stay.unitTypeSlug, stay.ratePlanSlug, stay.checkIn, stay.checkOut, stay.adults, stay.children, stay.rooms]);
 
   const chosenAddons = addons.filter((a) => selected[a.slug]).map((a) => ({ slug: a.slug, qty: 1 }));
   const priceBody = (promoCode: string, list = chosenAddons) => ({

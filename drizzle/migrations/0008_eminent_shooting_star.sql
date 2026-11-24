@@ -1,0 +1,1 @@
+ALTER TABLE `reservations` ADD `last_charge_started_at` integer;

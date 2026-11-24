@@ -57,6 +57,13 @@
       "when": 1795543520019,
       "tag": "0007_sharp_azazel",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1795544698649,
+      "tag": "0008_eminent_shooting_star",
+      "breakpoints": true
     }
   ]
 }

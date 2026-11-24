@@ -5,7 +5,7 @@ import {
 } from "@/lib/api/bookings";
 import { promoCodes, reservations } from "@/lib/db/schema";
 import { addons } from "@/lib/db/schema";
-import { bookingInput, bookingSetup, NOW, PAY_NOW } from "@/tests/helpers/booking";
+import { bookingInput, bookingSetup, minutes, NOW, PAY_NOW } from "@/tests/helpers/booking";
 
 const post = (path: string, body: unknown, ip = "1.1.1.1") =>
   new Request(`https://hotel.test${path}`, {
@@ -70,7 +70,7 @@ describe("GET /api/bookings/[code]/status", () => {
     const res = await handleBookingStatus(deps.db, code, get(`/api/bookings/${code}/status?email=MEI@example.com`), NOW);
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toMatchObject({ code, status: "pending_payment", adults: 2, children: 0, rooms: 1, lastPaymentFailed: false });
+    expect(await res.json()).toMatchObject({ code, status: "pending_payment", adults: 2, children: 0, rooms: 1, paymentState: "pending" });
   });
 
   test("a failed payment attempt is reported while the booking is still payable", async () => {
@@ -78,17 +78,57 @@ describe("GET /api/bookings/[code]/status", () => {
     const code = await book();
     await handleNotify(deps, notifyReq(await gateway.signedNotice({
       reservationCode: code, providerRef: `REF-FAIL-${code}`, amount: PAY_NOW, status: "failed",
-    })), NOW);
-    const res = await handleBookingStatus(deps.db, code, get(`/api/bookings/${code}/status?email=mei@example.com`), NOW);
-    expect(await res.json()).toMatchObject({ status: "pending_payment", lastPaymentFailed: true });
+    })), minutes(1));
+    const res = await handleBookingStatus(deps.db, code, get(`/api/bookings/${code}/status?email=mei@example.com`), minutes(1));
+    expect(await res.json()).toMatchObject({ status: "pending_payment", paymentState: "failed" });
   });
 
-  test("the 11th lookup from one IP within a minute is a 429", async () => {
+  test("after a failure, a restarted payment is pending until its own result arrives", async () => {
+    const { deps, book, gateway, notice } = await bookingSetup();
+    const code = await book();
+    const status = async (at: Date) =>
+      (await (await handleBookingStatus(deps.db, code, get(`/api/bookings/${code}/status?email=mei@example.com`), at)).json()) as { paymentState: string; status: string };
+    await handleNotify(deps, notifyReq(await gateway.signedNotice({
+      reservationCode: code, providerRef: "REF-FAIL-1", amount: PAY_NOW, status: "failed",
+    })), minutes(1));
+    expect((await status(minutes(1))).paymentState).toBe("failed");
+
+    // Retry: the same idempotency key restarts the charge.
+    const retry = await handleCreateBooking(deps, post("/api/bookings", bookingInput()), minutes(2));
+    expect(retry.status).toBe(200);
+    expect((await status(minutes(2))).paymentState).toBe("pending");
+
+    // The retry fails too: failed again.
+    await handleNotify(deps, notifyReq(await gateway.signedNotice({
+      reservationCode: code, providerRef: "REF-FAIL-2", amount: PAY_NOW, status: "failed",
+    })), minutes(3));
+    expect((await status(minutes(3))).paymentState).toBe("failed");
+
+    // Another retry, which succeeds.
+    await handleCreateBooking(deps, post("/api/bookings", bookingInput()), minutes(4));
+    await handleNotify(deps, notifyReq(await notice(code)), minutes(5));
+    expect(await status(minutes(5))).toMatchObject({ paymentState: "succeeded", status: "confirmed" });
+  });
+
+  test("30 successful polls of one booking within a minute are not limited", async () => {
+    const { deps, book } = await bookingSetup();
+    const code = await book();
+    for (let i = 0; i < 30; i++)
+      expect((await handleBookingStatus(deps.db, code, get(`/api/bookings/${code}/status?email=mei@example.com`), NOW)).status).toBe(200);
+  });
+
+  test("the 11th failed lookup from one IP within a minute is a 429, and blocks that IP's lookups", async () => {
     const { deps, book } = await bookingSetup();
     const code = await book();
     for (let i = 0; i < 10; i++)
-      expect((await handleBookingStatus(deps.db, code, get(`/api/bookings/${code}/status?email=mei@example.com`), NOW)).status).toBe(200);
+      expect((await handleBookingStatus(deps.db, code, get(`/api/bookings/${code}/status?email=guess${i}@example.com`), NOW)).status).toBe(404);
+    const blocked = await handleBookingStatus(deps.db, code, get(`/api/bookings/${code}/status?email=guess10@example.com`), NOW);
+    expect(blocked.status).toBe(429);
+    expect(Number(blocked.headers.get("Retry-After"))).toBeGreaterThan(0);
+    // Even a right guess from that IP is refused until the window ends; other IPs are unaffected.
     expect((await handleBookingStatus(deps.db, code, get(`/api/bookings/${code}/status?email=mei@example.com`), NOW)).status).toBe(429);
+    expect((await handleBookingStatus(deps.db, code, get(`/api/bookings/${code}/status?email=mei@example.com`, "9.9.9.9"), NOW)).status).toBe(200);
+    expect((await handleBookingStatus(deps.db, code, get(`/api/bookings/${code}/status?email=mei@example.com`), minutes(1))).status).toBe(200);
   });
 });
 
@@ -184,6 +224,13 @@ describe("POST /api/quote", () => {
     const res = await handleQuote(deps.db, post("/api/quote", quoteBody({ promoCode: "NOPE" })), NOW);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ promo: "invalid", quote: { discount: 0, total: 4000 } });
+  });
+
+  test("the 31st quote from one IP within a minute is a 429", async () => {
+    const { deps } = await bookingSetup();
+    for (let i = 0; i < 30; i++) expect((await handleQuote(deps.db, post("/api/quote", quoteBody()), NOW)).status).toBe(200);
+    expect((await handleQuote(deps.db, post("/api/quote", quoteBody()), NOW)).status).toBe(429);
+    expect((await handleQuote(deps.db, post("/api/quote", quoteBody(), "2.2.2.2"), NOW)).status).toBe(200);
   });
 
   test("a room that is no longer available is a 409; bad input is a 400", async () => {

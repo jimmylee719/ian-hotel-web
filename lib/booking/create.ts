@@ -61,19 +61,19 @@ export async function createReservation(deps: Deps, raw: CreateInput, now: Date)
   if (!stay.ok) return fail("INVALID_INPUT", stay.error);
 
   // 2. Idempotent replay.
-  const replay = await replayExisting(deps, input.idempotencyKey, input.locale);
+  const replay = await replayExisting(deps, input.idempotencyKey, input.locale, now);
   if (replay) return replay;
 
   // 3–5. Re-price from current availability, promo code and add-ons (shared with the quote API).
   const price = await priceStay(db, input, now);
-  if (!price.ok) return price.error === "NOT_AVAILABLE" ? replayOr(deps, input.idempotencyKey, input.locale, "NOT_AVAILABLE") : price;
+  if (!price.ok) return price.error === "NOT_AVAILABLE" ? replayOr(deps, input.idempotencyKey, input.locale, now, "NOT_AVAILABLE") : price;
   const { propertyId, nights, offer, promo, quote: q } = price.priced;
 
   // 6 + 7. Hold inventory and persist everything in ONE batch, so nobody can see the hold without
   // the reservation (and its idempotency key) or vice versa.
   const hold: HoldItem[] = [{ unitTypeId: offer.unitTypeId, ratePlanId: offer.ratePlanId, nights, rooms: input.rooms }];
   const holdStmts = await holdStatements(db, hold);
-  if (!holdStmts) return replayOr(deps, input.idempotencyKey, input.locale, "SOLD_OUT");
+  if (!holdStmts) return replayOr(deps, input.idempotencyKey, input.locale, now, "SOLD_OUT");
   const code = newReservationCode();
   const reservationId = crypto.randomUUID();
   const guestId = crypto.randomUUID();
@@ -103,23 +103,23 @@ export async function createReservation(deps: Deps, raw: CreateInput, now: Date)
   } catch (e) {
     // Nothing was written. A concurrent twin with the same key may have committed first
     // (unique idempotency_key, or it took the last room): answer with its reservation.
-    const winner = await replayExisting(deps, input.idempotencyKey, input.locale);
+    const winner = await replayExisting(deps, input.idempotencyKey, input.locale, now);
     if (winner) return winner;
     if (isCheckViolation(e)) return fail("SOLD_OUT");
     throw e;
   }
 
   // 8. Start the payment.
-  const start = await startCharge(deps, code, q.payNow, input.locale);
+  const start = await startCharge(deps, code, q.payNow, input.locale, now);
   return { ok: true, code, start };
 }
 
 /** Before reporting a sold-out style error, check whether a same-key twin already succeeded. */
-async function replayOr(deps: Deps, idempotencyKey: string, locale: Locale, error: CreateError): Promise<CreateResult> {
-  return (await replayExisting(deps, idempotencyKey, locale)) ?? fail(error);
+async function replayOr(deps: Deps, idempotencyKey: string, locale: Locale, now: Date, error: CreateError): Promise<CreateResult> {
+  return (await replayExisting(deps, idempotencyKey, locale, now)) ?? fail(error);
 }
 
-async function replayExisting(deps: Deps, idempotencyKey: string, locale: Locale): Promise<CreateResult | null> {
+async function replayExisting(deps: Deps, idempotencyKey: string, locale: Locale, now: Date): Promise<CreateResult | null> {
   const { db } = deps;
   const [existing] = await db.select().from(reservations).where(eq(reservations.idempotencyKey, idempotencyKey));
   if (!existing) return null;
@@ -127,11 +127,16 @@ async function replayExisting(deps: Deps, idempotencyKey: string, locale: Locale
   const [charge] = await db.select().from(payments)
     .where(and(eq(payments.reservationId, existing.id), eq(payments.kind, "charge")));
   if (!charge) throw new Error(`Reservation ${existing.code} has no charge row`);
-  const start = await startCharge(deps, existing.code, charge.amount, (existing.locale as Locale) ?? locale);
+  const start = await startCharge(deps, existing.code, charge.amount, (existing.locale as Locale) ?? locale, now);
   return { ok: true, code: existing.code, start };
 }
 
-function startCharge(deps: Deps, code: string, amount: number, locale: Locale): Promise<ChargeStart> {
+/**
+ * Start (or restart) the payment. The start time is recorded first, so a payment failure from an
+ * earlier attempt is not mistaken for this attempt's result (see the status API's paymentState).
+ */
+async function startCharge(deps: Deps, code: string, amount: number, locale: Locale, now: Date): Promise<ChargeStart> {
+  await deps.db.update(reservations).set({ lastChargeStartedAt: now.getTime() }).where(eq(reservations.code, code));
   const base = deps.baseUrl.replace(/\/+$/, "");
   return deps.gateway.startCharge({
     reservationCode: code,

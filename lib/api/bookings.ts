@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { createReservation, type CreateError, type CreateInput } from "@/lib/booking/create";
 import { cancelReservation, findReservation } from "@/lib/booking/manage";
 import type { Deps } from "@/lib/booking/notify";
@@ -6,7 +6,7 @@ import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { PriceInput, priceStay } from "@/lib/booking/pricing";
 import { payments, reservations } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
-import { checkRate, clientIp, RATE, tooManyRequests } from "./rate-limit";
+import { checkRate, clientIp, isLimited, RATE, retryAfterSec, tooManyRequests } from "./rate-limit";
 
 /**
  * Booking API handlers. Each takes its dependencies, the Request and the time, and returns a
@@ -38,7 +38,7 @@ const CREATE_STATUS: Record<CreateError, number> = {
 
 /** POST /api/bookings → 200 `{ code, start }`; the client follows `start` to the payment page. */
 export async function handleCreateBooking(deps: Deps, req: Request, now: Date): Promise<Response> {
-  if (!(await checkRate(deps.db, `create:${clientIp(req)}`, RATE.create, 60, now))) return tooManyRequests();
+  if (!(await checkRate(deps.db, `create:${clientIp(req)}`, RATE.create, 60, now))) return tooManyRequests(retryAfterSec(60, now));
   const body = await readJson(req);
   if (!body || typeof body !== "object") return json(400, { error: "INVALID_INPUT" });
   const r = await createReservation(deps, body as CreateInput, now); // validated inside
@@ -46,30 +46,44 @@ export async function handleCreateBooking(deps: Deps, req: Request, now: Date): 
   return json(200, { code: r.code, start: r.start });
 }
 
+export type PaymentState = "succeeded" | "failed" | "pending";
+
 /**
- * GET /api/bookings/[code]/status?email= → the guest's view of the booking, plus whether the latest
- * payment attempt failed (the booking then stays payable until its hold lapses).
+ * GET /api/bookings/[code]/status?email= → the guest's view of the booking plus `paymentState`:
+ * "succeeded" if any charge succeeded; "failed" if a charge failed at or after the latest payment
+ * start (so a retry is "pending" until its own result arrives); otherwise "pending".
+ *
+ * Limits: a lookup that finds nothing counts against the IP (10/min, the enumeration guard), and once
+ * that is used up every lookup from the IP is refused for the rest of the window. A lookup that finds
+ * the booking counts against IP + code (60/min), so the return page's polling has its own budget.
  */
 export async function handleBookingStatus(db: Db, code: string, req: Request, now: Date): Promise<Response> {
-  if (!(await checkRate(db, `lookup:${clientIp(req)}`, RATE.lookup, 60, now))) return tooManyRequests();
+  const ip = clientIp(req);
+  const failedKey = `lookup-failed:${ip}`;
+  if (await isLimited(db, failedKey, RATE.lookupFailed, 60, now)) return tooManyRequests(retryAfterSec(60, now));
   const email = new URL(req.url).searchParams.get("email") ?? "";
   const view = email ? await findReservation(db, code, email, now) : null;
-  if (!view) return json(404, { error: "NOT_FOUND" });
-  let lastPaymentFailed = false;
-  if (view.status === "pending_payment") {
-    const [last] = await db.select({ status: payments.status }).from(payments)
-      .innerJoin(reservations, eq(reservations.id, payments.reservationId))
-      .where(and(eq(reservations.code, view.code), eq(payments.kind, "charge")))
-      .orderBy(desc(payments.createdAt), desc(sql`payments.rowid`)) // rowid: insertion order within one ms
-      .limit(1);
-    lastPaymentFailed = last?.status === "failed";
+  if (!view) {
+    if (!(await checkRate(db, failedKey, RATE.lookupFailed, 60, now))) return tooManyRequests(retryAfterSec(60, now));
+    return json(404, { error: "NOT_FOUND" });
   }
-  return json(200, { ...view, lastPaymentFailed });
+  if (!(await checkRate(db, `lookup:${ip}:${view.code}`, RATE.lookupBooking, 60, now))) return tooManyRequests(retryAfterSec(60, now));
+  return json(200, { ...view, paymentState: await paymentState(db, view.code) });
+}
+
+async function paymentState(db: Db, code: string): Promise<PaymentState> {
+  const [res] = await db.select({ id: reservations.id, startedAt: reservations.lastChargeStartedAt })
+    .from(reservations).where(eq(reservations.code, code));
+  const charges = await db.select({ status: payments.status, createdAt: payments.createdAt }).from(payments)
+    .where(and(eq(payments.reservationId, res.id), eq(payments.kind, "charge")));
+  if (charges.some((c) => c.status === "succeeded")) return "succeeded";
+  const since = res.startedAt ?? 0;
+  return charges.some((c) => c.status === "failed" && c.createdAt >= since) ? "failed" : "pending";
 }
 
 /** POST /api/bookings/[code]/cancel `{ email }`. */
 export async function handleCancelBooking(deps: Deps, code: string, req: Request, now: Date): Promise<Response> {
-  if (!(await checkRate(deps.db, `cancel:${clientIp(req)}`, RATE.cancel, 60, now))) return tooManyRequests();
+  if (!(await checkRate(deps.db, `cancel:${clientIp(req)}`, RATE.cancel, 60, now))) return tooManyRequests(retryAfterSec(60, now));
   const body = (await readJson(req)) as { email?: unknown } | null;
   const email = typeof body?.email === "string" ? body.email : "";
   if (!email) return json(404, { error: "NOT_FOUND" });
@@ -93,6 +107,7 @@ export async function handleNotify(deps: Deps, req: Request, now: Date): Promise
  * An invalid promo code is not an error here: the undiscounted quote comes back with `promo: "invalid"`.
  */
 export async function handleQuote(db: Db, req: Request, now: Date): Promise<Response> {
+  if (!(await checkRate(db, `quote:${clientIp(req)}`, RATE.quote, 60, now))) return tooManyRequests(retryAfterSec(60, now));
   const parsed = PriceInput.safeParse(await readJson(req));
   if (!parsed.success) return json(400, { error: "INVALID_INPUT" });
   const input = parsed.data;

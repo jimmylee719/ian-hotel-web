@@ -158,6 +158,8 @@ export const reservations = sqliteTable(
     nextSyncAt: integer("next_sync_at"),
     lastSyncError: text("last_sync_error"),
     cancelledAt: integer("cancelled_at"),
+    /** Epoch ms of the latest payment start (create, or a retry with the same idempotency key). */
+    lastChargeStartedAt: integer("last_charge_started_at"),
     refundedAmount: integer("refunded_amount").notNull().default(0),
     /** Lower-cased guest email, for lookups. */
     guestEmailLower: text("guest_email_lower").notNull(),

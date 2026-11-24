@@ -44,14 +44,20 @@ export function followChargeStart(start: ChargeStart) {
   form.submit();
 }
 
-export type StatusView = ReservationView & { lastPaymentFailed: boolean };
-export type StatusResult = { ok: true; view: StatusView } | { ok: false; error: "NOT_FOUND" | "RATE_LIMITED" | "NETWORK" };
+export type StatusView = ReservationView & { paymentState: "succeeded" | "failed" | "pending" };
+export type StatusResult =
+  | { ok: true; view: StatusView }
+  | { ok: false; error: "NOT_FOUND" | "NETWORK" }
+  | { ok: false; error: "RATE_LIMITED"; retryAfterMs: number };
 
 export async function fetchStatus(code: string, email: string): Promise<StatusResult> {
   try {
     const res = await fetch(`/api/bookings/${encodeURIComponent(code)}/status?email=${encodeURIComponent(email)}`, { cache: "no-store" });
     if (res.status === 404) return { ok: false, error: "NOT_FOUND" };
-    if (res.status === 429) return { ok: false, error: "RATE_LIMITED" };
+    if (res.status === 429) {
+      const sec = Number(res.headers.get("Retry-After"));
+      return { ok: false, error: "RATE_LIMITED", retryAfterMs: Number.isFinite(sec) && sec > 0 ? sec * 1000 : 5000 };
+    }
     if (!res.ok) return { ok: false, error: "NETWORK" };
     return { ok: true, view: (await res.json()) as StatusView };
   } catch {

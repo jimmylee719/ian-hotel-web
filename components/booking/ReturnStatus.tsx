@@ -8,6 +8,8 @@ import { fetchStatus, followChargeStart, recallBooking, rememberBooking, startBo
 
 const POLL_MS = 2000;
 const POLL_FOR_MS = 60_000;
+/** Wait after a 429 without Retry-After. */
+const BACKOFF_MS = 5000;
 
 /** States after which the status will not change by itself. */
 const SETTLED = new Set(["confirmed", "confirm_failed_refunded", "expired", "cancelled"]);
@@ -40,16 +42,19 @@ export function ReturnStatus({ code }: { code: string }) {
       }
       if (r.ok) {
         setView(r.view);
-        if (SETTLED.has(r.view.status) || (r.view.status === "pending_payment" && r.view.lastPaymentFailed)) {
+        if (SETTLED.has(r.view.status) || (r.view.status === "pending_payment" && r.view.paymentState === "failed")) {
           setPhase("done");
           return;
         }
       }
-      if (Date.now() + POLL_MS > until) {
+      // Rate-limited: back off as asked (or 5 s), but still look once more before the minute is up.
+      const wait = !r.ok && r.error === "RATE_LIMITED" ? r.retryAfterMs || BACKOFF_MS : POLL_MS;
+      const left = until - Date.now();
+      if (left <= 0) {
         setPhase("timedOut");
         return;
       }
-      await new Promise((res) => setTimeout(res, POLL_MS));
+      await new Promise((res) => setTimeout(res, Math.min(wait, Math.max(left - 500, 0))));
     }
   }, [code, t]);
 
@@ -88,7 +93,7 @@ export function ReturnStatus({ code }: { code: string }) {
     );
 
   const s = view?.status;
-  const failed = s === "pending_payment" && view?.lastPaymentFailed;
+  const failed = s === "pending_payment" && view?.paymentState === "failed";
   return (
     <div className="return-status">
       <div className="status-message" role="status" aria-live="polite">
