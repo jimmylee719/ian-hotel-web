@@ -3,6 +3,10 @@
  * 14 days of fake ARI into the local D1 (`wrangler --local`).
  * Builds the rows in an in-memory SQLite with the real migrations, dumps them as INSERTs,
  * then applies the file with wrangler. Wipes the seeded tables in the local DB first.
+ * Then uploads the WebP width variants the site requests by default (scripts/media-variants.ts,
+ * a few minutes); pass --skip-media to skip that step.
+ *
+ *   npx tsx scripts/seed-local.ts [--skip-media]
  */
 import Database from "better-sqlite3";
 import { execFileSync } from "node:child_process";
@@ -50,6 +54,8 @@ async function main() {
   const file = path.resolve(".wrangler/seed-local.sql");
   writeFileSync(file, lines.join("\n"));
   execFileSync("npx", ["wrangler", "d1", "execute", "nk-booking", "--local", "--file", file], { stdio: "inherit" });
+
+  if (!process.argv.includes("--skip-media")) execFileSync("npx", ["tsx", "scripts/media-variants.ts"], { stdio: "inherit" });
 }
 
 main();

@@ -1,12 +1,13 @@
 /**
  * Public URL for an object in the R2 bucket `nk-media` (served by app/media/[...key]/route.ts).
  *
- * A width request is served, in order of preference:
- * - NEXT_PUBLIC_CF_IMAGES=1 (zone with Cloudflare Images transformations enabled): `/cdn-cgi/image/...`;
- * - NEXT_PUBLIC_MEDIA_VARIANTS=1: a pre-generated WebP in R2 (scripts/media-variants.ts), at the
- *   smallest variant width that covers the request; the media route falls back to the original if
- *   the variant is missing;
- * - otherwise the original, unchanged.
+ * A width request is served:
+ * - by default, as a pre-generated WebP in R2 (scripts/media-variants.ts, `npm run media:variants`)
+ *   at the smallest variant width that covers the request; the media route falls back to the
+ *   original if the variant is missing (see findMedia);
+ * - with NEXT_PUBLIC_CF_IMAGES=1 (opt-in: zone with Cloudflare Images transformations enabled),
+ *   through `/cdn-cgi/image/...`.
+ * Without a width, the original is served unchanged.
  */
 export const VARIANT_WIDTHS = [480, 800, 1100] as const;
 
@@ -24,21 +25,29 @@ export function mediaUrl(key: string, w?: number): string {
   const clean = key.replace(/^\/+/, "");
   const path = `/media/${clean}`;
   if (w && process.env.NEXT_PUBLIC_CF_IMAGES === "1") return `/cdn-cgi/image/width=${w},quality=80,format=auto${path}`;
-  if (w && process.env.NEXT_PUBLIC_MEDIA_VARIANTS === "1") {
+  if (w) {
     const width = VARIANT_WIDTHS.find((v) => v >= w) ?? VARIANT_WIDTHS[VARIANT_WIDTHS.length - 1];
     return `/media/${variantKey(clean, width)}`;
   }
   return path;
 }
 
-/**
- * `srcset` for a photo whose source is `sourceWidth` px wide (no upscaling), or undefined when
- * widths cannot be served (no Cloudflare Images, no variants).
- */
-export function mediaSrcSet(key: string, sourceWidth: number): string | undefined {
-  if (process.env.NEXT_PUBLIC_CF_IMAGES !== "1" && process.env.NEXT_PUBLIC_MEDIA_VARIANTS !== "1") return undefined;
+/** `srcset` for a photo whose source is `sourceWidth` px wide (no upscaling). */
+export function mediaSrcSet(key: string, sourceWidth: number): string {
   const widths = VARIANT_WIDTHS.filter((w) => w < sourceWidth);
   return [...widths, sourceWidth].map((w) => `${mediaUrl(key, w)} ${w}w`).join(", ");
+}
+
+/**
+ * Looks up a media key in R2; a missing variant falls back to its original key so a variant that
+ * was never generated still shows the photo. `fallback` tells the caller to cache briefly.
+ */
+export async function findMedia<T>(bucket: { get(key: string): Promise<T | null> }, key: string): Promise<{ object: T; fallback: boolean } | null> {
+  const object = await bucket.get(key);
+  if (object) return { object, fallback: false };
+  const original = originalOfVariant(key);
+  const fallback = original ? await bucket.get(original) : null;
+  return fallback ? { object: fallback, fallback: true } : null;
 }
 
 const TYPES: Record<string, string> = {

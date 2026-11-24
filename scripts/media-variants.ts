@@ -1,10 +1,10 @@
 /**
  * Pre-generates WebP width variants of every photo in content/images and uploads them to the R2
- * bucket nk-media under `_w{width}/{key}.webp` (see lib/media.ts). Used when the site runs with
- * NEXT_PUBLIC_MEDIA_VARIANTS=1, i.e. without Cloudflare Images transformations.
+ * bucket nk-media under `_w{width}/{key}.webp` (see lib/media.ts). The site requests these by
+ * default (unless NEXT_PUBLIC_CF_IMAGES=1); a missing variant falls back to the original photo.
  *
- *   npx tsx scripts/media-variants.ts            # local R2 (wrangler --local)
- *   npx tsx scripts/media-variants.ts --remote   # the real bucket
+ *   npm run media:variants                # local R2 (also run by scripts/seed-local.ts)
+ *   npm run media:variants -- --remote    # the production bucket (docs/DEPLOY.md launch checklist)
  *
  * Never upscales: a variant wider than its source is written at the source width.
  */

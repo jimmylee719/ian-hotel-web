@@ -22,12 +22,21 @@ const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (
 const OUT = path.resolve("public/fonts");
 const force = process.argv.includes("--force");
 
+const BACKOFF_MS = [500, 1000, 2000];
+
+/** GET with exponential backoff (0.5 s, 1 s, 2 s); throws a readable error after the last try. */
 async function fetchOk(url: string, init?: RequestInit): Promise<Response> {
-  for (let attempt = 1; ; attempt++) {
+  let last = "";
+  for (let attempt = 0; attempt <= BACKOFF_MS.length; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt - 1]));
     const res = await fetch(url, init).catch((e: unknown) => e as Error);
     if (res instanceof Response && res.ok) return res;
-    if (attempt === 3) throw new Error(`GET ${url} failed: ${res instanceof Response ? res.status : res.message}`);
+    last = res instanceof Response ? `HTTP ${res.status}` : res.message;
   }
+  throw new Error(
+    `fonts: could not download ${url} after ${BACKOFF_MS.length + 1} tries (${last}). ` +
+      "The build needs Google Fonts to self-host the CJK fonts; check the network and run `npx tsx scripts/fetch-fonts.ts` again.",
+  );
 }
 
 async function selfHost(id: keyof typeof FAMILIES) {
@@ -59,6 +68,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });
