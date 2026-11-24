@@ -1,7 +1,7 @@
-node_modules
+.DS_Store
+.dev.vars
 .next
 .open-next
-.wrangler
-.dev.vars
 .superpowers/
-.DS_Store
+.wrangler
+node_modules
