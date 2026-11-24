@@ -131,7 +131,8 @@ export async function refundAndFail(
       await db.update(reservations)
         .set({ lastSyncError: `REFUND_FAILED: ${r.error} (${reason})`, updatedAt: now.getTime() })
         .where(eq(reservations.id, reservationId));
-      await notifyStaff(deps, reservationId, "staff_payment_alert", now, {}, r.pendingRefundId ?? "");
+      // Keyed by the refund intent row, never "", so this alert is not deduped against another one.
+      await notifyStaff(deps, reservationId, "staff_payment_alert", now, {}, r.refundId ?? `fail:${reservationId}:${c.id}`);
       return false;
     }
     refunded += r.amount;
@@ -149,7 +150,14 @@ export async function refundAndFail(
 
 export type RefundOutcome =
   | { ok: true; amount: number }
-  | { ok: false; error: string; /** Set when the refund's outcome is unknown (row still pending). */ pendingRefundId?: string };
+  | {
+      ok: false;
+      error: string;
+      /** Set when the refund's outcome is unknown (row still pending). */
+      pendingRefundId?: string;
+      /** The refund intent row, whenever one exists (pending or failed): the ref for staff alerts. */
+      refundId?: string;
+    };
 
 export type PaymentRow = typeof payments.$inferSelect;
 
@@ -181,7 +189,7 @@ export async function refundOnce(
     const [existing] = await db.select().from(payments).where(eq(payments.idempotencyKey, key));
     if (existing.status === "succeeded") return { ok: true, amount: existing.amount };
     if (existing.status === "pending")
-      return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${existing.id}`, pendingRefundId: existing.id };
+      return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${existing.id}`, pendingRefundId: existing.id, refundId: existing.id };
     [row] = await db.update(payments).set({ status: "pending" })
       .where(and(eq(payments.id, existing.id), eq(payments.status, "failed"))).returning();
     if (!row) return refundOnce(deps, key, charge, amount, reason, now, o); // another attempt won the retry
@@ -191,11 +199,11 @@ export async function refundOnce(
   try {
     r = await deps.gateway.refund({ providerRef: charge.providerRef, amount: row.amount, reason, idempotencyKey: key });
   } catch (e) {
-    return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${e instanceof Error ? e.message : String(e)}`, pendingRefundId: row.id };
+    return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${e instanceof Error ? e.message : String(e)}`, pendingRefundId: row.id, refundId: row.id };
   }
   if (!r.ok) {
     await db.update(payments).set({ status: "failed" }).where(and(eq(payments.id, row.id), eq(payments.status, "pending")));
-    return r;
+    return { ok: false, error: r.error, refundId: row.id };
   }
   await runAtomic(db, [
     db.update(payments).set({ status: "succeeded", providerRef: r.refundRef }).where(eq(payments.id, row.id)),

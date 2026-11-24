@@ -1,10 +1,10 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
-import { paidAmount } from "@/lib/booking/notify";
+import { notifyStaff, paidAmount } from "@/lib/booking/notify";
 import { handlePaymentNotice, refundStray } from "@/lib/booking/payment-notice";
 import { MockChannelManager } from "@/lib/channel/mock";
 import type { ChannelReservation } from "@/lib/channel/types";
-import { paymentEvents, payments, reservations } from "@/lib/db/schema";
+import { notifications, paymentEvents, payments, reservations } from "@/lib/db/schema";
 import { bookingSetup, minutes, PAY_NOW, STAFF } from "@/tests/helpers/booking";
 import { rawSqlite } from "@/tests/helpers/test-db";
 
@@ -140,4 +140,22 @@ test("refundStray does nothing when the stray charge is already refunded", async
   await refundStray(deps, (await reservation(code)).id, stray, minutes(4));
   expect(refund).not.toHaveBeenCalled();
   expect(email.sent).toHaveLength(mails);
+});
+
+test("a definitive refund failure alerts staff under the refund row's id, so an earlier alert cannot swallow it", async () => {
+  const { db, deps, email, book, reservation, notice } = await bookingSetup({ failRefund: true });
+  const code = await book();
+  const res = await reservation(code);
+  // Another payment alert for this booking, sent earlier with the default (empty) ref.
+  await notifyStaff(deps, res.id, "staff_payment_alert", minutes(1));
+  email.sent.length = 0;
+
+  await handlePaymentNotice(deps, await notice(code, { amount: PAY_NOW - 1 }), minutes(2)); // AMOUNT_MISMATCH → refund fails
+  expect((await reservation(code)).lastSyncError).toContain("REFUND_FAILED");
+  const [refundRow] = await db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "refund")));
+  expect(refundRow.status).toBe("failed");
+  const alerts = await db.select().from(notifications)
+    .where(and(eq(notifications.reservationId, res.id), eq(notifications.kind, "staff_payment_alert")));
+  expect(alerts.map((a) => a.ref).sort()).toEqual(["", refundRow.id].sort());
+  expect(email.sent.filter((e) => e.to === STAFF && e.subject.includes("付款異常"))).toHaveLength(1);
 });
