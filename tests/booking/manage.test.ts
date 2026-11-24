@@ -1,6 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
+import { refundOnce } from "@/lib/booking/confirm";
 import { cancelReservation, findReservation } from "@/lib/booking/manage";
+import { refundableCharges } from "@/lib/booking/notify";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { MockChannelManager } from "@/lib/channel/mock";
 import { inventoryDaily, notifications, payments } from "@/lib/db/schema";
@@ -215,13 +217,94 @@ test("a refund whose outcome is unknown (gateway refunded, then the call failed)
   ))).toHaveLength(1);
 });
 
-test("a successful cancel refund goes pending → succeeded under its own idempotency key", async () => {
+test("a successful cancel refund goes pending → succeeded under the cancellation's idempotency key", async () => {
   const { db, deps, gateway, code, reservation } = await confirmedBooking();
   const refund = vi.spyOn(gateway, "refund");
   await cancelReservation(deps, code, GUEST, EARLY);
   const res = await reservation(code);
   const [row] = await db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "refund")));
   expect(row).toMatchObject({ status: "succeeded", amount: PAID, providerRef: gateway.refunds[0].refundRef });
-  expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: row.id }));
+  expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: `cancel:${res.id}` }));
   expect(res.refundedAmount).toBe(PAID);
+});
+
+const HALF = new Date("2026-12-08T16:00:00Z"); // 2026-12-09 Taipei: 1 day before check-in → 50%
+const tick = () => new Promise((r) => setImmediate(r));
+
+/** Hold the next gateway refund until `release()`; `started` resolves when the call reaches the gateway. */
+function slowRefund(gateway: Awaited<ReturnType<typeof confirmedBooking>>["gateway"]) {
+  const real = gateway.refund.bind(gateway);
+  let release!: () => void;
+  let reached = false;
+  const gate = new Promise<void>((r) => { release = r; });
+  vi.spyOn(gateway, "refund").mockImplementationOnce(async (r) => { reached = true; await gate; return real(r); });
+  return { release: () => release(), started: async () => { while (!reached) await tick(); } };
+}
+
+test("R2: a slow refund that outlives the lease still completes the cancellation after a blocked takeover", async () => {
+  const { db, deps, gateway, email, code, reservation, avail10 } = await confirmedBooking();
+  const slow = slowRefund(gateway);
+  const first = cancelReservation(deps, code, GUEST, HALF);
+  await slow.started();
+
+  // Past the lease, another request finds the refund in flight: it must not refund, and must not drop the claim.
+  const takeover = new Date(HALF.getTime() + 3 * 60_000);
+  expect(await cancelReservation(deps, code, GUEST, takeover)).toEqual({ ok: false, error: "REFUND_FAILED" });
+  expect(await reservation(code)).toMatchObject({ status: "confirmed", cancelledAt: HALF.getTime() });
+  expect(email.sent.filter((e) => e.to === STAFF && e.subject.includes("付款異常"))).toHaveLength(1);
+
+  slow.release();
+  expect(await first).toEqual({ ok: true, refunded: PAID / 2, alreadyCancelled: false });
+  const res = await reservation(code);
+  expect(res).toMatchObject({ status: "cancelled", refundedAmount: PAID / 2 });
+  expect(await avail10()).toBe(3);
+  expect(await cancelReservation(deps, code, GUEST, new Date(HALF.getTime() + 3600_000)))
+    .toEqual({ ok: true, refunded: PAID / 2, alreadyCancelled: true });
+  expect(gateway.refunds).toHaveLength(1);
+  expect(await db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "refund"))))
+    .toMatchObject([{ status: "succeeded", amount: PAID / 2, idempotencyKey: `cancel:${res.id}` }]);
+});
+
+test("R1: however a takeover interleaves with a slow refund finishing, the guest is refunded once", async () => {
+  // The takeover starts first; the slow refund is released k microtasks into it, so across k the
+  // first attempt's row turns succeeded at every point of the takeover (before, during, after its reads).
+  for (let k = 0; k < 60; k += 2) {
+    const { db, deps, gateway, code, reservation } = await confirmedBooking();
+    const slow = slowRefund(gateway);
+    const first = cancelReservation(deps, code, GUEST, HALF);
+    await slow.started();
+    const second = cancelReservation(deps, code, GUEST, new Date(HALF.getTime() + 3 * 60_000));
+    for (let i = 0; i < k; i++) await Promise.resolve();
+    slow.release();
+    await Promise.all([first, second]);
+
+    const res = await reservation(code);
+    expect(gateway.refunds, `k=${k}`).toHaveLength(1);
+    expect(res, `k=${k}`).toMatchObject({ status: "cancelled", refundedAmount: PAID / 2 });
+    expect(await db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "refund"))), `k=${k}`)
+      .toHaveLength(1);
+  }
+});
+
+test("a failed refund row is retried by exactly one attempt", async () => {
+  const { db, deps, gateway, code, reservation } = await confirmedBooking({ failRefund: true });
+  expect(await cancelReservation(deps, code, GUEST, EARLY)).toEqual({ ok: false, error: "REFUND_FAILED" });
+  const res = await reservation(code);
+  const [row] = await db.select().from(payments).where(eq(payments.idempotencyKey, `cancel:${res.id}`));
+  expect(row.status).toBe("failed");
+
+  const refund = vi.spyOn(gateway, "refund").mockImplementation(async (r) => {
+    await tick();
+    return { ok: true, refundRef: `R-${r.idempotencyKey}` };
+  });
+  const [charge] = (await refundableCharges(db, res.id));
+  const rs = await Promise.all([1, 2].map(() => refundOnce(deps, row.idempotencyKey!, charge, 1, "RETRY", EARLY, { countsAsBookingRefund: true })));
+  expect(refund).toHaveBeenCalledTimes(1);
+  expect(rs.filter((r) => r.ok)).toEqual([{ ok: true, amount: PAID }]); // the row's amount, not the one passed in
+  expect(rs.filter((r) => !r.ok)).toMatchObject([{ pendingRefundId: row.id }]);
+  expect((await reservation(code)).refundedAmount).toBe(PAID);
+
+  // The cancellation then completes on the succeeded row without another refund.
+  expect(await cancelReservation(deps, code, GUEST, EARLY)).toEqual({ ok: true, refunded: PAID, alreadyCancelled: false });
+  expect(refund).toHaveBeenCalledTimes(1);
 });

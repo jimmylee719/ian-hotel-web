@@ -193,9 +193,18 @@ export const payments = sqliteTable(
     last4: text("last4"),
     /** For a refund: the id of the charge row it reverses. */
     refundOf: text("refund_of"),
+    /**
+     * For a refund: what it is for (`cancel:<reservationId>`, `fail:<reservationId>:<chargeId>`,
+     * `stray:<providerRef>`). Every attempt at the same refund converges on this one row; it is also
+     * the gateway's idempotency key. Null for charges.
+     */
+    idempotencyKey: text("idempotency_key"),
     createdAt: ms("created_at"),
   },
-  (t) => [uniqueIndex("payments_provider_ref_unique").on(t.providerRef)], // NULLs never collide
+  (t) => [
+    uniqueIndex("payments_provider_ref_unique").on(t.providerRef), // NULLs never collide
+    uniqueIndex("payments_idempotency_key_unique").on(t.idempotencyKey),
+  ],
 );
 
 /** Full log of every payment-provider callback, for audit and reconciliation. */

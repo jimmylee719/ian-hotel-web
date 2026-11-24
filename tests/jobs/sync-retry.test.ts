@@ -56,7 +56,7 @@ test("after the 6th failed retry the booking is refunded", async () => {
   // The refund intent went pending → succeeded under its own idempotency key.
   const rows = await db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "refund")));
   expect(rows).toMatchObject([{ status: "succeeded", amount: PAY_NOW, providerRef: gateway.refunds[0].refundRef }]);
-  expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: rows[0].id }));
+  expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: `fail:${res.id}:${rows[0].refundOf}` }));
   expect(email.sent.map((e) => e.to).sort()).toEqual(["mei@example.com", STAFF]);
 
   expect(await runSyncRetry(deps, minutes(60))).toEqual({ attempted: 0 });

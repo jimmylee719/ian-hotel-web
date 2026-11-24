@@ -4,7 +4,7 @@ import { paymentEvents, payments, reservations, type PaymentEventVerdict } from 
 import type { Db } from "@/lib/db/types";
 import type { Quote } from "@/lib/domain/quote";
 import type { PaymentNotice } from "@/lib/payments/types";
-import { confirmWithChannel, refundCharge } from "./confirm";
+import { confirmWithChannel, refundOnce } from "./confirm";
 import { notifyStaff, refundableCharges, type ChargeRow, type Deps } from "./notify";
 import { transition, type Reservation } from "./state";
 
@@ -133,7 +133,7 @@ async function isStray(db: Db, reservationId: string, charge: ChargeRow): Promis
 export async function refundStray(deps: Deps, reservationId: string, charge: ChargeRow, now: Date): Promise<void> {
   const ours = (await refundableCharges(deps.db, reservationId)).find((c) => c.id === charge.id);
   if (!ours || ours.remaining <= 0) return;
-  const r = await refundCharge(deps, charge, ours.remaining, "STRAY_CHARGE", now);
+  const r = await refundOnce(deps, `stray:${charge.providerRef ?? charge.id}`, charge, ours.remaining, "STRAY_CHARGE", now);
   if (!r.ok)
     await deps.db.update(reservations)
       .set({ lastSyncError: `STRAY_REFUND_FAILED: ${charge.providerRef}: ${r.error}`, updatedAt: now.getTime() })

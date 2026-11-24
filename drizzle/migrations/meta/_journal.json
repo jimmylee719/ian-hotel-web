@@ -43,6 +43,13 @@
       "when": 1795537432319,
       "tag": "0005_new_maelstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1795538545810,
+      "tag": "0006_low_randall",
+      "breakpoints": true
     }
   ]
 }

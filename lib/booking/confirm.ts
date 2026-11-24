@@ -126,7 +126,7 @@ export async function refundAndFail(
   let refunded = 0;
   for (const c of await refundableCharges(db, reservationId)) {
     if (c.remaining <= 0) continue;
-    const r = await refundCharge(deps, c, c.remaining, reason, now, { countsAsBookingRefund: true });
+    const r = await refundOnce(deps, `fail:${reservationId}:${c.id}`, c, c.remaining, reason, now, { countsAsBookingRefund: true });
     if (!r.ok) {
       await db.update(reservations)
         .set({ lastSyncError: `REFUND_FAILED: ${r.error} (${reason})`, updatedAt: now.getTime() })
@@ -134,7 +134,7 @@ export async function refundAndFail(
       await notifyStaff(deps, reservationId, "staff_payment_alert", now, {}, r.pendingRefundId ?? "");
       return false;
     }
-    refunded += c.remaining;
+    refunded += r.amount;
   }
   const refundedAmount = res.refundedAmount + refunded;
 
@@ -147,49 +147,63 @@ export async function refundAndFail(
   return true;
 }
 
-export type RefundOutcome = { ok: true } | { ok: false; error: string; pendingRefundId?: string };
+export type RefundOutcome =
+  | { ok: true; amount: number }
+  | { ok: false; error: string; /** Set when the refund's outcome is unknown (row still pending). */ pendingRefundId?: string };
+
+export type PaymentRow = typeof payments.$inferSelect;
 
 /**
- * Refund `amount` of one charge against its own provider ref.
- * The refund row is written first as a `pending` intent and its id is the gateway's idempotency key;
- * success marks it `succeeded` (and, with `countsAsBookingRefund`, adds it to the booking's
- * refundedAmount in the same batch), a definitive failure marks it `failed`. A thrown gateway call has
- * an unknown outcome, so the intent stays `pending`. While any refund of the booking is `pending`,
- * no new refund is started: it may already have happened, and only a human can reconcile it.
- * Callers alert staff with `pendingRefundId` as the ref when it is set.
+ * Make the refund identified by `key` happen at most once, however many attempts run it.
+ * The first attempt creates the intent row (`pending`, with `amount`); every later attempt reads that
+ * row back and uses ITS amount (the `amount` passed in is ignored then). `key` is also the gateway's
+ * idempotency key. By the row's status:
+ * - `succeeded`: nothing to do, report success.
+ * - `pending`: another attempt is in flight, or died with an unknown outcome → never call the gateway;
+ *   report `pendingRefundId` so the caller alerts staff.
+ * - `failed`: one attempt flips it back to `pending` (conditional UPDATE) and retries.
+ * Gateway success marks the row `succeeded` (with `countsAsBookingRefund`, also adds it to the
+ * booking's refundedAmount, in the same batch); a definitive failure marks it `failed`; a thrown call
+ * leaves it `pending`.
  */
-export async function refundCharge(
-  deps: Deps, charge: ChargeRow, amount: number, reason: string, now: Date, o: { countsAsBookingRefund?: boolean } = {},
+export async function refundOnce(
+  deps: Deps, key: string, charge: ChargeRow, amount: number, reason: string, now: Date,
+  o: { countsAsBookingRefund?: boolean } = {},
 ): Promise<RefundOutcome> {
   const { db } = deps;
   if (!charge.providerRef) return { ok: false, error: "NO_PROVIDER_REF" };
-  const [pending] = await db.select({ id: payments.id }).from(payments).where(and(
-    eq(payments.reservationId, charge.reservationId), eq(payments.kind, "refund"), eq(payments.status, "pending"),
-  )).limit(1);
-  if (pending) return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${pending.id}`, pendingRefundId: pending.id };
+  const created = await db.insert(payments).values({
+    id: crypto.randomUUID(), reservationId: charge.reservationId, kind: "refund", method: charge.method, amount,
+    status: "pending", refundOf: charge.id, idempotencyKey: key, createdAt: now.getTime(),
+  }).onConflictDoNothing({ target: payments.idempotencyKey }).returning();
+  let row: PaymentRow | undefined = created[0];
+  if (!row) {
+    const [existing] = await db.select().from(payments).where(eq(payments.idempotencyKey, key));
+    if (existing.status === "succeeded") return { ok: true, amount: existing.amount };
+    if (existing.status === "pending")
+      return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${existing.id}`, pendingRefundId: existing.id };
+    [row] = await db.update(payments).set({ status: "pending" })
+      .where(and(eq(payments.id, existing.id), eq(payments.status, "failed"))).returning();
+    if (!row) return refundOnce(deps, key, charge, amount, reason, now, o); // another attempt won the retry
+  }
 
-  const id = crypto.randomUUID();
-  await db.insert(payments).values({
-    id, reservationId: charge.reservationId, kind: "refund", method: charge.method, amount,
-    status: "pending", refundOf: charge.id, createdAt: now.getTime(),
-  });
   let r: Awaited<ReturnType<Deps["gateway"]["refund"]>>;
   try {
-    r = await deps.gateway.refund({ providerRef: charge.providerRef, amount, reason, idempotencyKey: id });
+    r = await deps.gateway.refund({ providerRef: charge.providerRef, amount: row.amount, reason, idempotencyKey: key });
   } catch (e) {
-    return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${e instanceof Error ? e.message : String(e)}`, pendingRefundId: id };
+    return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${e instanceof Error ? e.message : String(e)}`, pendingRefundId: row.id };
   }
   if (!r.ok) {
-    await db.update(payments).set({ status: "failed" }).where(eq(payments.id, id));
+    await db.update(payments).set({ status: "failed" }).where(and(eq(payments.id, row.id), eq(payments.status, "pending")));
     return r;
   }
   await runAtomic(db, [
-    db.update(payments).set({ status: "succeeded", providerRef: r.refundRef }).where(eq(payments.id, id)),
+    db.update(payments).set({ status: "succeeded", providerRef: r.refundRef }).where(eq(payments.id, row.id)),
     ...(o.countsAsBookingRefund
-      ? [db.update(reservations).set({ refundedAmount: sql`${reservations.refundedAmount} + ${amount}` }).where(eq(reservations.id, charge.reservationId))]
+      ? [db.update(reservations).set({ refundedAmount: sql`${reservations.refundedAmount} + ${row.amount}` }).where(eq(reservations.id, charge.reservationId))]
       : []),
   ]);
-  return { ok: true };
+  return { ok: true, amount: row.amount };
 }
 
 /** The inventory a reservation holds: its rooms grouped by room type and rate plan, for every night. */
