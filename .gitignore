@@ -5,3 +5,4 @@
 .superpowers/
 .wrangler
 node_modules
+tsconfig.tsbuildinfo
