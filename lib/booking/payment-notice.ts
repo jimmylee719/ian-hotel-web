@@ -12,6 +12,23 @@ export type { Deps } from "./notify";
 
 type Result = { status: 200 | 400; verdict: PaymentEventVerdict };
 
+/** How much of a bad-signature or unknown-reservation body is stored. */
+export const UNTRUSTED_BODY_BYTES = 2048;
+
+/** `s` cut to at most `maxBytes` bytes of UTF-8, never splitting a character. */
+export function truncateUtf8(s: string, maxBytes: number): string {
+  let bytes = 0;
+  let out = "";
+  for (const ch of s) {
+    const cp = ch.codePointAt(0)!;
+    const n = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+    if (bytes + n > maxBytes) break;
+    bytes += n;
+    out += ch;
+  }
+  return out;
+}
+
 /**
  * Handle a payment provider's server-to-server notice. Every call is logged in payment_events.
  * Anything that is not a bad signature answers 200 so the provider stops resending.
@@ -21,10 +38,12 @@ export async function handlePaymentNotice(
 ): Promise<Result> {
   const { db, gateway } = deps;
   const log = async (verdict: PaymentEventVerdict, n?: PaymentNotice, res?: Reservation) => {
+    // Unauthenticated or unmatched notices are anyone's input: keep enough to debug, not to fill D1.
+    const untrusted = verdict === "bad_signature" || verdict === "unknown_reservation";
     await db.insert(paymentEvents).values({
       id: crypto.randomUUID(), propertyId: res?.propertyId ?? null, provider: gateway.provider,
       providerRef: n?.providerRef ?? null, reservationCode: n?.reservationCode ?? null,
-      rawBody: req.body, verdict, at: now.getTime(),
+      rawBody: untrusted ? truncateUtf8(req.body, UNTRUSTED_BODY_BYTES) : req.body, verdict, at: now.getTime(),
     });
   };
 

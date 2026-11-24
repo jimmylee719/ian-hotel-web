@@ -94,9 +94,39 @@ export async function handleCancelBooking(deps: Deps, code: string, req: Request
   return json(status, { error: r.error });
 }
 
-/** POST /api/payments/notify: the payment provider's server-to-server notice. */
+/** A payment notice is a few hundred bytes; anything over this is refused before it touches the database. */
+export const MAX_NOTIFY_BODY = 16 * 1024;
+
+/** The body as text, or null once it is (declared or actually) over `max` bytes; stops reading there. */
+async function readCappedText(req: Request, max: number): Promise<string | null> {
+  if (Number(req.headers.get("content-length") ?? 0) > max) return null;
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    all.set(c, at);
+    at += c.byteLength;
+  }
+  return new TextDecoder().decode(all);
+}
+
+/** POST /api/payments/notify: the payment provider's server-to-server notice. Over 16 KB → 413, unlogged. */
 export async function handleNotify(deps: Deps, req: Request, now: Date): Promise<Response> {
-  const body = await req.text();
+  const body = await readCappedText(req, MAX_NOTIFY_BODY);
+  if (body === null) return new Response("PAYLOAD_TOO_LARGE", { status: 413, headers: { "Cache-Control": "no-store" } });
   const headers: Record<string, string> = {};
   req.headers.forEach((v, k) => (headers[k] = v));
   const r = await handlePaymentNotice(deps, { headers, body }, now);

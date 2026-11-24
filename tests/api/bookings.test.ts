@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   handleBookingStatus, handleCancelBooking, handleCreateBooking, handleNotify, handleQuote,
 } from "@/lib/api/bookings";
-import { promoCodes, reservations } from "@/lib/db/schema";
+import { paymentEvents, promoCodes, reservations } from "@/lib/db/schema";
 import { addons } from "@/lib/db/schema";
 import { bookingInput, bookingSetup, minutes, NOW, PAY_NOW } from "@/tests/helpers/booking";
 
@@ -151,6 +151,41 @@ describe("POST /api/payments/notify", () => {
     const res = await handleNotify(deps, notifyReq(await notice(code)), NOW);
     expect(res.status).toBe(200);
     expect((await reservation(code)).status).toBe("confirmed");
+  });
+
+  test("a body over 16 KB is a 413 and is not logged", async () => {
+    const { deps, db } = await bookingSetup();
+    const big = JSON.stringify({ pad: "x".repeat(20 * 1024) });
+    // No Content-Length: the length actually read decides.
+    const res = await handleNotify(deps, notifyReq({ headers: { "content-type": "application/json" }, body: big }), NOW);
+    expect(res.status).toBe(413);
+    expect(await db.select().from(paymentEvents)).toHaveLength(0);
+  });
+
+  test("a declared Content-Length over 16 KB is a 413 before the body is read", async () => {
+    const { deps, db } = await bookingSetup();
+    const req = notifyReq({ headers: { "content-type": "application/json", "content-length": String(20 * 1024) }, body: "{}" });
+    const res = await handleNotify(deps, req, NOW);
+    expect(res.status).toBe(413);
+    expect(req.bodyUsed).toBe(false);
+    expect(await db.select().from(paymentEvents)).toHaveLength(0);
+  });
+
+  test("a bad-signature or unknown-reservation notice stores at most 2 KB of its body", async () => {
+    const { deps, db, gateway } = await bookingSetup();
+    const pad = "署".repeat(4000); // 12 KB of UTF-8, under the 16 KB cap
+    const bad = { headers: { "content-type": "application/json", "x-mock-signature": "nope" }, body: JSON.stringify({ pad }) };
+    expect((await handleNotify(deps, notifyReq(bad), NOW)).status).toBe(400);
+    const unknown = await gateway.signedNotice({
+      reservationCode: "NK-ZZZZZZ", providerRef: "REF-UNKNOWN", amount: 1, status: "succeeded", pad,
+    } as Parameters<typeof gateway.signedNotice>[0]);
+    expect((await handleNotify(deps, notifyReq(unknown), NOW)).status).toBe(200);
+    const events = await db.select().from(paymentEvents);
+    expect(events.map((e) => e.verdict).sort()).toEqual(["bad_signature", "unknown_reservation"]);
+    for (const e of events) {
+      expect(new TextEncoder().encode(e.rawBody ?? "").length, e.verdict).toBeLessThanOrEqual(2048);
+      expect((e.rawBody ?? "").length, e.verdict).toBeGreaterThan(0);
+    }
   });
 
   test("a tampered notice is a 400 and changes nothing", async () => {
