@@ -7,6 +7,12 @@ import type { Db } from "./types";
 /** Inventory is per room type; the rate plan is only used to honour its stop-sell. */
 export type HoldItem = { unitTypeId: string; ratePlanId: string; nights: ISODate[]; rooms: number };
 
+/** Programming errors, not sold-out: rooms must be a positive integer and nights unique. */
+function assertValid(items: HoldItem[]): void {
+  for (const i of items)
+    if (!Number.isInteger(i.rooms) || i.rooms <= 0 || new Set(i.nights).size !== i.nights.length) throw new Error("INVALID_HOLD");
+}
+
 const invKey = (i: HoldItem, d: ISODate) => and(eq(inventoryDaily.unitTypeId, i.unitTypeId), eq(inventoryDaily.date, d));
 
 /**
@@ -15,6 +21,7 @@ const invKey = (i: HoldItem, d: ISODate) => and(eq(inventoryDaily.unitTypeId, i.
  * `available >= 0` CHECK and rolls the whole batch back — atomic on D1 too.
  */
 export async function holdInventory(db: Db, items: HoldItem[]): Promise<{ ok: true } | { ok: false; error: "SOLD_OUT" }> {
+  assertValid(items);
   // Rows are never deleted, so a missing row checked here stays missing.
   for (const i of items) {
     const rows = await db.select({ date: inventoryDaily.date }).from(inventoryDaily)
@@ -44,6 +51,7 @@ export async function holdInventory(db: Db, items: HoldItem[]): Promise<{ ok: tr
 }
 
 export async function releaseInventory(db: Db, items: HoldItem[]): Promise<void> {
+  assertValid(items);
   await runAtomic(db, items.flatMap((i) => i.nights.map((d) =>
     db.update(inventoryDaily).set({ available: sql`${inventoryDaily.available} + ${i.rooms}`, source: "local" }).where(invKey(i, d)))));
 }
