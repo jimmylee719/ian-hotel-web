@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { searchAvailability } from "@/lib/db/ari-repo";
 import { runAtomic } from "@/lib/db/atomic";
-import { holdInventory, releaseInventory, type HoldItem } from "@/lib/db/inventory-hold";
+import { holdStatements, isCheckViolation, type HoldItem } from "@/lib/db/inventory-hold";
 import {
   addons as addonsTable, guests, LOCALES, payments, promoCodes, properties, reservationRooms, reservations, type Locale,
 } from "@/lib/db/schema";
@@ -89,7 +89,7 @@ export async function createReservation(deps: Deps, raw: CreateInput, now: Date)
   });
   if (!search.ok) return fail("INVALID_INPUT", search.error);
   const offer = search.offers.find((o) => o.unitType.slug === input.unitTypeSlug && o.ratePlan.slug === input.ratePlanSlug);
-  if (!offer) return fail("NOT_AVAILABLE");
+  if (!offer) return replayOr(deps, input.idempotencyKey, input.locale, "NOT_AVAILABLE");
 
   // 4. Promo code (usage is counted on confirmation, not here).
   let promo: Promo | undefined;
@@ -121,12 +121,11 @@ export async function createReservation(deps: Deps, raw: CreateInput, now: Date)
     paymentMode: offer.ratePlan.paymentMode, depositPct: offer.ratePlan.depositPct,
   });
 
-  // 6. Hold inventory.
+  // 6 + 7. Hold inventory and persist everything in ONE batch, so nobody can see the hold without
+  // the reservation (and its idempotency key) or vice versa.
   const hold: HoldItem[] = [{ unitTypeId: offer.unitTypeId, ratePlanId: offer.ratePlanId, nights: stay.nights, rooms: input.rooms }];
-  const held = await holdInventory(db, hold);
-  if (!held.ok) return fail("SOLD_OUT");
-
-  // 7. Persist everything at once; give the rooms back if that fails.
+  const holdStmts = await holdStatements(db, hold);
+  if (!holdStmts) return replayOr(deps, input.idempotencyKey, input.locale, "SOLD_OUT");
   const code = newReservationCode();
   const reservationId = crypto.randomUUID();
   const guestId = crypto.randomUUID();
@@ -134,6 +133,7 @@ export async function createReservation(deps: Deps, raw: CreateInput, now: Date)
   const email = input.guest.email;
   try {
     await runAtomic(db, [
+      ...holdStmts,
       db.insert(guests).values({ id: guestId, propertyId: property.id, ...input.guest, locale: input.locale, createdAt: at }),
       db.insert(reservations).values({
         id: reservationId, propertyId: property.id, code, guestId, status: "pending_payment", channel: "direct",
@@ -153,16 +153,22 @@ export async function createReservation(deps: Deps, raw: CreateInput, now: Date)
       }),
     ]);
   } catch (e) {
-    await releaseInventory(db, hold);
-    // A concurrent request with the same key won the race: answer with its reservation.
+    // Nothing was written. A concurrent twin with the same key may have committed first
+    // (unique idempotency_key, or it took the last room): answer with its reservation.
     const winner = await replayExisting(deps, input.idempotencyKey, input.locale);
     if (winner) return winner;
+    if (isCheckViolation(e)) return fail("SOLD_OUT");
     throw e;
   }
 
   // 8. Start the payment.
   const start = await startCharge(deps, code, q.payNow, input.locale);
   return { ok: true, code, start };
+}
+
+/** Before reporting a sold-out style error, check whether a same-key twin already succeeded. */
+async function replayOr(deps: Deps, idempotencyKey: string, locale: Locale, error: CreateError): Promise<CreateResult> {
+  return (await replayExisting(deps, idempotencyKey, locale)) ?? fail(error);
 }
 
 async function replayExisting(deps: Deps, idempotencyKey: string, locale: Locale): Promise<CreateResult | null> {

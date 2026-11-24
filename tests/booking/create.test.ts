@@ -172,3 +172,22 @@ test("holdInventory and releaseInventory reject non-positive rooms and duplicate
   await expect(releaseInventory(db, [item])).rejects.toThrow("INVALID_HOLD");
   await expect(releaseInventory(db, [{ ...item, rooms: 1, nights: ["2026-12-01", "2026-12-01"] }])).rejects.toThrow("INVALID_HOLD");
 });
+
+test("a near-simultaneous double submit on the last room returns the same reservation", async () => {
+  const { db, deps, avail } = await setup(1);
+  const [a, b] = await Promise.all([createReservation(deps, input(), NOW), createReservation(deps, input(), NOW)]);
+  if (!a.ok || !b.ok) throw new Error(JSON.stringify([a, b]));
+  expect(b.code).toBe(a.code);
+  expect(await db.select().from(reservations)).toHaveLength(1);
+  expect(await avail("2026-12-01")).toBe(0);
+});
+
+test("a twin that loses the insert race on the idempotency key replays the winner and holds nothing", async () => {
+  const { db, deps, avail } = await setup(3);
+  const [a, b] = await Promise.all([createReservation(deps, input(), NOW), createReservation(deps, input(), NOW)]);
+  if (!a.ok || !b.ok) throw new Error(JSON.stringify([a, b]));
+  expect(b.code).toBe(a.code);
+  expect(await db.select().from(reservations)).toHaveLength(1);
+  expect(await db.select().from(payments)).toHaveLength(1);
+  expect(await avail("2026-12-01")).toBe(2);
+});

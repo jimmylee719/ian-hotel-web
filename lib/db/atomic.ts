@@ -1,6 +1,6 @@
 import type { Db } from "./types";
 
-type Runnable = { run: () => unknown };
+export type Runnable = { run: () => unknown };
 
 /**
  * Run statements all-or-nothing: D1 `batch` (implicit transaction) in production,

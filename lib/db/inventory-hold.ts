@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { ISODate } from "@/lib/domain/dates";
-import { runAtomic } from "./atomic";
+import { runAtomic, type Runnable } from "./atomic";
 import { ariDaily, inventoryDaily } from "./schema";
 import type { Db } from "./types";
 
@@ -20,15 +20,21 @@ const invKey = (i: HoldItem, d: ISODate) => and(eq(inventoryDaily.unitTypeId, i.
  * A night that is sold out or stop-sold for the plan is driven to -1, which violates the
  * `available >= 0` CHECK and rolls the whole batch back — atomic on D1 too.
  */
-export async function holdInventory(db: Db, items: HoldItem[]): Promise<{ ok: true } | { ok: false; error: "SOLD_OUT" }> {
+/**
+ * Build the all-or-nothing decrement statements for a hold, to run in a `runAtomic` batch
+ * (alone, or together with other writes). Returns null when a night has no inventory row.
+ * A night that is sold out or stop-sold for the plan is driven to -1, which violates the
+ * `available >= 0` CHECK and rolls the whole batch back — atomic on D1 too.
+ */
+export async function holdStatements(db: Db, items: HoldItem[]): Promise<Runnable[] | null> {
   assertValid(items);
   // Rows are never deleted, so a missing row checked here stays missing.
   for (const i of items) {
     const rows = await db.select({ date: inventoryDaily.date }).from(inventoryDaily)
       .where(and(eq(inventoryDaily.unitTypeId, i.unitTypeId), inArray(inventoryDaily.date, i.nights)));
-    if (rows.length !== new Set(i.nights).size) return { ok: false, error: "SOLD_OUT" };
+    if (rows.length !== new Set(i.nights).size) return null;
   }
-  const stmts = items.flatMap((i) =>
+  return items.flatMap((i) =>
     i.nights.map((d) =>
       db.update(inventoryDaily)
         .set({
@@ -41,6 +47,12 @@ export async function holdInventory(db: Db, items: HoldItem[]): Promise<{ ok: tr
         .where(invKey(i, d)),
     ),
   );
+}
+
+/** Decrement inventory for every night, all-or-nothing. */
+export async function holdInventory(db: Db, items: HoldItem[]): Promise<{ ok: true } | { ok: false; error: "SOLD_OUT" }> {
+  const stmts = await holdStatements(db, items);
+  if (!stmts) return { ok: false, error: "SOLD_OUT" };
   try {
     await runAtomic(db, stmts);
     return { ok: true };
@@ -57,8 +69,10 @@ export async function releaseInventory(db: Db, items: HoldItem[]): Promise<void>
 }
 
 /** Drizzle and D1 wrap the SQLite error; look through the cause chain. */
-function isCheckViolation(e: unknown): boolean {
+export function hasSqliteError(e: unknown, text: string): boolean {
   for (let cur = e as { message?: string; cause?: unknown } | undefined, n = 0; cur && n < 5; cur = cur.cause as typeof cur, n++)
-    if (String(cur.message ?? cur).includes("CHECK constraint failed")) return true;
+    if (String(cur.message ?? cur).includes(text)) return true;
   return false;
 }
+
+export const isCheckViolation = (e: unknown) => hasSqliteError(e, "CHECK constraint failed");
