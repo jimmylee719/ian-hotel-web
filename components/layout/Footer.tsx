@@ -73,6 +73,7 @@ export async function Footer({ locale }: { locale: Locale }) {
           © {new Date().getFullYear()} {t("copyright")}
         </span>
         <nav aria-label={t("legal")}>
+          <Link href="/manage">{t("manageBooking")}</Link>
           <Link href="/privacy">{t("privacy")}</Link>
           <Link href="/terms">{t("terms")}</Link>
         </nav>

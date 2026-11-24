@@ -1,6 +1,7 @@
 /**
  * Local dev only: seed NK Hostel, its migrated site content (rooms, pages, FAQs, news) and
- * 14 days of fake ARI into the local D1 (`wrangler --local`).
+ * 14 days of fake ARI, a breakfast add-on and a WELCOME10 promo code (placeholders: the owner sets
+ * the real ones in Plan 3) into the local D1 (`wrangler --local`).
  * Builds the rows in an in-memory SQLite with the real migrations, dumps them as INSERTs,
  * then applies the file with wrangler. Wipes the seeded tables in the local DB first.
  * Then uploads the WebP width variants the site requests by default (scripts/media-variants.ts,
@@ -21,7 +22,11 @@ import { seedNk } from "../lib/db/seed-nk";
 import { oldSiteContent } from "../lib/content/old-site";
 import { todayInTaipei } from "../lib/domain/dates";
 
-const TABLES = ["content_pages", "news", "faqs", "inventory_daily", "ari_daily", "rate_plans", "unit_types", "properties"];
+// Child tables first: the DELETEs run in this order, the INSERTs in reverse. Local bookings are wiped too.
+const TABLES = [
+  "notifications", "payment_events", "payments", "reservation_rooms", "reservations", "guests", "rate_limits",
+  "promo_codes", "addons", "content_pages", "news", "faqs", "inventory_daily", "ari_daily", "rate_plans", "unit_types", "properties",
+];
 
 async function main() {
   const sqlite = new Database(":memory:");
@@ -44,6 +49,12 @@ async function main() {
         source: "siteminder", syncedAt: Date.now(),
       });
     }
+
+  await db.insert(schema.addons).values({
+    id: crypto.randomUUID(), propertyId, slug: "breakfast", price: 250, unit: "per_person_night",
+    name: { "zh-TW": "早餐", en: "Breakfast", ja: "朝食", ko: "조식" },
+  });
+  await db.insert(schema.promoCodes).values({ id: crypto.randomUUID(), propertyId, code: "WELCOME10", kind: "percent", value: 10 });
 
   const q = (v: unknown) => (v === null ? "NULL" : typeof v === "number" ? String(v) : `'${String(v).replaceAll("'", "''")}'`);
   const lines = TABLES.map((t) => `DELETE FROM ${t};`);

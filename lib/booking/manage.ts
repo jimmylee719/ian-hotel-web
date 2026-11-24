@@ -18,6 +18,9 @@ export type ReservationView = {
   status: ResStatus;
   checkIn: string;
   checkOut: string;
+  adults: number;
+  children: number;
+  rooms: number;
   roomTypeName: I18n;
   ratePlanName: I18n;
   quote: Quote;
@@ -43,18 +46,21 @@ async function lookup(db: Db, code: string, email: string): Promise<Reservation 
 export async function findReservation(db: Db, code: string, email: string, now: Date = new Date()): Promise<ReservationView | null> {
   const res = await lookup(db, code, email);
   if (!res) return null;
-  const [room] = await db.select({ unitName: unitTypes.name, planName: ratePlans.name })
+  const rooms = await db.select({ unitName: unitTypes.name, planName: ratePlans.name })
     .from(reservationRooms)
     .innerJoin(unitTypes, eq(unitTypes.id, reservationRooms.unitTypeId))
     .innerJoin(ratePlans, eq(ratePlans.id, reservationRooms.ratePlanId))
-    .where(eq(reservationRooms.reservationId, res.id))
-    .limit(1);
+    .where(eq(reservationRooms.reservationId, res.id));
+  const room = rooms[0];
   const canCancel = res.status === "confirmed";
   return {
     code: res.code,
     status: res.status,
     checkIn: res.checkIn,
     checkOut: res.checkOut,
+    adults: res.adults,
+    children: res.children,
+    rooms: rooms.length,
     roomTypeName: room.unitName,
     ratePlanName: room.planName,
     quote: res.quote as Quote,

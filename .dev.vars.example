@@ -1,5 +1,15 @@
-# Local secrets for wrangler dev (copy to .dev.vars).
-# Group inquiry emails (/api/inquiry). Without RESEND_API_KEY the email is only logged.
+# Local secrets and vars for wrangler dev / `npm run preview` (copy to .dev.vars).
+
+# Payments: "mock" (dev pay page at /dev/pay, no money moves) or "sinopac" (Plan 5). Required.
+PAYMENT_MODE=mock
+# Signs mock payment notices; any string locally.
+MOCK_PAYMENT_SECRET=change-me
+# Channel manager: "mock" or "siteminder" (Plan 4). Defaults to mock.
+CHANNEL_MODE=mock
+# Absolute site URL for payment return/notify URLs and email links. Unset = the request's origin.
+# BASE_URL=https://www.nkhostel.com
+
+# Email (booking confirmations, staff alerts, group inquiries). Without RESEND_API_KEY emails are only logged.
 # RESEND_API_KEY=re_xxx
 # EMAIL_FROM="NK Hostel <noreply@nkhostel.com>"
 # STAFF_EMAILS=front@nkhostel.com,manager@nkhostel.com

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { BookingBar } from "@/components/layout/BookingBar";
+import { usePathname } from "@/i18n/navigation";
 
 /** Pages that render their own booking bar mark it with this id; the dock hides while it is on screen. */
 export const INLINE_BOOKING_ID = "inline-booking";
@@ -17,14 +18,16 @@ export function BookingDock() {
   // Starts hidden so the home page does not flash two booking bars before hydration; CSS shows
   // the dock straight away on pages without an inline bar (app/site.css).
   const [inlineVisible, setInlineVisible] = useState(true);
+  const pathname = usePathname();
 
+  // The dock lives in the layout and survives client navigation, so look for the inline bar again on each page.
   useEffect(() => {
     const inline = document.getElementById(INLINE_BOOKING_ID);
     if (!inline) return setInlineVisible(false);
     const io = new IntersectionObserver(([e]) => setInlineVisible(e.isIntersecting));
     io.observe(inline);
     return () => io.disconnect();
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     if (!open) return;
@@ -32,6 +35,9 @@ export function BookingDock() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
+
+  // Mid-booking (details, payment return, manage) a second search bar would only distract.
+  if (/^\/(book\/|manage)/.test(pathname)) return null;
 
   return (
     <div className="booking-dock" data-open={open} data-hidden={inlineVisible && !open} aria-hidden={inlineVisible && !open ? true : undefined} inert={inlineVisible && !open}>

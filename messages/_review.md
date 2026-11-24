@@ -32,12 +32,17 @@ locale on purpose.
 | `news.*`, `faq.*` (Task 8) | MT | MT | MT |
 | `reviews.*` (Task 8); award names follow the wording on each platform's certificate | MT | MT | MT |
 | `inquiry.*` (Task 8, group inquiry form) | MT | MT | MT |
+| `book.*`, `checkout.*`, `bookingStatus.*`, `manage.*`, `footer.manageBooking` (Task 9, booking flow: search results, details form, payment return, manage booking) | MT | MT | MT |
 
 zh-TW keys that are NEW (not on the old site): `meta.title`, `meta.description`, `home.intro`,
 `home.heroCaption`, `home.heroAlt` (from design/proposals/a.html), `footer.nearMrt`, `booking.*`,
-`notFound.*`, and everything added in Task 8 except `home.storyBody*` (EDIT of the old home page text).
+`notFound.*`, everything added in Task 9 (`book.*`, `checkout.*`, `bookingStatus.*`, `manage.*`), and everything added in Task 8 except `home.storyBody*` (EDIT of the old home page text).
 
 Task 8 also hard-codes, in four languages, the hotel amenity names in `lib/jsonld.ts` (`HOTEL_AMENITIES`, MT) and the PostalAddress parts there (ja/ko reuse the zh-TW/en forms; please check). The ratings in `lib/content/reviews.ts` were read off the old award images; the owner should confirm they are still current before launch.
+
+Task 9 notes for review: `checkout.payNote` names Bank SinoPac (永豐銀行) as the payment page; `checkout.policyNote`
+and `manage.cancelledRefund` ("7 to 14 working days") state refund rules and timing the owner must confirm.
+The country list on the details form uses the browser's own region names (`Intl.DisplayNames`), not our translations.
 
 ## 2. Database content (`content/localized/*.ts`, seeded by `lib/db/seed-content.ts`)
 
@@ -81,3 +86,26 @@ zh-TW EDIT, en/ja/ko MT, title and body. Notes:
 
 Not migrated (scraped into `content/old-site.json` but not seeded): `news-183`, `news-181`,
 `news-185` (2019 guest stories with outdated links).
+
+### Room type and rate plan names (`lib/db/seed-nk.ts`, Task 9)
+
+zh-TW and en are the old site's names; **ja and ko are MT** (previously the English names were stored for ja/ko):
+
+| slug | ja | ko |
+|---|---|---|
+| `mixed-cube` | 男女共用ダブルカプセル | 남녀 공용 2인 캡슐 |
+| `female-cube` | 女性専用ダブルカプセル | 여성 전용 2인 캡슐 |
+| `buddy-room` | バディルーム（4名） | 버디 룸 (4인) |
+| `buddy-room-six` | バディルーム（6名） | 버디 룸 (6인) |
+| `mini-room` | ミニダブルルーム | 미니 더블룸 |
+| `classic-room` | クラシックダブルルーム | 클래식 더블룸 |
+| `deluxe-room` | デラックスダブルルーム | 디럭스 더블룸 |
+| `connecting-room` | コネクティングルーム（4名） | 커넥팅 룸 (4인) |
+| rate plan `direct-flex` | 公式サイト限定・フレキシブルプラン | 공식 홈페이지 전용 · 유연한 취소 |
+
+The property name stays "NK Hostel" in ja/ko (brand, as in the UI messages).
+
+### Local-only seed data (`scripts/seed-local.ts`, Task 9)
+
+A breakfast add-on (早餐 / Breakfast / 朝食 / 조식, NT$250 per adult per night, ja/ko MT) and a `WELCOME10`
+promo code are seeded for local testing only. The owner sets the real add-ons and prices (Plan 3 admin).

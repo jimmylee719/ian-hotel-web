@@ -70,7 +70,7 @@ describe("GET /api/bookings/[code]/status", () => {
     const res = await handleBookingStatus(deps.db, code, get(`/api/bookings/${code}/status?email=MEI@example.com`), NOW);
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(await res.json()).toMatchObject({ code, status: "pending_payment", lastPaymentFailed: false });
+    expect(await res.json()).toMatchObject({ code, status: "pending_payment", adults: 2, children: 0, rooms: 1, lastPaymentFailed: false });
   });
 
   test("a failed payment attempt is reported while the booking is still payable", async () => {
