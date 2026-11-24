@@ -1,0 +1,119 @@
+{
+  "meta": {
+    "siteName": "소공관 인문여관 NK Hostel",
+    "title": "소공관 인문여관 NK Hostel | 타이베이 쑹산, MRT 난징싼민역 근처 숙소",
+    "description": "타이베이 쑹산 난징동로 5단에 있으며 라오허제 야시장과 MRT 난징싼민역까지 걸어갈 수 있습니다. 더블룸, 4인·6인실, 캡슐을 갖추고 있으며 공식 홈페이지 예약 시 가장 좋은 요금을 드립니다."
+  },
+  "localeNames": {
+    "zh-TW": "中文",
+    "en": "EN",
+    "ja": "日本語",
+    "ko": "한국어"
+  },
+  "localeShort": {
+    "zh-TW": "中",
+    "en": "EN",
+    "ja": "日",
+    "ko": "한"
+  },
+  "header": {
+    "brand": "小公館人文旅舍",
+    "brandEn": "NK Hostel, Taipei",
+    "home": "소공관 인문여관 홈",
+    "mainNav": "주 메뉴",
+    "menu": "메뉴",
+    "bookNow": "예약하기",
+    "language": "언어",
+    "skipToContent": "본문으로 건너뛰기"
+  },
+  "nav": {
+    "rooms": "객실",
+    "facilities": "공용 공간",
+    "access": "오시는 길",
+    "attractions": "주변 명소",
+    "groups": "단체·장기 투숙",
+    "faq": "자주 묻는 질문",
+    "news": "소식"
+  },
+  "home": {
+    "taglineFirst": "여행은",
+    "taglineSecond": "삶의 연장입니다",
+    "taglineEn": "Travel is an extension of life.",
+    "intro": "난징동로 5단의 5층에서, 멀리서 오신 당신을 위해 불을 밝혀 둡니다. 낮에는 도시로 나가고, 밤에는 집 같은 방으로 돌아오세요.",
+    "nearMrt": "MRT 난징싼민역 근처",
+    "heroAlt": "디럭스룸: 가죽 헤드보드, 벽등, 바닥까지 내려오는 시어 커튼",
+    "heroCaption": "오후 세 시의 빛이 드는 디럭스룸"
+  },
+  "booking": {
+    "title": "빈 객실 검색",
+    "checkIn": "체크인",
+    "checkOut": "체크아웃",
+    "guests": "인원",
+    "adults": "성인",
+    "children": "어린이",
+    "rooms": "객실 수",
+    "guestSummary": "성인 {adults}명{children, plural, =0 {} other {, 어린이 #명}}, 객실 {rooms}개",
+    "nights": "{count}박",
+    "decrease": "{label} 줄이기",
+    "increase": "{label} 늘리기",
+    "done": "완료",
+    "search": "빈 객실 검색",
+    "checkOutAfterCheckIn": "체크아웃 날짜는 체크인 날짜 이후여야 합니다",
+    "selectDate": "날짜 선택"
+  },
+  "footer": {
+    "address": "대만 타이베이시 쑹산구 난징동로 5단 399호 5층 (우편번호 105)",
+    "nearMrt": "MRT 난징싼민역 4번 출구에서 도보 약 8분",
+    "phone": "전화",
+    "email": "이메일",
+    "facebook": "Facebook",
+    "instagram": "Instagram",
+    "line": "LINE 공식 계정",
+    "privacy": "개인정보 처리방침",
+    "terms": "예약 약관",
+    "copyright": "소공관 인문여관 NK Hostel",
+    "contact": "문의",
+    "siteLinks": "사이트 안내",
+    "legal": "약관 및 정책"
+  },
+  "amenities": {
+    "wifi": "무료 Wi-Fi",
+    "usbAdapter": "USB 충전기",
+    "towel": "수건",
+    "outlet110v": "110V 콘센트",
+    "hanger": "옷걸이",
+    "bedsideLamp": "침대 조명",
+    "bedsideTable": "협탁",
+    "toiletries": "목욕용품",
+    "airCon": "에어컨",
+    "keyCard": "카드 키",
+    "slippers": "슬리퍼",
+    "bathTowel": "목욕 수건",
+    "hairDryer": "헤어드라이어",
+    "eLocker": "전자 사물함",
+    "vanityMirror": "화장 거울",
+    "cookware": "조리도구",
+    "tableware": "식기",
+    "teaBags": "티백",
+    "loveseat": "2인용 소파",
+    "fullLengthMirror": "전신 거울",
+    "kettle": "전기 포트",
+    "safe": "금고",
+    "bathtub": "욕조",
+    "miniFridge": "소형 냉장고",
+    "tv": "LCD TV",
+    "splitAirCon": "개별 냉난방",
+    "washlet": "TOTO 비데",
+    "cup": "양치 컵",
+    "plugAdapter": "변환 플러그",
+    "desk": "책상·의자",
+    "sharedBathroom": "공용 욕실",
+    "iron": "다리미·다리미판",
+    "dressingRoom": "탈의실"
+  },
+  "notFound": {
+    "title": "페이지를 찾을 수 없습니다",
+    "body": "주소가 잘못되었거나 페이지가 삭제되었을 수 있습니다.",
+    "back": "홈으로 돌아가기"
+  }
+}

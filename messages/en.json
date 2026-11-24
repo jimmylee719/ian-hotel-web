@@ -1,0 +1,119 @@
+{
+  "meta": {
+    "siteName": "NK Hostel",
+    "title": "NK Hostel, Taipei | Rooms by Nanjing Sanmin MRT, Songshan",
+    "description": "On Nanjing East Road in Songshan, Taipei, a walk from Raohe Night Market and Nanjing Sanmin MRT. Double rooms, four- and six-person rooms and capsules, with the best rates when you book direct."
+  },
+  "localeNames": {
+    "zh-TW": "中文",
+    "en": "EN",
+    "ja": "日本語",
+    "ko": "한국어"
+  },
+  "localeShort": {
+    "zh-TW": "中",
+    "en": "EN",
+    "ja": "日",
+    "ko": "한"
+  },
+  "header": {
+    "brand": "小公館人文旅舍",
+    "brandEn": "NK Hostel, Taipei",
+    "home": "NK Hostel home",
+    "mainNav": "Main menu",
+    "menu": "Menu",
+    "bookNow": "Book now",
+    "language": "Language",
+    "skipToContent": "Skip to main content"
+  },
+  "nav": {
+    "rooms": "Rooms",
+    "facilities": "Shared spaces",
+    "access": "Getting here",
+    "attractions": "Nearby",
+    "groups": "Groups",
+    "faq": "FAQ",
+    "news": "News"
+  },
+  "home": {
+    "taglineFirst": "旅行",
+    "taglineSecond": "是一種生活的延伸",
+    "taglineEn": "Travel is an extension of life.",
+    "intro": "On the fifth floor of Nanjing East Road, we keep a light on for you. Spend the day out in the city, and come back at night to a room that feels like home.",
+    "nearMrt": "Near Nanjing Sanmin MRT station",
+    "heroAlt": "Deluxe Room: leather headboard, wall lamps and full-length sheer curtains",
+    "heroCaption": "The Deluxe Room in the three o'clock light"
+  },
+  "booking": {
+    "title": "Check availability",
+    "checkIn": "Check-in",
+    "checkOut": "Check-out",
+    "guests": "Guests",
+    "adults": "Adults",
+    "children": "Children",
+    "rooms": "Rooms",
+    "guestSummary": "{adults, plural, one {# adult} other {# adults}}{children, plural, =0 {} one {, # child} other {, # children}}, {rooms, plural, one {# room} other {# rooms}}",
+    "nights": "{count, plural, one {# night} other {# nights}}",
+    "decrease": "Fewer {label}",
+    "increase": "More {label}",
+    "done": "Done",
+    "search": "Check availability",
+    "checkOutAfterCheckIn": "Check-out must be after check-in",
+    "selectDate": "Select a date"
+  },
+  "footer": {
+    "address": "5F, No. 399, Sec. 5, Nanjing E. Rd, Songshan Dist., Taipei 105, Taiwan",
+    "nearMrt": "8 minutes' walk from Nanjing Sanmin MRT, exit 4",
+    "phone": "Phone",
+    "email": "Email",
+    "facebook": "Facebook",
+    "instagram": "Instagram",
+    "line": "LINE",
+    "privacy": "Privacy policy",
+    "terms": "Booking terms",
+    "copyright": "NK Hostel 小公館人文旅舍",
+    "contact": "Contact",
+    "siteLinks": "Site links",
+    "legal": "Policies"
+  },
+  "amenities": {
+    "wifi": "Free Wi-Fi",
+    "usbAdapter": "USB charger",
+    "towel": "Towel",
+    "outlet110v": "110V socket",
+    "hanger": "Hangers",
+    "bedsideLamp": "Bedside lamp",
+    "bedsideTable": "Bedside table",
+    "toiletries": "Toiletries",
+    "airCon": "Air conditioning",
+    "keyCard": "Key card",
+    "slippers": "Slippers",
+    "bathTowel": "Bath towel",
+    "hairDryer": "Hair dryer",
+    "eLocker": "Electronic locker",
+    "vanityMirror": "Vanity mirror",
+    "cookware": "Cookware",
+    "tableware": "Tableware",
+    "teaBags": "Tea",
+    "loveseat": "Loveseat",
+    "fullLengthMirror": "Full-length mirror",
+    "kettle": "Kettle",
+    "safe": "Safe",
+    "bathtub": "Bathtub",
+    "miniFridge": "Mini fridge",
+    "tv": "LCD TV",
+    "splitAirCon": "Own heating and cooling",
+    "washlet": "TOTO washlet",
+    "cup": "Cup",
+    "plugAdapter": "Plug adapter",
+    "desk": "Desk and chair",
+    "sharedBathroom": "Shared bathroom",
+    "iron": "Iron and board",
+    "dressingRoom": "Dressing room"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "body": "The address may be mistyped, or the page has been removed.",
+    "back": "Back to the home page"
+  }
+}

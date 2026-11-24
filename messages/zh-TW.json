@@ -1,0 +1,119 @@
+{
+  "meta": {
+    "siteName": "小公館人文旅舍",
+    "title": "小公館人文旅舍｜台北松山・南京三民站旁的人文旅店",
+    "description": "位於台北松山南京東路五段，步行可到饒河夜市與捷運南京三民站。雙人套房、四人與六人房、個人旅艙，官網訂房享專屬價格。"
+  },
+  "localeNames": {
+    "zh-TW": "中文",
+    "en": "EN",
+    "ja": "日本語",
+    "ko": "한국어"
+  },
+  "localeShort": {
+    "zh-TW": "中",
+    "en": "EN",
+    "ja": "日",
+    "ko": "한"
+  },
+  "header": {
+    "brand": "小公館人文旅舍",
+    "brandEn": "NK Hostel, Taipei",
+    "home": "小公館人文旅舍首頁",
+    "mainNav": "主選單",
+    "menu": "選單",
+    "bookNow": "立即訂房",
+    "language": "語言",
+    "skipToContent": "跳到主要內容"
+  },
+  "nav": {
+    "rooms": "房型",
+    "facilities": "公共空間",
+    "access": "交通",
+    "attractions": "周邊景點",
+    "groups": "團體與長住",
+    "faq": "常見問題",
+    "news": "最新消息"
+  },
+  "home": {
+    "taglineFirst": "旅行",
+    "taglineSecond": "是一種生活的延伸",
+    "taglineEn": "Travel is an extension of life.",
+    "intro": "在南京東路五段的五樓，替遠道而來的你留一盞燈。白天走進城市，晚上回到像家一樣的房間。",
+    "nearMrt": "鄰近捷運南京三民站",
+    "heroAlt": "景緻雙人套房：皮革床頭、壁燈與落地紗簾",
+    "heroCaption": "景緻雙人套房，午後三點的光"
+  },
+  "booking": {
+    "title": "查詢空房",
+    "checkIn": "入住",
+    "checkOut": "退房",
+    "guests": "人數",
+    "adults": "大人",
+    "children": "小孩",
+    "rooms": "間數",
+    "guestSummary": "{adults} 位大人{children, plural, =0 {} other {、# 位小孩}}，{rooms} 間",
+    "nights": "{count} 晚",
+    "decrease": "減少{label}",
+    "increase": "增加{label}",
+    "done": "完成",
+    "search": "查詢空房",
+    "checkOutAfterCheckIn": "退房日期須晚於入住日期",
+    "selectDate": "選擇日期"
+  },
+  "footer": {
+    "address": "105 台北市松山區南京東路五段 399 號 5 樓",
+    "nearMrt": "捷運南京三民站 4 號出口步行約 8 分鐘",
+    "phone": "電話",
+    "email": "Email",
+    "facebook": "Facebook",
+    "instagram": "Instagram",
+    "line": "LINE 官方帳號",
+    "privacy": "隱私權政策",
+    "terms": "訂房條款",
+    "copyright": "小公館人文旅舍 NK Hostel",
+    "contact": "聯絡我們",
+    "siteLinks": "網站導覽",
+    "legal": "條款與政策"
+  },
+  "amenities": {
+    "wifi": "免費 Wi-Fi",
+    "usbAdapter": "USB 充電座",
+    "towel": "毛巾",
+    "outlet110v": "110V 插座",
+    "hanger": "衣架",
+    "bedsideLamp": "床頭燈",
+    "bedsideTable": "床頭櫃",
+    "toiletries": "沐浴用品",
+    "airCon": "冷氣",
+    "keyCard": "房卡",
+    "slippers": "拖鞋",
+    "bathTowel": "浴巾",
+    "hairDryer": "吹風機",
+    "eLocker": "電子置物櫃",
+    "vanityMirror": "修容鏡",
+    "cookware": "鍋具",
+    "tableware": "碗筷",
+    "teaBags": "茶包",
+    "loveseat": "雙人小沙發",
+    "fullLengthMirror": "全身鏡",
+    "kettle": "熱水壺",
+    "safe": "保險箱",
+    "bathtub": "浴缸",
+    "miniFridge": "小冰箱",
+    "tv": "液晶電視",
+    "splitAirCon": "獨立冷暖氣",
+    "washlet": "TOTO 免治馬桶",
+    "cup": "漱口杯",
+    "plugAdapter": "轉接頭",
+    "desk": "書桌椅",
+    "sharedBathroom": "公共衛浴",
+    "iron": "熨斗與燙衣板",
+    "dressingRoom": "更衣間"
+  },
+  "notFound": {
+    "title": "找不到這個頁面",
+    "body": "網址可能打錯了，或頁面已經移除。",
+    "back": "回到首頁"
+  }
+}

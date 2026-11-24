@@ -1,0 +1,119 @@
+{
+  "meta": {
+    "siteName": "小公館人文旅舎 NK Hostel",
+    "title": "小公館人文旅舎 NK Hostel｜台北・松山、MRT 南京三民駅そばの宿",
+    "description": "台北・松山の南京東路五段。饒河街夜市と MRT 南京三民駅まで徒歩圏内。ダブルルーム、4 名・6 名様用客室、カプセルをご用意。公式サイトからのご予約が最もお得です。"
+  },
+  "localeNames": {
+    "zh-TW": "中文",
+    "en": "EN",
+    "ja": "日本語",
+    "ko": "한국어"
+  },
+  "localeShort": {
+    "zh-TW": "中",
+    "en": "EN",
+    "ja": "日",
+    "ko": "한"
+  },
+  "header": {
+    "brand": "小公館人文旅舍",
+    "brandEn": "NK Hostel, Taipei",
+    "home": "小公館人文旅舎 ホーム",
+    "mainNav": "メインメニュー",
+    "menu": "メニュー",
+    "bookNow": "予約する",
+    "language": "言語",
+    "skipToContent": "本文へスキップ"
+  },
+  "nav": {
+    "rooms": "客室",
+    "facilities": "共用スペース",
+    "access": "アクセス",
+    "attractions": "周辺観光",
+    "groups": "団体・長期滞在",
+    "faq": "よくある質問",
+    "news": "お知らせ"
+  },
+  "home": {
+    "taglineFirst": "旅は",
+    "taglineSecond": "暮らしの延長",
+    "taglineEn": "Travel is an extension of life.",
+    "intro": "南京東路五段の五階で、遠くから訪れるあなたのために明かりを灯しています。昼は街へ、夜はわが家のような部屋へ。",
+    "nearMrt": "MRT 南京三民駅のそば",
+    "heroAlt": "デラックスルーム：レザーのヘッドボード、壁付けランプ、床まで届くレースカーテン",
+    "heroCaption": "午後三時の光が差すデラックスルーム"
+  },
+  "booking": {
+    "title": "空室を検索",
+    "checkIn": "チェックイン",
+    "checkOut": "チェックアウト",
+    "guests": "人数",
+    "adults": "大人",
+    "children": "子ども",
+    "rooms": "部屋数",
+    "guestSummary": "大人 {adults} 名{children, plural, =0 {} other {・子ども # 名}}、{rooms} 室",
+    "nights": "{count} 泊",
+    "decrease": "{label}を減らす",
+    "increase": "{label}を増やす",
+    "done": "決定",
+    "search": "空室を検索",
+    "checkOutAfterCheckIn": "チェックアウト日はチェックイン日より後にしてください",
+    "selectDate": "日付を選択"
+  },
+  "footer": {
+    "address": "〒105 台湾台北市松山区南京東路五段 399 号 5 階",
+    "nearMrt": "MRT 南京三民駅 4 番出口から徒歩約 8 分",
+    "phone": "電話",
+    "email": "メール",
+    "facebook": "Facebook",
+    "instagram": "Instagram",
+    "line": "LINE 公式アカウント",
+    "privacy": "プライバシーポリシー",
+    "terms": "予約規約",
+    "copyright": "小公館人文旅舎 NK Hostel",
+    "contact": "お問い合わせ",
+    "siteLinks": "サイト案内",
+    "legal": "規約・ポリシー"
+  },
+  "amenities": {
+    "wifi": "無料 Wi-Fi",
+    "usbAdapter": "USB 充電器",
+    "towel": "フェイスタオル",
+    "outlet110v": "110V コンセント",
+    "hanger": "ハンガー",
+    "bedsideLamp": "ベッドサイドランプ",
+    "bedsideTable": "ナイトテーブル",
+    "toiletries": "バスアメニティ",
+    "airCon": "エアコン",
+    "keyCard": "カードキー",
+    "slippers": "スリッパ",
+    "bathTowel": "バスタオル",
+    "hairDryer": "ドライヤー",
+    "eLocker": "電子ロッカー",
+    "vanityMirror": "ドレッサーミラー",
+    "cookware": "調理器具",
+    "tableware": "食器",
+    "teaBags": "ティーバッグ",
+    "loveseat": "2 人掛けソファ",
+    "fullLengthMirror": "姿見",
+    "kettle": "電気ケトル",
+    "safe": "セーフティボックス",
+    "bathtub": "バスタブ",
+    "miniFridge": "小型冷蔵庫",
+    "tv": "液晶テレビ",
+    "splitAirCon": "個別空調",
+    "washlet": "TOTO 温水洗浄便座",
+    "cup": "コップ",
+    "plugAdapter": "変換プラグ",
+    "desk": "デスク・チェア",
+    "sharedBathroom": "共用バスルーム",
+    "iron": "アイロン・アイロン台",
+    "dressingRoom": "更衣室"
+  },
+  "notFound": {
+    "title": "ページが見つかりません",
+    "body": "URL が間違っているか、ページが削除された可能性があります。",
+    "back": "ホームへ戻る"
+  }
+}

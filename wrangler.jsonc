@@ -13,5 +13,6 @@
       "database_id": "local",
       "migrations_dir": "drizzle/migrations"
     }
-  ]
+  ],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "nk-media" }]
 }

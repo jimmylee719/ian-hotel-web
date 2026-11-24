@@ -1,5 +1,6 @@
 /**
- * Local dev only: seed NK Hostel + 14 days of fake ARI into the local D1 (`wrangler --local`).
+ * Local dev only: seed NK Hostel, its migrated site content (rooms, pages, FAQs, news) and
+ * 14 days of fake ARI into the local D1 (`wrangler --local`).
  * Builds the rows in an in-memory SQLite with the real migrations, dumps them as INSERTs,
  * then applies the file with wrangler. Wipes the seeded tables in the local DB first.
  */
@@ -11,16 +12,19 @@ import { addDays, format } from "date-fns";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import * as schema from "../lib/db/schema";
+import { seedContent } from "../lib/db/seed-content";
 import { seedNk } from "../lib/db/seed-nk";
+import { oldSiteContent } from "../lib/content/old-site";
 import { todayInTaipei } from "../lib/domain/dates";
 
-const TABLES = ["inventory_daily", "ari_daily", "rate_plans", "unit_types", "properties"];
+const TABLES = ["content_pages", "news", "faqs", "inventory_daily", "ari_daily", "rate_plans", "unit_types", "properties"];
 
 async function main() {
   const sqlite = new Database(":memory:");
   const db = drizzle(sqlite, { schema });
   migrate(db, { migrationsFolder: path.resolve("drizzle/migrations") });
   const { propertyId } = await seedNk(db);
+  await seedContent(db, propertyId, oldSiteContent());
 
   const [plan] = await db.select().from(schema.ratePlans);
   const types = await db.select().from(schema.unitTypes);
