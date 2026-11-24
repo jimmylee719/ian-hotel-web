@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
+import { BookingDisabledNotice } from "@/components/booking/BookingDisabledNotice";
 import { formatPrice, param, parseGuests, type SearchParams } from "@/components/booking/format";
 import { BookingBar } from "@/components/layout/BookingBar";
 import { INLINE_BOOKING_ID } from "@/components/site/BookingDock";
@@ -12,6 +13,7 @@ import { roomImages } from "@/lib/content/old-site";
 import { searchAvailability, type RichOffer } from "@/lib/db/ari-repo";
 import { getDb } from "@/lib/db/client";
 import type { Locale } from "@/lib/db/schema";
+import { bookingEnabled } from "@/lib/runtime/deps";
 import { buildMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +45,15 @@ export default async function BookPage({ params, searchParams }: Props) {
   const stay = usingDefault ? defaultStay(new Date()) : asked;
   const nights = nightsBetween(stay.checkIn, stay.checkOut);
   const wanted = param(q.room);
+
+  if (!(await bookingEnabled())) {
+    return (
+      <main id="main" className="wrap book-page">
+        <PageHead title={t("title")} />
+        <BookingDisabledNotice locale={locale} />
+      </main>
+    );
+  }
 
   const property = await loadProperty();
   const result = property

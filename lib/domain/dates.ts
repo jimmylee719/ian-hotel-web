@@ -40,3 +40,10 @@ export function daysBefore(checkIn: ISODate, at: Date): number {
   const today = toLocalDate(todayInTaipei(at))!;
   return differenceInCalendarDays(ci, today);
 }
+
+/** `date` plus `days` calendar days. */
+export function addDaysISO(date: ISODate, days: number): ISODate {
+  const d = toLocalDate(date);
+  if (!d) throw new Error(`Invalid date: ${date}`);
+  return format(addDays(d, days), "yyyy-MM-dd");
+}

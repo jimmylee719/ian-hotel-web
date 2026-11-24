@@ -62,4 +62,18 @@ describe("MockEmailSender", () => {
     expect(r.ok).toBe(true);
     expect(s.sent).toHaveLength(1);
   });
+
+  it("pre_arrival tells the guest how to get there, the check-in time and how to reach the hotel, in every locale", () => {
+    const expected = { "zh-TW": "捷運南京三民站", en: "Nanjing Sanmin MRT", ja: "南京三民駅", ko: "난징싼민역" } as const;
+    for (const l of LOCALES) {
+      const m = renderEmail("pre_arrival", l, data);
+      for (const out of [m.text, m.html]) {
+        expect(out).toContain(expected[l]);
+        expect(out).toContain("15:00");
+        expect(out).toContain(data.hotelPhone);
+        expect(out).toContain(data.hotelEmail);
+      }
+    }
+    expect(renderEmail("booking_confirmed", "en", data).text).not.toContain("Nanjing Sanmin MRT");
+  });
 });

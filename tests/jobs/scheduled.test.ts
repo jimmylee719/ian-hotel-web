@@ -1,0 +1,73 @@
+import { eq } from "drizzle-orm";
+import { expect, test, vi } from "vitest";
+import { handlePaymentNotice } from "@/lib/booking/payment-notice";
+import { MockChannelManager } from "@/lib/channel/mock";
+import { notifications, rateLimits } from "@/lib/db/schema";
+import { runExpireHolds } from "@/lib/jobs/expire-holds";
+import { pruneRateLimits } from "@/lib/jobs/rate-limits";
+import { runScheduled } from "@/lib/jobs/scheduled";
+import { bookingSetup, NOW, STAFF } from "@/tests/helpers/booking";
+
+vi.mock("@/lib/jobs/expire-holds", async (orig) => {
+  const m = await orig<typeof import("@/lib/jobs/expire-holds")>();
+  return { ...m, runExpireHolds: vi.fn(m.runExpireHolds) };
+});
+
+// Taipei 2026-11-28 10:00, so check-in 2026-12-01 is exactly 3 days away.
+const RUN = new Date("2026-11-28T02:00:00Z");
+
+/** A: unpaid, hold lapsed. B: paid, channel push failed once (due for retry). C: confirmed, checks in 12-01. */
+async function scenario() {
+  const s = await bookingSetup({ channel: new MockChannelManager({ failNext: 1, retryable: true }) });
+  await s.book({ idempotencyKey: "key-aaaa-000001" });
+  const b = await s.book({ idempotencyKey: "key-bbbb-000002", checkIn: "2026-12-02", checkOut: "2026-12-04" });
+  await handlePaymentNotice(s.deps, await s.notice(b, { amount: 4000 }), NOW);
+  const c = await s.book({ idempotencyKey: "key-cccc-000003" });
+  await handlePaymentNotice(s.deps, await s.notice(c), NOW);
+  expect((await s.reservation(b)).status).toBe("paid_pending_confirm");
+  expect((await s.reservation(c)).status).toBe("confirmed");
+  s.email.sent.length = 0;
+  return { ...s, b, c };
+}
+
+test("runScheduled expires the hold, retries the sync and sends the pre-arrival email; a second run does nothing", async () => {
+  const { deps, email, reservation, b, c } = await scenario();
+  expect(await runScheduled(deps, RUN)).toEqual({ expired: 1, attempted: 1, preArrival: 1 });
+  expect((await reservation(b)).status).toBe("confirmed");
+  expect(email.sent.filter((e) => e.to === "mei@example.com" && e.subject.includes((c as string)))).toHaveLength(1);
+
+  email.sent.length = 0;
+  expect(await runScheduled(deps, RUN)).toEqual({ expired: 0, attempted: 0, preArrival: 0 });
+  expect(await runScheduled(deps, new Date(RUN.getTime() + 5 * 60_000))).toEqual({ expired: 0, attempted: 0, preArrival: 0 });
+  expect(email.sent).toHaveLength(0);
+});
+
+test("one job throwing does not stop the other two", async () => {
+  const { deps } = await scenario();
+  vi.mocked(runExpireHolds).mockRejectedValueOnce(new Error("boom"));
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  expect(await runScheduled(deps, RUN)).toEqual({ expired: 0, attempted: 1, preArrival: 1 });
+  expect(error).toHaveBeenCalledWith(expect.stringContaining("expire"), expect.any(Error));
+  error.mockRestore();
+});
+
+test("pruneRateLimits deletes counters older than a day and keeps the rest", async () => {
+  const { db } = await bookingSetup();
+  const day = 24 * 3600_000;
+  await db.insert(rateLimits).values([
+    { key: "create:old", windowStart: RUN.getTime() - day - 60_000, count: 3 },
+    { key: "create:edge", windowStart: RUN.getTime() - day, count: 1 },
+    { key: "create:new", windowStart: RUN.getTime() - 60_000, count: 2 },
+  ]);
+  expect(await pruneRateLimits(db, RUN)).toEqual({ pruned: 1 });
+  expect((await db.select().from(rateLimits)).map((r) => r.key).sort()).toEqual(["create:edge", "create:new"]);
+  expect(await pruneRateLimits(db, RUN)).toEqual({ pruned: 0 });
+});
+
+test("the staff address is untouched by pre-arrival", async () => {
+  const { deps, db } = await scenario();
+  await runScheduled(deps, RUN);
+  const rows = await db.select().from(notifications).where(eq(notifications.kind, "pre_arrival"));
+  expect(rows.map((r) => r.to)).toEqual(["mei@example.com"]);
+  expect(rows[0].to).not.toBe(STAFF);
+});

@@ -247,7 +247,11 @@
     "roomOnly": "不含早餐",
     "select": "選擇",
     "roomDetails": "房型介紹",
-    "plansFor": "{room}的方案"
+    "plansFor": "{room}的方案",
+    "disabledTitle": "線上訂房即將開放",
+    "disabledBody": "線上訂房即將開放。在這之前，請直接與我們聯絡，我們會親自為您安排住宿。",
+    "disabledPhone": "電話",
+    "disabledEmail": "電子郵件"
   },
   "checkout": {
     "title": "填寫訂房資料",

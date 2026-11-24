@@ -1,11 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "main": ".open-next/worker.js",
+  "main": "worker.ts",
   "name": "nk-booking",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "nk-booking" }],
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "vars": { "PAYMENT_MODE": "mock", "CHANNEL_MODE": "mock" },
   "d1_databases": [
     {
       "binding": "DB",
@@ -14,5 +16,24 @@
       "migrations_dir": "drizzle/migrations"
     }
   ],
-  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "nk-media" }]
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "nk-media" }],
+  "env": {
+    "production": {
+      "name": "nk-booking-production",
+      "main": "worker.ts",
+      "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+      "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "nk-booking-production" }],
+      "triggers": { "crons": ["*/5 * * * *"] },
+      "vars": {},
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "nk-booking",
+          "database_id": "REPLACE_WITH_PRODUCTION_D1_ID",
+          "migrations_dir": "drizzle/migrations"
+        }
+      ],
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "nk-media" }]
+    }
+  }
 }

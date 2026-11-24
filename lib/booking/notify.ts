@@ -27,11 +27,12 @@ const STAFF_LOCALE: Locale = "zh-TW";
  * Send an email at most once per (reservation, kind, recipient, ref). The notifications row is written
  * first and its unique index blocks a second send; a failed send is recorded, never thrown.
  * `ref` separates repeat alerts of one kind (e.g. one per stray charge); '' for ordinary emails.
+ * Returns "sent", "failed" (the provider refused; recorded, not retried) or "duplicate" (already done).
  */
 export async function sendOnce(
   deps: Pick<Deps, "db" | "email">, reservationId: string, kind: NotificationKind, to: string, email: Email, now: Date,
   ref = "",
-): Promise<void> {
+): Promise<SendResult> {
   const { db } = deps;
   const [r] = await db.select({ propertyId: reservations.propertyId }).from(reservations).where(eq(reservations.id, reservationId));
   if (!r) throw new Error(`Reservation ${reservationId} not found`);
@@ -39,7 +40,7 @@ export async function sendOnce(
   try {
     await db.insert(notifications).values({ id, propertyId: r.propertyId, reservationId, kind, to, ref, status: "sent", at: now.getTime() });
   } catch (e) {
-    if (hasSqliteError(e, "UNIQUE constraint failed")) return; // already sent
+    if (hasSqliteError(e, "UNIQUE constraint failed")) return "duplicate"; // already sent
     throw e;
   }
   let sent: Awaited<ReturnType<EmailSender["send"]>>;
@@ -51,21 +52,25 @@ export async function sendOnce(
   await db.update(notifications)
     .set(sent.ok ? { providerId: sent.id } : { status: "failed" })
     .where(eq(notifications.id, id));
+  return sent.ok ? "sent" : "failed";
 }
+
+export type SendResult = "sent" | "failed" | "duplicate";
 
 /**
  * Email the guest in the reservation's language. Never throws: emails run after state has
- * committed, so a failure is logged and the business flow carries on.
+ * committed, so a failure is logged and the business flow carries on ("failed" is returned).
  */
 export async function notifyGuest(
   deps: Deps, reservationId: string, kind: NotificationKind, now: Date, extra: Partial<EmailData> = {},
-): Promise<void> {
+): Promise<SendResult> {
   try {
     const ctx = await emailContext(deps, reservationId);
     const data = { ...ctx.data, ...extra };
-    await sendOnce(deps, reservationId, kind, ctx.guestEmail, { to: ctx.guestEmail, ...renderEmail(kind, ctx.locale, data) }, now);
+    return await sendOnce(deps, reservationId, kind, ctx.guestEmail, { to: ctx.guestEmail, ...renderEmail(kind, ctx.locale, data) }, now);
   } catch (e) {
     console.error(`notifyGuest ${kind} failed for reservation ${reservationId}`, e);
+    return "failed";
   }
 }
 

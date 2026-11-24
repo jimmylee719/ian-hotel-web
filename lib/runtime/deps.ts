@@ -12,24 +12,76 @@ import type { PaymentGateway } from "@/lib/payments/types";
 import { appEnv, type AppEnv } from "./env";
 
 /**
+ * Thrown when online booking is switched off because PAYMENT_MODE is not set (production before
+ * SinoPac is configured). Routes turn it into a 503; pages show the "booking coming soon" notice.
+ * The message stays "PAYMENT_MODE_NOT_SET" so logs say why.
+ */
+export class BookingDisabledError extends Error {
+  constructor() {
+    super("PAYMENT_MODE_NOT_SET");
+    this.name = "BookingDisabledError";
+  }
+}
+
+/** Is online booking on? False while PAYMENT_MODE is unset (fail closed). */
+export function paymentsConfigured(env: AppEnv): boolean {
+  return !!env.PAYMENT_MODE;
+}
+
+export async function bookingEnabled(): Promise<boolean> {
+  return paymentsConfigured(await appEnv());
+}
+
+/** What the email and staff paths need: no payment gateway, so it works while PAYMENT_MODE is unset. */
+export type CoreDeps = Pick<Deps, "db" | "email" | "staffEmails" | "baseUrl">;
+
+export async function getCoreDeps(origin: string): Promise<CoreDeps> {
+  return buildCoreDeps(await appEnv(), await getDb(), origin);
+}
+
+export function buildCoreDeps(env: AppEnv, db: Db, origin: string): CoreDeps {
+  return {
+    db,
+    email: emailSender(env),
+    staffEmails: (env.STAFF_EMAILS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    baseUrl: (env.BASE_URL || origin).replace(/\/+$/, ""),
+  };
+}
+
+/**
  * Everything the booking services need, for this request. `origin` (the request's) is the base for
  * the absolute URLs given to the payment gateway and put in emails, unless BASE_URL is set.
+ * Throws BookingDisabledError while PAYMENT_MODE is unset.
  */
 export async function getDeps(origin: string): Promise<Deps> {
   return buildDeps(await appEnv(), await getDb(), origin);
 }
 
 export function buildDeps(env: AppEnv, db: Db, origin: string): Deps {
-  const baseUrl = (env.BASE_URL || origin).replace(/\/+$/, "");
+  const core = buildCoreDeps(env, db, origin);
+  return { ...core, gateway: paymentGateway(env, core.baseUrl), channel: channelManager(env) };
+}
+
+/**
+ * Deps for the cron worker. Hold expiry and pre-arrival emails need no gateway, so they keep running
+ * while payments are not configured; the gateway then refuses any use.
+ */
+export function buildScheduledDeps(env: AppEnv, db: Db): Deps {
+  const core = buildCoreDeps(env, db, "http://localhost:8787");
   return {
-    db,
-    gateway: paymentGateway(env, baseUrl),
+    ...core,
+    gateway: paymentsConfigured(env) ? paymentGateway(env, core.baseUrl) : disabledGateway,
     channel: channelManager(env),
-    email: emailSender(env),
-    staffEmails: (env.STAFF_EMAILS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
-    baseUrl,
   };
 }
+
+const disabledGateway: PaymentGateway = {
+  provider: "mock",
+  supportsPreauth: false,
+  async startCharge() { throw new BookingDisabledError(); },
+  async verifyNotice() { throw new BookingDisabledError(); },
+  async refund() { throw new BookingDisabledError(); },
+};
 
 function paymentGateway(env: AppEnv, baseUrl: string): PaymentGateway {
   switch (env.PAYMENT_MODE) {
@@ -39,7 +91,7 @@ function paymentGateway(env: AppEnv, baseUrl: string): PaymentGateway {
       throw new Error("SINOPAC_NOT_CONFIGURED"); // Plan 5
     case undefined:
     case "":
-      throw new Error("PAYMENT_MODE_NOT_SET");
+      throw new BookingDisabledError();
     default:
       throw new Error(`UNKNOWN_PAYMENT_MODE: ${env.PAYMENT_MODE}`);
   }

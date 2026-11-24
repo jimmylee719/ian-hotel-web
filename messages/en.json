@@ -247,7 +247,11 @@
     "roomOnly": "Room only",
     "select": "Select",
     "roomDetails": "About this room",
-    "plansFor": "Rates for the {room}"
+    "plansFor": "Rates for the {room}",
+    "disabledTitle": "Online booking is coming soon",
+    "disabledBody": "We're getting online booking ready. Until it opens, please contact us and we'll arrange your stay directly.",
+    "disabledPhone": "Phone",
+    "disabledEmail": "Email"
   },
   "checkout": {
     "title": "Your details",

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { and, eq } from "drizzle-orm";
 import { getTranslations, setRequestLocale } from "next-intl/server";
+import { BookingDisabledNotice } from "@/components/booking/BookingDisabledNotice";
 import { BookingForm } from "@/components/booking/BookingForm";
 import { param, parseGuests, type SearchParams } from "@/components/booking/format";
 import { PROPERTY_SLUG } from "@/components/site/data";
@@ -10,6 +11,7 @@ import { cancellationText } from "@/lib/booking/notify";
 import { priceStay } from "@/lib/booking/pricing";
 import { getDb } from "@/lib/db/client";
 import { addons, type Locale } from "@/lib/db/schema";
+import { bookingEnabled } from "@/lib/runtime/deps";
 import { buildMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +29,15 @@ export default async function DetailsPage({ params, searchParams }: Props) {
   setRequestLocale(locale);
   const q = await searchParams;
   const t = await getTranslations({ locale, namespace: "checkout" });
+
+  if (!(await bookingEnabled())) {
+    return (
+      <main id="main" className="wrap book-page">
+        <PageHead title={t("title")} />
+        <BookingDisabledNotice locale={locale} />
+      </main>
+    );
+  }
 
   const guests = parseGuests(q);
   const stay = { checkIn: param(q.checkIn), checkOut: param(q.checkOut) };

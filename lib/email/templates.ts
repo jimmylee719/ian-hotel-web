@@ -27,8 +27,10 @@ type Copy = {
   labels: {
     code: string; stay: string; room: string; rooms: string; nights: string; roomSubtotal: string;
     addons: string; discount: string; total: string; paid: string; refund: string; cancellation: string;
-    contact: string; manage: string;
+    contact: string; manage: string; checkInTime: string; directions: string;
   };
+  /** Pre-arrival only: the property's check-in/out times and how to get there. */
+  arrival: { times: string; directions: string };
   sign: string;
   kinds: Record<CustomerKind, { subject: (d: EmailData) => string; heading: string; intro: (d: EmailData) => string }>;
 };
@@ -38,7 +40,11 @@ const copy: Record<Locale, Copy> = {
     labels: {
       code: "訂單代碼", stay: "入住期間", room: "房型", rooms: "間數", nights: "晚數", roomSubtotal: "房費",
       addons: "加購項目", discount: "優惠折抵", total: "訂單總額", paid: "已付金額", refund: "退款金額",
-      cancellation: "取消規則", contact: "聯絡我們", manage: "查看或管理訂單",
+      cancellation: "取消規則", contact: "聯絡我們", manage: "查看或管理訂單", checkInTime: "入住時間", directions: "交通方式",
+    },
+    arrival: {
+      times: "15:00 起可入住，退房時間為 11:00 前。入住時請出示與訂單姓名相符的身分證件或護照。",
+      directions: "捷運南京三民站 4 號出口步行約 8 分鐘，樓下就有公車站。饒河街夜市與松山車站都在步行範圍內，到松山機場搭計程車約 10 分鐘。",
     },
     sign: "期待與您相見",
     kinds: {
@@ -69,6 +75,11 @@ const copy: Record<Locale, Copy> = {
       code: "Booking code", stay: "Stay", room: "Room", rooms: "Rooms", nights: "Nights", roomSubtotal: "Room charges",
       addons: "Add-ons", discount: "Discount", total: "Total", paid: "Paid", refund: "Refund",
       cancellation: "Cancellation policy", contact: "Contact us", manage: "View or manage your booking",
+      checkInTime: "Check-in", directions: "Getting here",
+    },
+    arrival: {
+      times: "Check-in from 15:00, check-out by 11:00. Please bring photo ID or a passport matching the name on the booking.",
+      directions: "About 8 minutes' walk from exit 4 of Nanjing Sanmin MRT station, with a bus stop right outside. Raohe Street Night Market and Songshan Station are within walking distance, and Songshan Airport is about 10 minutes by taxi.",
     },
     sign: "We look forward to welcoming you",
     kinds: {
@@ -99,6 +110,11 @@ const copy: Record<Locale, Copy> = {
       code: "ご予約番号", stay: "ご宿泊期間", room: "お部屋タイプ", rooms: "室数", nights: "泊数", roomSubtotal: "宿泊料金",
       addons: "オプション", discount: "割引", total: "合計金額", paid: "お支払い済み金額", refund: "ご返金額",
       cancellation: "キャンセルポリシー", contact: "お問い合わせ", manage: "ご予約の確認・変更",
+      checkInTime: "チェックイン", directions: "アクセス",
+    },
+    arrival: {
+      times: "チェックインは 15:00 から、チェックアウトは 11:00 までです。ご予約名と一致する身分証明書またはパスポートをご提示ください。",
+      directions: "MRT 南京三民駅 4 番出口から徒歩約 8 分、建物の前にバス停があります。饒河街夜市と松山駅は徒歩圏内、松山空港へはタクシーで約 10 分です。",
     },
     sign: "ご来館を心よりお待ちしております",
     kinds: {
@@ -129,6 +145,11 @@ const copy: Record<Locale, Copy> = {
       code: "예약 번호", stay: "숙박 기간", room: "객실 유형", rooms: "객실 수", nights: "숙박 일수", roomSubtotal: "객실 요금",
       addons: "추가 옵션", discount: "할인", total: "총 금액", paid: "결제 금액", refund: "환불 금액",
       cancellation: "취소 규정", contact: "문의", manage: "예약 확인 및 관리",
+      checkInTime: "체크인", directions: "오시는 길",
+    },
+    arrival: {
+      times: "체크인은 15:00부터, 체크아웃은 11:00까지입니다. 예약자 성함과 일치하는 신분증 또는 여권을 지참해 주세요.",
+      directions: "MRT 난징싼민역 4번 출구에서 걸어서 약 8분, 건물 앞에 버스 정류장이 있습니다. 라오허제 야시장과 쑹산역은 걸어서 갈 수 있고, 쑹산공항까지는 택시로 약 10분입니다.",
     },
     sign: "뵙게 되기를 진심으로 기대합니다",
     kinds: {
@@ -185,6 +206,7 @@ function rows(kind: CustomerKind, c: Copy, d: EmailData): [string, string][] {
   if (kind === "booking_confirmed" || kind === "pre_arrival" || kind === "cancelled") {
     r.push([l.cancellation, d.cancellationText]);
   }
+  if (kind === "pre_arrival") r.push([l.checkInTime, c.arrival.times], [l.directions, c.arrival.directions]);
   return r;
 }
 

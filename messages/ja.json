@@ -247,7 +247,11 @@
     "roomOnly": "素泊まり",
     "select": "選択",
     "roomDetails": "お部屋の詳細",
-    "plansFor": "{room}のプラン"
+    "plansFor": "{room}のプラン",
+    "disabledTitle": "オンライン予約は近日開始予定です",
+    "disabledBody": "オンライン予約は現在準備中です。開始までの間は、お電話またはメールでお問い合わせください。ご宿泊を直接お手配いたします。",
+    "disabledPhone": "電話",
+    "disabledEmail": "メール"
   },
   "checkout": {
     "title": "ご予約者情報",

@@ -1,6 +1,9 @@
 # Local secrets and vars for wrangler dev / `npm run preview` (copy to .dev.vars).
 
-# Payments: "mock" (dev pay page at /dev/pay, no money moves) or "sinopac" (Plan 5). Required.
+# Payments: "mock" (dev pay page at /dev/pay, no money moves) or "sinopac" (Plan 5).
+# wrangler.jsonc already sets mock for local dev and preview. NEVER set mock on the public production
+# host: /dev/pay would let anyone mark bookings paid. Production leaves PAYMENT_MODE unset, which
+# turns online booking off (the site shows a "coming soon" notice) until SinoPac is configured.
 PAYMENT_MODE=mock
 # Signs mock payment notices; any string locally.
 MOCK_PAYMENT_SECRET=change-me

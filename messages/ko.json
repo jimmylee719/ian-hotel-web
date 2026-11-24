@@ -247,7 +247,11 @@
     "roomOnly": "객실만",
     "select": "선택",
     "roomDetails": "객실 소개",
-    "plansFor": "{room} 요금제"
+    "plansFor": "{room} 요금제",
+    "disabledTitle": "온라인 예약이 곧 시작됩니다",
+    "disabledBody": "온라인 예약을 준비하고 있습니다. 오픈 전에는 전화나 이메일로 문의해 주시면 직접 숙박을 안내해 드리겠습니다.",
+    "disabledPhone": "전화",
+    "disabledEmail": "이메일"
   },
   "checkout": {
     "title": "예약자 정보",
