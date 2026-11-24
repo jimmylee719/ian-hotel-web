@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { hasSqliteError } from "@/lib/db/inventory-hold";
 import { paymentEvents, payments, reservations, type PaymentEventVerdict } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
@@ -47,12 +47,14 @@ export async function handlePaymentNotice(
     return { status: 200, verdict: "unknown_reservation" };
   }
 
-  // 3. Already processed. A resend is also the provider's recovery channel: if an earlier attempt
-  //    died after recording the charge, finish the job now.
+  // 3. Already processed: a duplicate, which does nothing. The one exception is the provider's resend
+  //    after an earlier attempt died between recording the charge and claiming the booking (still
+  //    pending_payment or expired): then finish the job. Any later state is owned by the retry job.
   const [seen] = await db.select().from(payments).where(eq(payments.providerRef, n.providerRef));
   if (seen) {
     const out = await reply("duplicate", res);
-    if (seen.kind === "charge" && seen.status === "succeeded") await settle(deps, res.id, seen, now);
+    if (seen.kind === "charge" && seen.status === "succeeded" && (res.status === "pending_payment" || res.status === "expired"))
+      await settle(deps, res.id, seen, now);
     return out;
   }
 
@@ -76,12 +78,17 @@ export async function handlePaymentNotice(
 
 /**
  * Take a recorded succeeded charge as far as it can go:
+ * - not the booking's paying charge (an extra payment) → refund it ("stray"), whatever the status;
  * - pending_payment / expired → paid_pending_confirm (retry job armed), then confirmWithChannel;
- * - an extra charge on a booking that is already paid or closed → refund it ("stray");
- * - already paid_pending_confirm with this charge → resume confirmWithChannel (lease-guarded).
+ * - already paid_pending_confirm → resume confirmWithChannel (lease-guarded).
+ * Only the paying charge ever claims the booking, so two different payments racing cannot both count.
  */
 async function settle(deps: Deps, reservationId: string, charge: ChargeRow, now: Date): Promise<"settled" | "stray"> {
   const { db } = deps;
+  if (await isStray(db, reservationId, charge)) {
+    await refundStray(deps, reservationId, charge, now);
+    return "stray";
+  }
   for (let i = 0; i < 2; i++) {
     const [res] = await db.select().from(reservations).where(eq(reservations.id, reservationId));
     if (res.status === "pending_payment" || res.status === "expired") {
@@ -91,11 +98,7 @@ async function settle(deps: Deps, reservationId: string, charge: ChargeRow, now:
         await confirmWithChannel(deps, reservationId, now);
         return "settled";
       }
-      continue; // the status moved under us (expiry or another notice); look again
-    }
-    if (await isStray(db, res, charge)) {
-      await refundStray(deps, res, charge, now);
-      return "stray";
+      continue; // the status moved under us (expiry or the expire job's recovery); look again
     }
     if (res.status === "paid_pending_confirm") await confirmWithChannel(deps, reservationId, now);
     return "settled";
@@ -104,28 +107,38 @@ async function settle(deps: Deps, reservationId: string, charge: ChargeRow, now:
 }
 
 /**
- * A charge is stray when it still holds money and the booking cannot use it: the booking is closed,
- * or it is already paid by another charge.
+ * The paying charge is the booking's first succeeded charge (oldest; the row created with the
+ * booking is filled by the first success). It is never stray, whatever the booking's status or
+ * balance: what the hotel keeps after a cancellation is Task 6's business, not ours.
  */
-async function isStray(db: Db, res: Reservation, charge: ChargeRow): Promise<boolean> {
-  const charges = await refundableCharges(db, res.id);
-  const ours = charges.find((c) => c.id === charge.id);
-  if (!ours || ours.remaining <= 0) return false;
-  if (res.status === "cancelled" || res.status === "confirm_failed_refunded") return true;
-  if (res.status === "paid_pending_confirm" || res.status === "confirmed")
-    return charges.some((c) => c.id !== charge.id && c.remaining > 0);
-  return false;
+async function payingChargeId(db: Db, reservationId: string): Promise<string | undefined> {
+  const [first] = await db.select({ id: payments.id }).from(payments)
+    .where(and(eq(payments.reservationId, reservationId), eq(payments.kind, "charge"), eq(payments.status, "succeeded")))
+    .orderBy(asc(payments.createdAt), asc(payments.id))
+    .limit(1);
+  return first?.id;
 }
 
-/** Refund a stray charge against its own provider ref and alert staff, once per provider ref. */
-async function refundStray(deps: Deps, res: Reservation, charge: ChargeRow, now: Date): Promise<void> {
-  const ours = (await refundableCharges(deps.db, res.id)).find((c) => c.id === charge.id)!;
+/** A stray charge is any succeeded charge other than the paying one that still holds money. */
+async function isStray(db: Db, reservationId: string, charge: ChargeRow): Promise<boolean> {
+  if (await payingChargeId(db, reservationId) === charge.id) return false;
+  const ours = (await refundableCharges(db, reservationId)).find((c) => c.id === charge.id);
+  return !!ours && ours.remaining > 0;
+}
+
+/**
+ * Refund what is left of a stray charge against its own provider ref and alert staff (once per
+ * provider ref). Re-reads the balance first and does nothing if it is already refunded.
+ */
+export async function refundStray(deps: Deps, reservationId: string, charge: ChargeRow, now: Date): Promise<void> {
+  const ours = (await refundableCharges(deps.db, reservationId)).find((c) => c.id === charge.id);
+  if (!ours || ours.remaining <= 0) return;
   const r = await refundCharge(deps, charge, ours.remaining, "STRAY_CHARGE", now);
   if (!r.ok)
     await deps.db.update(reservations)
       .set({ lastSyncError: `STRAY_REFUND_FAILED: ${charge.providerRef}: ${r.error}`, updatedAt: now.getTime() })
-      .where(eq(reservations.id, res.id));
-  await notifyStaff(deps, res.id, "staff_payment_alert", now, {}, charge.providerRef ?? charge.id);
+      .where(eq(reservations.id, reservationId));
+  await notifyStaff(deps, reservationId, "staff_payment_alert", now, {}, charge.providerRef ?? charge.id);
 }
 
 /**

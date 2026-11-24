@@ -117,3 +117,38 @@ test("a crash right after recording the charge, with no resend, is not expired b
   expect(await runSyncRetry(deps, minutes(21))).toEqual({ attempted: 1 });
   expect((await reservation(code)).status).toBe("confirmed");
 });
+
+test("a crash after recording a late (expired) payment is finished by the provider's resend", async () => {
+  const { db, deps, book, reservation, notice, avail } = await bookingSetup();
+  const code = await book();
+  await runExpireHolds(deps, minutes(21));
+  const n = await notice(code);
+  crashBeforeClaim(db);
+  await expect(handlePaymentNotice(deps, n, minutes(22))).rejects.toThrow();
+  recover(db);
+  expect((await reservation(code)).status).toBe("expired");
+
+  expect(await handlePaymentNotice(deps, n, minutes(23))).toEqual({ status: 200, verdict: "duplicate" });
+  expect((await reservation(code)).status).toBe("confirmed");
+  expect(await avail()).toBe(2);
+});
+
+test("a second payment arriving before the paying one is claimed is refunded as stray; the paying one still confirms", async () => {
+  const { db, deps, gateway, book, reservation, notice } = await bookingSetup();
+  const refund = vi.spyOn(gateway, "refund");
+  const code = await book();
+  const paying = await notice(code);
+  crashBeforeClaim(db);
+  await expect(handlePaymentNotice(deps, paying, minutes(2))).rejects.toThrow();
+  recover(db);
+
+  expect(await handlePaymentNotice(deps, await notice(code, { providerRef: "REF-SECOND" }), minutes(3)))
+    .toEqual({ status: 200, verdict: "stray_charge" });
+  expect(refund).toHaveBeenCalledWith(expect.objectContaining({ providerRef: "REF-SECOND", amount: PAY_NOW }));
+  expect((await reservation(code)).status).toBe("pending_payment");
+
+  await handlePaymentNotice(deps, paying, minutes(4));
+  const res = await reservation(code);
+  expect(res.status).toBe("confirmed");
+  expect(refund).toHaveBeenCalledTimes(1);
+});

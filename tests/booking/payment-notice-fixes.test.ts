@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
 import { paidAmount } from "@/lib/booking/notify";
-import { handlePaymentNotice } from "@/lib/booking/payment-notice";
+import { handlePaymentNotice, refundStray } from "@/lib/booking/payment-notice";
 import { MockChannelManager } from "@/lib/channel/mock";
 import type { ChannelReservation } from "@/lib/channel/types";
 import { paymentEvents, payments, reservations } from "@/lib/db/schema";
@@ -105,4 +105,39 @@ test("a database error while emailing the guest is logged and the staff email st
   expect(email.sent.map((e) => e.to)).toEqual([STAFF]);
   expect(errors).toHaveBeenCalledWith(expect.stringContaining(res.id), expect.anything());
   errors.mockRestore();
+});
+
+test("a resend of the paying charge on a cancelled, partly refunded booking is a duplicate and refunds nothing", async () => {
+  const { db, deps, gateway, book, reservation, notice } = await bookingSetup();
+  const code = await book();
+  const n = await notice(code);
+  await handlePaymentNotice(deps, n, minutes(2));
+  const res = await reservation(code);
+  const [paying] = await db.select().from(payments).where(eq(payments.providerRef, `REF-${code}`));
+  // What Task 6 leaves behind: a partial refund, the rest kept by the hotel.
+  await db.insert(payments).values({
+    id: "partial", reservationId: res.id, kind: "refund", method: "sinopac_online", amount: 1000,
+    status: "succeeded", providerRef: "RFD-1", refundOf: paying.id, createdAt: minutes(60).getTime(),
+  });
+  await db.update(reservations).set({ status: "cancelled", refundedAmount: 1000 }).where(eq(reservations.id, res.id));
+  const refund = vi.spyOn(gateway, "refund");
+
+  expect(await handlePaymentNotice(deps, n, minutes(61))).toEqual({ status: 200, verdict: "duplicate" });
+  expect(refund).not.toHaveBeenCalled();
+  expect((await reservation(code)).status).toBe("cancelled");
+  expect(await paidAmount(db, res.id)).toBe(PAY_NOW - 1000);
+});
+
+test("refundStray does nothing when the stray charge is already refunded", async () => {
+  const { db, deps, gateway, email, book, reservation, notice } = await bookingSetup();
+  const code = await book();
+  await handlePaymentNotice(deps, await notice(code), minutes(2));
+  await handlePaymentNotice(deps, await notice(code, { providerRef: "REF-STRAY" }), minutes(3));
+  const refund = vi.spyOn(gateway, "refund");
+  const mails = email.sent.length;
+  const [stray] = await db.select().from(payments).where(eq(payments.providerRef, "REF-STRAY"));
+
+  await refundStray(deps, (await reservation(code)).id, stray, minutes(4));
+  expect(refund).not.toHaveBeenCalled();
+  expect(email.sent).toHaveLength(mails);
 });
