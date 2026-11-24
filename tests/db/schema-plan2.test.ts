@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { createTestDb, rawSqlite } from "@/tests/helpers/test-db";
 import { seedNk } from "@/lib/db/seed-nk";
-import { guests, notifications, payments, properties, reservations } from "@/lib/db/schema";
+import { guests, notifications, paymentEvents, payments, properties, reservations } from "@/lib/db/schema";
 
 async function setup() {
   const db = createTestDb();
@@ -42,7 +42,7 @@ describe("plan 2 schema additions", () => {
   test("notifications are unique per (reservationId, kind, to)", async () => {
     const { db, base } = await setup();
     await db.insert(reservations).values({ ...base, id: "r1", code: "C1", idempotencyKey: "k1" });
-    const n = { reservationId: "r1", kind: "booking_confirmed" as const, to: "a@example.com", status: "sent" as const, at: 1 };
+    const n = { propertyId: base.propertyId, reservationId: "r1", kind: "booking_confirmed" as const, to: "a@example.com", status: "sent" as const, at: 1 };
     await db.insert(notifications).values({ ...n, id: "n1" });
     await expect(db.insert(notifications).values({ ...n, id: "n2" })).rejects.toThrow(/UNIQUE/i);
     await db.insert(notifications).values({ ...n, id: "n3", kind: "cancelled" });
@@ -56,6 +56,19 @@ describe("plan 2 schema additions", () => {
     await db.insert(payments).values({ ...p, id: "p2" });
     await db.insert(payments).values({ ...p, id: "p3", providerRef: "ref" });
     await expect(db.insert(payments).values({ ...p, id: "p4", providerRef: "ref" })).rejects.toThrow(/UNIQUE/i);
+  });
+
+  test("paymentEvents and notifications carry property_id", async () => {
+    const { db } = await setup();
+    const cols = (t: string) =>
+      (rawSqlite(db).prepare(`PRAGMA table_info(${t})`).all() as { name: string; notnull: number }[]).find(
+        (c) => c.name === "property_id",
+      );
+    expect(cols("payment_events")?.notnull).toBe(0);
+    expect(cols("notifications")?.notnull).toBe(1);
+    await db.insert(paymentEvents).values({
+      id: "e2", provider: "sinopac", rawBody: "{}", verdict: "unknown_reservation", propertyId: null, at: 1,
+    });
   });
 
   test("paymentEvents table stores callbacks", async () => {

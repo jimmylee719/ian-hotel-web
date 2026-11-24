@@ -197,8 +197,12 @@ export const payments = sqliteTable(
 );
 
 /** Full log of every payment-provider callback, for audit and reconciliation. */
-export const paymentEvents = sqliteTable("payment_events", {
+export const paymentEvents = sqliteTable(
+  "payment_events",
+  {
   id: id(),
+  /** Null for events that match no reservation (unknown_reservation). */
+  propertyId: text("property_id").references(() => properties.id),
   provider: text("provider").notNull(),
   providerRef: text("provider_ref"),
   reservationCode: text("reservation_code"),
@@ -207,13 +211,16 @@ export const paymentEvents = sqliteTable("payment_events", {
     enum: ["accepted", "duplicate", "bad_signature", "amount_mismatch", "unknown_reservation"],
   }).notNull(),
   at: ms("at"),
-});
+  },
+  (t) => [index("payment_events_property_at").on(t.propertyId, t.at)],
+);
 export type PaymentEventVerdict = typeof paymentEvents.$inferSelect["verdict"];
 
 export const notifications = sqliteTable(
   "notifications",
   {
     id: id(),
+    propertyId: text("property_id").notNull().references(() => properties.id),
     reservationId: text("reservation_id").notNull().references(() => reservations.id),
     kind: text("kind", {
       enum: [
