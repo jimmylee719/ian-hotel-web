@@ -1,11 +1,11 @@
 import { and, eq, isNull } from "drizzle-orm";
-import { hasSqliteError, holdInventory } from "@/lib/db/inventory-hold";
+import { hasSqliteError } from "@/lib/db/inventory-hold";
 import { paymentEvents, payments, reservations, type PaymentEventVerdict } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 import type { Quote } from "@/lib/domain/quote";
 import type { PaymentNotice } from "@/lib/payments/types";
-import { confirmWithChannel, holdItemsFor, refundAndFail, SYNC_RETRY_MS } from "./confirm";
-import { notifyStaff, type Deps } from "./notify";
+import { confirmWithChannel, refundCharge } from "./confirm";
+import { notifyStaff, refundableCharges, type ChargeRow, type Deps } from "./notify";
 import { transition, type Reservation } from "./state";
 
 export type { Deps } from "./notify";
@@ -47,76 +47,93 @@ export async function handlePaymentNotice(
     return { status: 200, verdict: "unknown_reservation" };
   }
 
-  // 3. Already processed? The unique provider_ref index makes recordCharge the real lock.
-  const [seen] = await db.select({ id: payments.id }).from(payments).where(eq(payments.providerRef, n.providerRef));
-  if (seen) return reply("duplicate", res);
+  // 3. Already processed. A resend is also the provider's recovery channel: if an earlier attempt
+  //    died after recording the charge, finish the job now.
+  const [seen] = await db.select().from(payments).where(eq(payments.providerRef, n.providerRef));
+  if (seen) {
+    const out = await reply("duplicate", res);
+    if (seen.kind === "charge" && seen.status === "succeeded") await settle(deps, res.id, seen, now);
+    return out;
+  }
 
   // 4. Failed payment: record it and keep the reservation payable.
   if (n.status === "failed") return reply(await recordCharge(db, res.id, n, now) ? "accepted" : "duplicate", res);
 
-  if (!await recordCharge(db, res.id, n, now)) return reply("duplicate", res);
+  // The unique provider_ref index makes recording the charge the dedupe lock.
+  const charge = await recordCharge(db, res.id, n, now);
+  if (!charge) return reply("duplicate", res);
 
-  // Claim the reservation: only one notice moves it to paid_pending_confirm.
-  const payNow = (res.quote as Quote).payNow;
-  const mismatch = n.amount !== payNow;
-  const from = await claimPaid(db, res, now, mismatch);
-  if (!from) {
-    // Money arrived for a reservation that is already paid, cancelled or refunded: a human must sort it out.
-    const out = await reply("duplicate", res);
-    await notifyStaff(deps, res.id, "staff_payment_alert", now);
-    return out;
+  // 5–7. Mismatch, re-hold after expiry and the SiteMinder push all run in confirmWithChannel,
+  //      which the retry job also runs, so a crash from here on is recovered.
+  let verdict: PaymentEventVerdict = n.amount === (res.quote as Quote).payNow ? "accepted" : "amount_mismatch";
+  try {
+    if (await settle(deps, res.id, charge, now) === "stray") verdict = "stray_charge";
+  } finally {
+    await log(verdict, n, res);
   }
-
-  // 5. Wrong amount: refund it all.
-  if (mismatch) {
-    const out = await reply("amount_mismatch", res);
-    await refundAndFail(deps, res.id, `AMOUNT_MISMATCH: expected ${payNow}, got ${n.amount}`, now, { staffKind: "staff_payment_alert" });
-    return out;
-  }
-  const out = await reply("accepted", res);
-
-  // 6. Paid after the hold lapsed: take the rooms again, or refund.
-  if (from === "expired") {
-    const hold = await holdInventory(db, await holdItemsFor(db, res));
-    if (!hold.ok) {
-      await refundAndFail(deps, res.id, "SOLD_OUT_AFTER_EXPIRY", now, { guestKind: "booking_failed_refunded", staffKind: "staff_payment_alert" });
-      return out;
-    }
-    await db.update(reservations)
-      .set({ holdExpiresAt: now.getTime(), nextSyncAt: now.getTime() + SYNC_RETRY_MS })
-      .where(eq(reservations.id, res.id));
-  }
-
-  // 7. Confirm with SiteMinder.
-  await confirmWithChannel(deps, res.id, now);
-  return out;
+  return { status: 200, verdict };
 }
 
 /**
- * Move the reservation to paid_pending_confirm from pending_payment or expired; returns the status it
- * came from, or null if it is in neither (or another notice won). Re-reads once in case the hold
- * expired between the read and the claim.
- * nextSyncAt is a safety net: if this request dies before confirming, the retry job picks it up.
- * It stays null when inventory is not held yet (expired) or a refund is coming (mismatch).
+ * Take a recorded succeeded charge as far as it can go:
+ * - pending_payment / expired → paid_pending_confirm (retry job armed), then confirmWithChannel;
+ * - an extra charge on a booking that is already paid or closed → refund it ("stray");
+ * - already paid_pending_confirm with this charge → resume confirmWithChannel (lease-guarded).
  */
-async function claimPaid(db: Db, res: Reservation, now: Date, mismatch: boolean): Promise<"pending_payment" | "expired" | null> {
-  let status = res.status;
+async function settle(deps: Deps, reservationId: string, charge: ChargeRow, now: Date): Promise<"settled" | "stray"> {
+  const { db } = deps;
   for (let i = 0; i < 2; i++) {
-    if (status !== "pending_payment" && status !== "expired") return null;
-    const nextSyncAt = status === "pending_payment" && !mismatch ? now.getTime() + SYNC_RETRY_MS : null;
-    if (await transition(db, res.id, status, "paid_pending_confirm", { syncState: "pending", nextSyncAt, lastSyncError: null }, now))
-      return status;
-    [{ status }] = await db.select({ status: reservations.status }).from(reservations).where(eq(reservations.id, res.id));
+    const [res] = await db.select().from(reservations).where(eq(reservations.id, reservationId));
+    if (res.status === "pending_payment" || res.status === "expired") {
+      // nextSyncAt = now: from this moment the retry job is the safety net.
+      if (await transition(db, reservationId, res.status, "paid_pending_confirm",
+        { syncState: "pending", nextSyncAt: now.getTime(), lastSyncError: null }, now)) {
+        await confirmWithChannel(deps, reservationId, now);
+        return "settled";
+      }
+      continue; // the status moved under us (expiry or another notice); look again
+    }
+    if (await isStray(db, res, charge)) {
+      await refundStray(deps, res, charge, now);
+      return "stray";
+    }
+    if (res.status === "paid_pending_confirm") await confirmWithChannel(deps, reservationId, now);
+    return "settled";
   }
-  return null;
+  return "settled";
+}
+
+/**
+ * A charge is stray when it still holds money and the booking cannot use it: the booking is closed,
+ * or it is already paid by another charge.
+ */
+async function isStray(db: Db, res: Reservation, charge: ChargeRow): Promise<boolean> {
+  const charges = await refundableCharges(db, res.id);
+  const ours = charges.find((c) => c.id === charge.id);
+  if (!ours || ours.remaining <= 0) return false;
+  if (res.status === "cancelled" || res.status === "confirm_failed_refunded") return true;
+  if (res.status === "paid_pending_confirm" || res.status === "confirmed")
+    return charges.some((c) => c.id !== charge.id && c.remaining > 0);
+  return false;
+}
+
+/** Refund a stray charge against its own provider ref and alert staff, once per provider ref. */
+async function refundStray(deps: Deps, res: Reservation, charge: ChargeRow, now: Date): Promise<void> {
+  const ours = (await refundableCharges(deps.db, res.id)).find((c) => c.id === charge.id)!;
+  const r = await refundCharge(deps, charge, ours.remaining, "STRAY_CHARGE", now);
+  if (!r.ok)
+    await deps.db.update(reservations)
+      .set({ lastSyncError: `STRAY_REFUND_FAILED: ${charge.providerRef}: ${r.error}`, updatedAt: now.getTime() })
+      .where(eq(reservations.id, res.id));
+  await notifyStaff(deps, res.id, "staff_payment_alert", now, {}, charge.providerRef ?? charge.id);
 }
 
 /**
  * Record the notice as a charge. A success fills in the reservation's pending charge row; a failure
- * gets its own row so the pending one stays for the next attempt. Returns false if this provider_ref
+ * gets its own row so the pending one stays for the next attempt. Returns null if this provider_ref
  * was already recorded (a concurrent duplicate).
  */
-async function recordCharge(db: Db, reservationId: string, n: PaymentNotice, now: Date): Promise<boolean> {
+async function recordCharge(db: Db, reservationId: string, n: PaymentNotice, now: Date): Promise<ChargeRow | null> {
   const fields = {
     status: n.status, amount: n.amount, providerRef: n.providerRef, authCode: n.authCode ?? null, last4: n.last4 ?? null,
   } as const;
@@ -126,17 +143,17 @@ async function recordCharge(db: Db, reservationId: string, n: PaymentNotice, now
         eq(payments.reservationId, reservationId), eq(payments.kind, "charge"), eq(payments.status, "pending"), isNull(payments.providerRef),
       ));
       if (pending) {
-        const updated = await db.update(payments).set(fields)
-          .where(and(eq(payments.id, pending.id), eq(payments.status, "pending"))).returning({ id: payments.id });
-        if (updated.length) return true;
+        const [updated] = await db.update(payments).set(fields)
+          .where(and(eq(payments.id, pending.id), eq(payments.status, "pending"))).returning();
+        if (updated) return updated;
       }
     }
-    await db.insert(payments).values({
+    const [inserted] = await db.insert(payments).values({
       id: crypto.randomUUID(), reservationId, kind: "charge", method: "sinopac_online", createdAt: now.getTime(), ...fields,
-    });
-    return true;
+    }).returning();
+    return inserted;
   } catch (e) {
-    if (hasSqliteError(e, "UNIQUE constraint failed")) return false;
+    if (hasSqliteError(e, "UNIQUE constraint failed")) return null;
     throw e;
   }
 }

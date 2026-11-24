@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, type SQL } from "drizzle-orm";
 import { reservations } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 
@@ -22,14 +22,15 @@ export function canTransition(from: ResStatus, to: ResStatus): boolean {
 /**
  * Move a reservation from `from` to `to` with an optimistic lock (`WHERE status = from`).
  * Returns false if the transition is not allowed or the status was already changed by someone else.
+ * `guard` adds an extra condition to the same UPDATE (e.g. "not claimed by a refund").
  */
 export async function transition(
-  db: Db, reservationId: string, from: ResStatus, to: ResStatus, patch: Partial<Reservation>, now: Date,
+  db: Db, reservationId: string, from: ResStatus, to: ResStatus, patch: Partial<Reservation>, now: Date, guard?: SQL,
 ): Promise<boolean> {
   if (!canTransition(from, to)) return false;
   const rows = await db.update(reservations)
     .set({ ...patch, id: undefined, status: to, updatedAt: now.getTime() }) // undefined = column left unchanged
-    .where(and(eq(reservations.id, reservationId), eq(reservations.status, from)))
+    .where(and(eq(reservations.id, reservationId), eq(reservations.status, from), guard))
     .returning({ id: reservations.id });
   return rows.length === 1;
 }

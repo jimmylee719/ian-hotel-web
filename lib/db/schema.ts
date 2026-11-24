@@ -191,6 +191,8 @@ export const payments = sqliteTable(
     providerRef: text("provider_ref"),
     authCode: text("auth_code"),
     last4: text("last4"),
+    /** For a refund: the id of the charge row it reverses. */
+    refundOf: text("refund_of"),
     createdAt: ms("created_at"),
   },
   (t) => [uniqueIndex("payments_provider_ref_unique").on(t.providerRef)], // NULLs never collide
@@ -208,7 +210,7 @@ export const paymentEvents = sqliteTable(
   reservationCode: text("reservation_code"),
   rawBody: text("raw_body").notNull(),
   verdict: text("verdict", {
-    enum: ["accepted", "duplicate", "bad_signature", "amount_mismatch", "unknown_reservation"],
+    enum: ["accepted", "duplicate", "bad_signature", "amount_mismatch", "unknown_reservation", "stray_charge"],
   }).notNull(),
   at: ms("at"),
   },
@@ -229,12 +231,14 @@ export const notifications = sqliteTable(
       ],
     }).notNull(),
     to: text("to").notNull(),
+    /** Distinguishes repeat alerts of one kind, e.g. the provider ref of each stray charge. '' = none. */
+    ref: text("ref").notNull().default(""),
     status: text("status", { enum: ["sent", "failed"] }).notNull(),
     providerId: text("provider_id"),
     at: ms("at"),
   },
   // The same email is never sent twice.
-  (t) => [uniqueIndex("notifications_unique_send").on(t.reservationId, t.kind, t.to)],
+  (t) => [uniqueIndex("notifications_unique_send").on(t.reservationId, t.kind, t.to, t.ref)],
 );
 export type NotificationKind = typeof notifications.$inferSelect["kind"];
 

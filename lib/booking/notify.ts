@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { ChannelManager } from "@/lib/channel/types";
 import { hasSqliteError } from "@/lib/db/inventory-hold";
 import {
@@ -24,18 +24,20 @@ export type Deps = {
 const STAFF_LOCALE: Locale = "zh-TW";
 
 /**
- * Send an email at most once per (reservation, kind, recipient). The notifications row is written
+ * Send an email at most once per (reservation, kind, recipient, ref). The notifications row is written
  * first and its unique index blocks a second send; a failed send is recorded, never thrown.
+ * `ref` separates repeat alerts of one kind (e.g. one per stray charge); '' for ordinary emails.
  */
 export async function sendOnce(
   deps: Pick<Deps, "db" | "email">, reservationId: string, kind: NotificationKind, to: string, email: Email, now: Date,
+  ref = "",
 ): Promise<void> {
   const { db } = deps;
   const [r] = await db.select({ propertyId: reservations.propertyId }).from(reservations).where(eq(reservations.id, reservationId));
   if (!r) throw new Error(`Reservation ${reservationId} not found`);
   const id = crypto.randomUUID();
   try {
-    await db.insert(notifications).values({ id, propertyId: r.propertyId, reservationId, kind, to, status: "sent", at: now.getTime() });
+    await db.insert(notifications).values({ id, propertyId: r.propertyId, reservationId, kind, to, ref, status: "sent", at: now.getTime() });
   } catch (e) {
     if (hasSqliteError(e, "UNIQUE constraint failed")) return; // already sent
     throw e;
@@ -51,23 +53,42 @@ export async function sendOnce(
     .where(eq(notifications.id, id));
 }
 
-/** Email the guest in the reservation's language. */
+/**
+ * Email the guest in the reservation's language. Never throws: emails run after state has
+ * committed, so a failure is logged and the business flow carries on.
+ */
 export async function notifyGuest(
   deps: Deps, reservationId: string, kind: NotificationKind, now: Date, extra: Partial<EmailData> = {},
 ): Promise<void> {
-  const ctx = await emailContext(deps, reservationId);
-  const data = { ...ctx.data, ...extra };
-  await sendOnce(deps, reservationId, kind, ctx.guestEmail, { to: ctx.guestEmail, ...renderEmail(kind, ctx.locale, data) }, now);
+  try {
+    const ctx = await emailContext(deps, reservationId);
+    const data = { ...ctx.data, ...extra };
+    await sendOnce(deps, reservationId, kind, ctx.guestEmail, { to: ctx.guestEmail, ...renderEmail(kind, ctx.locale, data) }, now);
+  } catch (e) {
+    console.error(`notifyGuest ${kind} failed for reservation ${reservationId}`, e);
+  }
 }
 
-/** Email every staff address, in zh-TW. */
+/** Email every staff address, in zh-TW. Never throws; one address failing does not stop the others. */
 export async function notifyStaff(
-  deps: Deps, reservationId: string, kind: NotificationKind, now: Date, extra: Partial<EmailData> = {},
+  deps: Deps, reservationId: string, kind: NotificationKind, now: Date, extra: Partial<EmailData> = {}, ref = "",
 ): Promise<void> {
   if (deps.staffEmails.length === 0) return;
-  const ctx = await emailContext(deps, reservationId, STAFF_LOCALE);
-  const rendered = renderEmail(kind, STAFF_LOCALE, { ...ctx.data, ...extra });
-  for (const to of deps.staffEmails) await sendOnce(deps, reservationId, kind, to, { to, ...rendered }, now);
+  let rendered: ReturnType<typeof renderEmail>;
+  try {
+    const ctx = await emailContext(deps, reservationId, STAFF_LOCALE);
+    rendered = renderEmail(kind, STAFF_LOCALE, { ...ctx.data, ...extra });
+  } catch (e) {
+    console.error(`notifyStaff ${kind} failed for reservation ${reservationId}`, e);
+    return;
+  }
+  for (const to of deps.staffEmails) {
+    try {
+      await sendOnce(deps, reservationId, kind, to, { to, ...rendered }, now, ref);
+    } catch (e) {
+      console.error(`notifyStaff ${kind} to ${to} failed for reservation ${reservationId}`, e);
+    }
+  }
 }
 
 /** Everything an email template needs, read from the database. `locale` defaults to the reservation's. */
@@ -110,11 +131,21 @@ export async function emailContext(
   return { data, guestEmail: guest.email, locale: loc };
 }
 
-/** Sum of the reservation's succeeded charges. */
+/** Money currently held for the reservation: succeeded charges minus succeeded refunds. */
 export async function paidAmount(db: Db, reservationId: string): Promise<number> {
-  const rows = await db.select({ amount: payments.amount }).from(payments)
-    .where(and(eq(payments.reservationId, reservationId), eq(payments.kind, "charge"), eq(payments.status, "succeeded")));
-  return rows.reduce((s, r) => s + r.amount, 0);
+  const rows = await db.select({ kind: payments.kind, amount: payments.amount }).from(payments)
+    .where(and(eq(payments.reservationId, reservationId), eq(payments.status, "succeeded"), inArray(payments.kind, ["charge", "refund"])));
+  return rows.reduce((s, r) => s + (r.kind === "charge" ? r.amount : -r.amount), 0);
+}
+
+export type ChargeRow = typeof payments.$inferSelect;
+
+/** Succeeded charges with what is still refundable on each (amount minus refunds recorded against it). */
+export async function refundableCharges(db: Db, reservationId: string): Promise<(ChargeRow & { remaining: number })[]> {
+  const rows = await db.select().from(payments)
+    .where(and(eq(payments.reservationId, reservationId), eq(payments.status, "succeeded"), inArray(payments.kind, ["charge", "refund"])));
+  const refunded = (id: string) => rows.filter((r) => r.kind === "refund" && r.refundOf === id).reduce((s, r) => s + r.amount, 0);
+  return rows.filter((r) => r.kind === "charge").map((c) => ({ ...c, remaining: c.amount - refunded(c.id) }));
 }
 
 const CANCEL_COPY: Record<Locale, { rule: (days: number, pct: number) => string; none: string; sep: string }> = {

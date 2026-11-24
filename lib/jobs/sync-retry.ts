@@ -1,17 +1,21 @@
-import { and, asc, eq, lte } from "drizzle-orm";
+import { and, asc, eq, isNull, lte, or } from "drizzle-orm";
 import { confirmWithChannel } from "@/lib/booking/confirm";
 import type { Deps } from "@/lib/booking/notify";
 import { reservations } from "@/lib/db/schema";
 
 export const SYNC_RETRY_BATCH = 20;
 
-/** Retry pushing paid reservations whose SiteMinder sync is due, oldest first, at most 20 per run. */
+/**
+ * Drive every paid booking whose sync is due (or that a crashed request left behind) through
+ * confirmWithChannel: push, retry, or refund. Oldest first, at most 20 per run. confirmWithChannel
+ * takes a lease, so overlapping runs never work on the same booking.
+ */
 export async function runSyncRetry(deps: Deps, now: Date): Promise<{ attempted: number }> {
   const due = await deps.db.select({ id: reservations.id }).from(reservations)
     .where(and(
       eq(reservations.status, "paid_pending_confirm"),
       eq(reservations.syncState, "pending"),
-      lte(reservations.nextSyncAt, now.getTime()),
+      or(isNull(reservations.nextSyncAt), lte(reservations.nextSyncAt, now.getTime())),
     ))
     .orderBy(asc(reservations.nextSyncAt))
     .limit(SYNC_RETRY_BATCH);
