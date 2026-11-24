@@ -36,9 +36,10 @@ test("production is a separate env that never sets PAYMENT_MODE=mock (/dev/pay w
   expect(prod.name).not.toBe(cfg.name); // deploying the default env can never overwrite production
 });
 
-test("deploy and preview fetch the fonts first, and deploy targets production", () => {
+test("deploy runs the tests and the type check, then fetches the fonts, before building; preview fetches the fonts first", () => {
   const { scripts } = JSON.parse(readFileSync(path.resolve(__dirname, "../../package.json"), "utf8"));
-  expect(scripts.deploy).toMatch(/^tsx scripts\/fetch-fonts\.ts && /);
+  // tsc fails on unknown translation keys (global.d.ts types next-intl's messages), so a missing key blocks a deploy.
+  expect(scripts.deploy).toMatch(/^vitest run && tsc --noEmit && tsx scripts\/fetch-fonts\.ts && opennextjs-cloudflare build /);
   expect(scripts.preview).toMatch(/^tsx scripts\/fetch-fonts\.ts && /);
   expect(scripts.deploy).toContain("--env production");
 });

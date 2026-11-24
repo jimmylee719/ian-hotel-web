@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment } from "react";
-import { useLocale, useTranslations } from "next-intl";
+import { useLocale, useTranslations, type Locale } from "next-intl";
 import { Link, usePathname, useRouter } from "@/i18n/navigation";
 import { routing } from "@/i18n/routing";
 
@@ -16,7 +16,7 @@ export function LocaleSwitcher() {
   const pathname = usePathname();
   const router = useRouter();
 
-  const keepQuery = (locale: string) => (e: React.MouseEvent<HTMLAnchorElement>) => {
+  const keepQuery = (locale: Locale) => (e: React.MouseEvent<HTMLAnchorElement>) => {
     const search = window.location.search;
     if (!search || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
     e.preventDefault();

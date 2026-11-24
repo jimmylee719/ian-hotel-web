@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import type { Messages } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { loadRoom, loadRooms } from "@/components/site/data";
 import { JsonLd } from "@/components/site/JsonLd";
@@ -11,6 +12,8 @@ import { Link } from "@/i18n/navigation";
 import type { Locale } from "@/lib/db/schema";
 import { roomJsonLd } from "@/lib/jsonld";
 import { buildMetadata } from "@/lib/seo";
+
+type AmenityKey = keyof Messages["amenities"];
 
 export const dynamic = "force-dynamic";
 
@@ -98,7 +101,8 @@ export default async function RoomPage({ params }: Props) {
           <h2 id="amenities-title">{t("amenitiesTitle")}</h2>
           <ul>
             {room.amenities.map((k) => (
-              <li key={k}>{a.has(k) ? a(k) : k}</li>
+              // Amenity codes come from content data; a code with no label shows as itself.
+              <li key={k}>{a.has(k as AmenityKey) ? a(k as AmenityKey) : k}</li>
             ))}
           </ul>
         </section>

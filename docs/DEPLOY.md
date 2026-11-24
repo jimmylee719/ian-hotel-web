@@ -64,7 +64,8 @@ by the build; each step is yours to run.
    `wrangler d1 execute nk-booking --remote --env production --file <sql>` (staging D1 first), and set
    real availability and promo codes through the admin (Plan 3).
 6. **Photos.** `npm run media:variants -- --remote` (see the checklist).
-7. **Deploy.** `npm run deploy` (fetches fonts, builds with OpenNext, deploys `--env production`). The
+7. **Deploy.** `npm run deploy` (runs `vitest run` and `tsc --noEmit`, so a failing test or an unknown
+   translation key stops it; then fetches fonts, builds with OpenNext, deploys `--env production`). The
    cron trigger (`*/5 * * * *`) is part of the same deploy.
 8. **Domain.** Add the custom domain to the Worker (Workers & Routes, Custom Domains), or a route in
    `env.production` if the zone is on Cloudflare.
