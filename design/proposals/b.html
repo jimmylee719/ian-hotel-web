@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B 都會極簡｜小公館人文旅舍 視覺提案</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Noto+Sans+TC:wght@400;500;700;900&family=Zen+Kaku+Gothic+New:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --color-ink:#000000;      /* 純黑 */
+  --color-paper:#FFFFFF;    /* 純白 */
+  --color-accent:#F5C400;   /* 台北計程車黃：只用在訂房按鈕與選取狀態 */
+  --color-muted:#6B6B6B;    /* 次要文字 */
+  --color-line:#E3E3E3;     /* 分隔線 */
+  --font-zh:"Noto Sans TC",sans-serif;
+  --font-en:"Archivo",sans-serif;
+  --radius:0;
+}
+*{box-sizing:border-box;margin:0}
+html{background:var(--color-paper)}
+body{background:var(--color-paper);color:var(--color-ink);font-family:var(--font-en),var(--font-zh);font-size:16px;line-height:1.7;-webkit-font-smoothing:antialiased}
+img{display:block;max-width:100%}
+a{color:inherit}
+:focus-visible{outline:3px solid var(--color-ink);outline-offset:2px}
+.wrap{max-width:1360px;margin:0 auto;padding:0 56px}
+
+.site-head{display:grid;grid-template-columns:1fr auto auto;gap:56px;align-items:center;height:88px}
+.brand{text-decoration:none;display:flex;gap:12px;align-items:baseline}
+.brand b{font-weight:800;font-stretch:125%;font-size:20px;letter-spacing:.02em}
+.brand span{font-family:var(--font-zh);font-weight:500;font-size:14px}
+.nav{display:flex;gap:36px;font-family:var(--font-zh);font-size:14px;font-weight:500}
+.nav a{text-decoration:none}
+.nav a:hover{text-decoration:underline;text-underline-offset:6px}
+.lang{font-size:13px;color:var(--color-muted)}
+
+.hero{display:grid;grid-template-columns:5fr 7fr;min-height:640px;position:relative}
+.hero-text{display:flex;flex-direction:column;justify-content:space-between;padding:72px 56px 140px 0}
+.hero h1{font-family:var(--font-zh);font-weight:900;font-size:76px;line-height:1.12;letter-spacing:-.01em}
+.hero h1 span{display:block}
+.hero .en{font-stretch:125%;font-weight:300;font-size:22px;letter-spacing:-.01em;margin-top:28px}
+.hero .addr{font-family:var(--font-zh);font-size:14px;color:var(--color-muted);line-height:1.8}
+.hero-photo{position:relative;overflow:hidden}
+.hero-photo img{width:100%;height:100%;object-fit:cover;object-position:38% 40%;filter:grayscale(1) contrast(1.05)}
+.hero-photo figcaption{position:absolute;left:24px;top:20px;color:#fff;font-size:13px;font-family:var(--font-zh);text-shadow:0 1px 6px rgba(0,0,0,.4)}
+
+.booking{position:absolute;left:0;right:0;bottom:0;display:grid;grid-template-columns:1.1fr 1.1fr 1fr 220px;background:var(--color-ink);color:#fff}
+.field{padding:22px 28px;border:0;border-right:1px solid #333;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.field:hover{background:#1a1a1a}
+.field small{display:block;font-family:var(--font-zh);font-size:12px;color:#9A9A9A}
+.field strong{display:block;font-weight:600;font-size:20px;font-stretch:112%}
+.cta{background:var(--color-accent);color:var(--color-ink);border:0;font-family:var(--font-zh);font-weight:700;font-size:17px;cursor:pointer}
+.cta:hover{background:#FFD21F}
+
+.rooms{padding:128px 0 48px}
+.rooms-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:24px}
+.rooms-head h2{font-family:var(--font-zh);font-weight:900;font-size:40px}
+.rooms-head a{font-family:var(--font-zh);font-size:14px;text-underline-offset:6px}
+.room{display:grid;grid-template-columns:360px 1fr 160px 170px;gap:40px;align-items:center;padding:28px 0;border-top:1px solid var(--color-ink)}
+.room:last-child{border-bottom:1px solid var(--color-ink)}
+.room img{aspect-ratio:3/2;object-fit:cover;width:100%}
+.room h3{font-family:var(--font-zh);font-weight:700;font-size:26px;line-height:1.3}
+.room .en{font-stretch:125%;font-size:14px;color:var(--color-muted);margin-top:4px;display:block}
+.room p{font-family:var(--font-zh);font-size:15px;margin-top:14px;max-width:30em}
+.room .cap{font-family:var(--font-zh);font-size:14px;color:var(--color-muted)}
+.room .cap b{display:block;color:var(--color-ink);font-family:var(--font-en);font-stretch:112%;font-weight:600;font-size:22px}
+.room .price{text-align:right}
+.room .price b{display:block;font-stretch:112%;font-weight:600;font-size:26px}
+.room .price small{font-family:var(--font-zh);color:var(--color-muted);font-size:13px}
+.room .book{display:inline-block;margin-top:10px;border:1.5px solid var(--color-ink);padding:8px 18px;font-family:var(--font-zh);font-weight:500;font-size:14px;text-decoration:none}
+.room .book:hover{background:var(--color-accent);border-color:var(--color-accent)}
+
+.spec{padding:72px 0 96px;display:grid;grid-template-columns:5fr 7fr;gap:56px}
+.spec h2{font-family:var(--font-zh);font-weight:900;font-size:24px}
+.swatches{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--color-ink)}
+.sw{border-right:1px solid var(--color-ink)}
+.sw:last-child{border-right:0}
+.sw i{display:block;height:96px;border-bottom:1px solid var(--color-ink)}
+.sw code{display:block;font-size:12px;padding:10px;font-family:ui-monospace,Menlo,monospace;line-height:1.5}
+table{border-collapse:collapse;width:100%;font-size:14px;margin-top:32px}
+th,td{text-align:left;padding:10px 0;border-bottom:1px solid var(--color-line);vertical-align:top;font-weight:400}
+th{font-family:var(--font-zh);font-weight:700;width:20%}
+.sample-ja{font-family:"Zen Kaku Gothic New",sans-serif}
+.sample-ko{font-family:"IBM Plex Sans KR",sans-serif}
+
+.preview{padding:0 0 128px;display:grid;grid-template-columns:5fr 7fr;gap:56px;align-items:start}
+.preview h2{font-family:var(--font-zh);font-weight:900;font-size:24px}
+.preview p{font-family:var(--font-zh);font-size:15px;color:var(--color-muted);margin-top:12px;max-width:30em}
+.phone{width:391px;height:828px;border:8px solid var(--color-ink);overflow:hidden}
+.phone iframe{width:375px;height:812px;border:0;display:block}
+
+@media (prefers-reduced-motion:no-preference){
+  .hero-photo img{animation:develop 1.8s ease-out both}
+  @keyframes develop{from{filter:grayscale(1) contrast(1.05) brightness(1.6)}to{filter:grayscale(1) contrast(1.05) brightness(1)}}
+}
+
+@media (max-width:1100px){
+  .hero h1{font-size:56px}
+  .room{grid-template-columns:240px 1fr 150px;}
+  .room .cap{display:none}
+  .preview{display:none}
+}
+@media (max-width:700px){
+  .wrap{padding:0 20px}
+  .site-head{grid-template-columns:1fr auto;height:64px;gap:16px}
+  .nav{display:none}
+  .brand span{display:none}
+  .hero{grid-template-columns:1fr;min-height:0}
+  .hero-text{padding:24px 0 28px}
+  .hero h1{font-size:44px;line-height:1.15}
+  .hero .en{font-size:17px;margin-top:16px}
+  .hero .addr{margin-top:20px}
+  .hero-photo{margin:0 -20px;height:300px}
+  .booking{position:static;margin:0 -20px;grid-template-columns:1fr 1fr}
+  .field{padding:14px 20px;border-bottom:1px solid #333}
+  .field:nth-child(2){border-right:0}
+  .field:nth-child(3){grid-column:1/-1;border-right:0}
+  .field strong{font-size:18px}
+  .cta{grid-column:1/-1;padding:18px}
+  .rooms{padding-top:64px}
+  .rooms-head h2{font-size:30px}
+  .room{grid-template-columns:1fr auto;gap:12px 16px;padding:20px 0 24px}
+  .room img{grid-column:1/-1}
+  .room h3{font-size:21px}
+  .room .price{align-self:end}
+  .room .price b{font-size:21px}
+  .spec{grid-template-columns:1fr;gap:24px;padding-top:56px}
+  .sw i{height:56px}
+  .sw code{font-size:9.5px;padding:6px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="#"><b>NK HOSTEL</b><span>小公館人文旅舍</span></a>
+    <nav class="nav" aria-label="主選單"><a href="#rooms">房型</a><a href="#">公共空間</a><a href="#">交通</a><a href="#">常見問題</a></nav>
+    <span class="lang">中 / EN / 日 / 한</span>
+  </header>
+
+  <section class="hero">
+    <div class="hero-text">
+      <div>
+        <h1><span>旅行</span><span>是一種生活</span><span>的延伸</span></h1>
+        <p class="en">Travel is an extension of life.</p>
+      </div>
+      <p class="addr">105 台北市松山區南京東路五段399號5樓<br>5F, No.399, Sec. 5, Nanjing E. Rd., Taipei</p>
+    </div>
+    <figure class="hero-photo">
+      <img src="https://www.nkhostel.com/upload_image/rooms/rooms_92.jpg" alt="經典雙人套房窗外的台北 101">
+      <figcaption>經典雙人套房的窗外</figcaption>
+    </figure>
+    <form class="booking" aria-label="查詢空房" onsubmit="return false">
+      <button type="button" class="field"><small>入住</small><strong>Fri 12.18</strong></button>
+      <button type="button" class="field"><small>退房</small><strong>Sun 12.20</strong></button>
+      <button type="button" class="field"><small>人數</small><strong>2 Adults</strong></button>
+      <button class="cta" type="submit">查詢空房</button>
+    </form>
+  </section>
+
+  <section class="rooms" id="rooms">
+    <div class="rooms-head"><h2>房型</h2><a href="#">查看全部 16 種房型</a></div>
+    <article class="room">
+      <img src="https://www.nkhostel.com/upload_image/rooms/rooms_76.jpg" alt="景緻雙人套房" loading="lazy">
+      <div><h3>景緻雙人套房</h3><span class="en">DELUXE ROOM</span><p>皮革床頭、木作書桌與整面落地紗簾，可加床至四人。</p></div>
+      <div class="cap"><b>2–4</b>位</div>
+      <div class="price"><b>NT$2,980</b><small>每晚起</small><br><a class="book" href="#">訂這間</a></div>
+    </article>
+    <article class="room">
+      <img src="https://www.nkhostel.com/upload_image/rooms/rooms_100.jpg" alt="經典雙人套房" loading="lazy">
+      <div><h3>經典雙人套房</h3><span class="en">CLASSIC ROOM</span><p>大床或雙床，窗外就是台北 101 與松山的天際線。</p></div>
+      <div class="cap"><b>2–3</b>位</div>
+      <div class="price"><b>NT$2,280</b><small>每晚起</small><br><a class="book" href="#">訂這間</a></div>
+    </article>
+    <article class="room">
+      <img src="https://www.nkhostel.com/upload_image/rooms/rooms_4.jpg" alt="男女混合雙人旅艙" loading="lazy">
+      <div><h3>男.女混合雙人旅艙</h3><span class="en">MIXED CUBE</span><p>140 × 210 公分的木作艙房，350 織精梳棉寢具，置物櫃放得下 26 吋行李箱。</p></div>
+      <div class="cap"><b>1–2</b>位</div>
+      <div class="price"><b>NT$880</b><small>每晚起</small><br><a class="book" href="#">訂這間</a></div>
+    </article>
+  </section>
+
+  <section class="spec" aria-label="設計規格">
+    <h2>設計規格<br>B 都會極簡</h2>
+    <div>
+      <div class="swatches">
+        <div class="sw"><i style="background:#000000"></i><code>--color-ink<br>#000000</code></div>
+        <div class="sw"><i style="background:#FFFFFF"></i><code>--color-paper<br>#FFFFFF</code></div>
+        <div class="sw"><i style="background:#F5C400"></i><code>--color-accent<br>#F5C400</code></div>
+        <div class="sw"><i style="background:#6B6B6B"></i><code>--color-muted<br>#6B6B6B</code></div>
+        <div class="sw"><i style="background:#E3E3E3"></i><code>--color-line<br>#E3E3E3</code></div>
+      </div>
+      <table>
+        <tr><th>中文</th><td>標題 Noto Sans TC 900　內文 Noto Sans TC 400</td></tr>
+        <tr><th>英文</th><td>標題 Archivo 寬體（wdth 125）300–800　內文 Archivo 400</td></tr>
+        <tr><th>日文</th><td class="sample-ja">標題 Zen Kaku Gothic New 700　内文 Zen Kaku Gothic New 400　旅は暮らしの延長</td></tr>
+        <tr><th>韓文</th><td class="sample-ko">標題 IBM Plex Sans KR 600　內文 IBM Plex Sans KR 400　여행은 삶의 연장입니다</td></tr>
+        <tr><th>圓角／動效</th><td>0；照片以黑白呈現，載入時像相紙顯影一次；強調色只給「查詢空房」</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="preview" aria-label="手機版預覽">
+    <div>
+      <h2>手機版 375px</h2>
+      <p>標語維持大字，照片滿版接在下方，黑色訂房列緊貼照片，房型改成上圖下文的清單。</p>
+    </div>
+    <div class="phone"><iframe src="b.html?m" title="B 都會極簡 手機版" loading="lazy"></iframe></div>
+  </section>
+</div>
+</body>
+</html>
