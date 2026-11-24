@@ -130,7 +130,8 @@ test("a failed refund leaves the booking confirmed and alerts staff; a later try
   expect(res.cancelledAt).toBeNull();
   expect(channel.pushed.map((p) => p.code)).toEqual([code]);
   expect(await avail10()).toBe(2);
-  expect(await db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "refund")))).toEqual([]);
+  expect(await db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "refund"))))
+    .toMatchObject([{ status: "failed", amount: PAID }]);
   expect(email.sent.filter((e) => e.to === STAFF && e.subject.includes("付款異常"))).toHaveLength(1);
   expect(email.sent.filter((e) => e.to === GUEST && e.subject.includes("cancelled"))).toHaveLength(0);
 
@@ -188,4 +189,39 @@ test("a cancel that crashed after refunding is finished by a later request witho
   const res = await reservation(code);
   expect(res).toMatchObject({ status: "cancelled", refundedAmount: PAID, cancelledAt: EARLY.getTime() });
   expect(await avail10()).toBe(3);
+});
+
+test("a refund whose outcome is unknown (gateway refunded, then the call failed) is never repeated", async () => {
+  const { db, deps, gateway, email, code, reservation } = await confirmedBooking();
+  const real = gateway.refund.bind(gateway);
+  // The gateway refunds, then the call dies before we can record the result.
+  vi.spyOn(gateway, "refund").mockImplementationOnce(async (r) => { await real(r); throw new Error("connection reset"); });
+
+  expect(await cancelReservation(deps, code, GUEST, EARLY)).toEqual({ ok: false, error: "REFUND_FAILED" });
+  const res = await reservation(code);
+  const [intent] = await db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "refund")));
+  expect(intent).toMatchObject({ status: "pending", amount: PAID });
+  expect(email.sent.filter((e) => e.to === STAFF && e.subject.includes("付款異常"))).toHaveLength(1);
+
+  // Another try (after the lease, a day later) must not call the gateway again.
+  const later = new Date(EARLY.getTime() + 24 * 3600_000);
+  expect(await cancelReservation(deps, code, GUEST, later)).toEqual({ ok: false, error: "REFUND_FAILED" });
+  expect(gateway.refunds).toHaveLength(1);
+  expect(gateway.refund).toHaveBeenCalledTimes(1); // only the first attempt reached the gateway
+  const after = await reservation(code);
+  expect(after).toMatchObject({ status: "confirmed", refundedAmount: 0 });
+  expect(await db.select().from(notifications).where(and(
+    eq(notifications.reservationId, res.id), eq(notifications.kind, "staff_payment_alert"), eq(notifications.ref, intent.id),
+  ))).toHaveLength(1);
+});
+
+test("a successful cancel refund goes pending → succeeded under its own idempotency key", async () => {
+  const { db, deps, gateway, code, reservation } = await confirmedBooking();
+  const refund = vi.spyOn(gateway, "refund");
+  await cancelReservation(deps, code, GUEST, EARLY);
+  const res = await reservation(code);
+  const [row] = await db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "refund")));
+  expect(row).toMatchObject({ status: "succeeded", amount: PAID, providerRef: gateway.refunds[0].refundRef });
+  expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: row.id }));
+  expect(res.refundedAmount).toBe(PAID);
 });

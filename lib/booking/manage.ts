@@ -5,7 +5,7 @@ import { payments, ratePlans, reservationRooms, reservations, unitTypes, type I1
 import type { Db } from "@/lib/db/types";
 import { refundAmount } from "@/lib/domain/cancellation";
 import type { Quote } from "@/lib/domain/quote";
-import { holdItemsFor, MAX_SYNC_ATTEMPTS, refundCharge, SYNC_LEASE_MS, SYNC_RETRY_MS } from "./confirm";
+import { holdItemsFor, MAX_SYNC_ATTEMPTS, refundCharge, SYNC_LEASE_MS, SYNC_RETRY_MS, type RefundOutcome } from "./confirm";
 import { notifyGuest, notifyStaff, paidAmount, refundableCharges, type Deps } from "./notify";
 import { payingChargeId } from "./payment-notice";
 import { transition, type Reservation, type ResStatus } from "./state";
@@ -107,21 +107,23 @@ export async function cancelReservation(deps: Deps, code: string, email: string,
 
   const { target, due, paying } = await cancellationRefund(db, claim, now, claimedAt);
   if (due > 0) {
-    const r = !paying ? { ok: false as const, error: "NO_PAYING_CHARGE" }
-      : paying.remaining < due ? { ok: false as const, error: `REFUNDABLE_${paying.remaining}_LT_${due}` }
-      : await refundCharge(deps, paying, due, "GUEST_CANCELLED", now);
+    const r: RefundOutcome = !paying ? { ok: false, error: "NO_PAYING_CHARGE" }
+      : paying.remaining < due ? { ok: false, error: `REFUNDABLE_${paying.remaining}_LT_${due}` }
+      : await refundCharge(deps, paying, due, "GUEST_CANCELLED", now, { countsAsBookingRefund: true });
     if (!r.ok) {
       await db.update(reservations)
         .set({ cancelledAt: null, lastSyncError: `CANCEL_REFUND_FAILED: ${r.error}`, updatedAt: now.getTime() })
         .where(and(eq(reservations.id, res.id), eq(reservations.status, "confirmed"), eq(reservations.updatedAt, claim.updatedAt)));
-      await notifyStaff(deps, res.id, "staff_payment_alert", now, { refundAmount: due }, `cancel-refund-failed:${now.getTime()}`);
+      const ref = r.pendingRefundId ?? `cancel-refund-failed:${now.getTime()}`;
+      await notifyStaff(deps, res.id, "staff_payment_alert", now, { refundAmount: due }, ref);
       return { ok: false, error: "REFUND_FAILED" };
     }
   }
 
+  // refundCharge already added the refund to refundedAmount.
   // nextSyncAt = now: from this moment the retry job is the safety net for the channel cancel.
   const cancelled = await transition(db, res.id, "confirmed", "cancelled", {
-    refundedAmount: claim.refundedAmount + target, holdExpiresAt: null,
+    holdExpiresAt: null,
     syncState: "pending", syncAttempts: 0, nextSyncAt: now.getTime(), lastSyncError: null,
   }, now, eq(reservations.cancelledAt, claimedAt));
   if (!cancelled) return settledElsewhere(db, res.id);

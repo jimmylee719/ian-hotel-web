@@ -1,6 +1,8 @@
+import { and, eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { MockChannelManager } from "@/lib/channel/mock";
+import { payments } from "@/lib/db/schema";
 import { runSyncRetry } from "@/lib/jobs/sync-retry";
 import { bookingSetup, minutes, PAY_NOW, STAFF } from "@/tests/helpers/booking";
 
@@ -29,7 +31,7 @@ test("a retryable failure leaves the booking pending, and the retry job confirms
 });
 
 test("after the 6th failed retry the booking is refunded", async () => {
-  const { deps, gateway, channel, email, book, reservation, notice, avail } = await bookingSetup({
+  const { db, deps, gateway, channel, email, book, reservation, notice, avail } = await bookingSetup({
     channel: new MockChannelManager({ failNext: 7, retryable: true }),
   });
   const refund = vi.spyOn(gateway, "refund");
@@ -51,6 +53,10 @@ test("after the 6th failed retry the booking is refunded", async () => {
   expect(refund).toHaveBeenCalledTimes(1);
   expect(channel.pushed).toHaveLength(0);
   expect(await avail()).toBe(3);
+  // The refund intent went pending → succeeded under its own idempotency key.
+  const rows = await db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "refund")));
+  expect(rows).toMatchObject([{ status: "succeeded", amount: PAY_NOW, providerRef: gateway.refunds[0].refundRef }]);
+  expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: rows[0].id }));
   expect(email.sent.map((e) => e.to).sort()).toEqual(["mei@example.com", STAFF]);
 
   expect(await runSyncRetry(deps, minutes(60))).toEqual({ attempted: 0 });

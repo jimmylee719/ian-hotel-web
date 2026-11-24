@@ -136,7 +136,8 @@ test("when the refund itself fails, the reservation is left for staff and never 
   expect(res.refundedAmount).toBe(0);
   expect(res.lastSyncError).toContain("MOCK_REFUND_FAILED");
   expect(await avail()).toBe(2);
-  expect(await db.select().from(payments).where(eq(payments.kind, "refund"))).toHaveLength(0);
+  // The refund intent is kept, marked failed; no money moved.
+  expect(await db.select().from(payments).where(eq(payments.kind, "refund"))).toMatchObject([{ status: "failed", providerRef: null }]);
   expect(email.sent.map((e) => [e.to, e.subject.includes("付款異常")])).toEqual([[STAFF, true]]);
 });
 

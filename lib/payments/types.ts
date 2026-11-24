@@ -31,7 +31,11 @@ export interface PaymentGateway {
   readonly supportsPreauth: boolean;
   startCharge(r: ChargeRequest): Promise<ChargeStart>;
   verifyNotice(req: { headers: Record<string, string>; body: string }): Promise<VerifyResult>;
-  refund(r: { providerRef: string; amount: number; reason: string }): Promise<
+  /**
+   * Refund part or all of a charge. `idempotencyKey` (our refund row id): a repeat call with the same
+   * key must not refund again and returns the first call's result.
+   */
+  refund(r: { providerRef: string; amount: number; reason: string; idempotencyKey?: string }): Promise<
     { ok: true; refundRef: string } | { ok: false; error: string }
   >;
 }

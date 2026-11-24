@@ -61,6 +61,16 @@ describe("MockSinoPacGateway", () => {
     expect((await bad.refund({ providerRef: "P1", amount: 100, reason: "r" })).ok).toBe(false);
     expect(gw().supportsPreauth).toBe(false);
   });
+
+  it("refunds once per idempotency key and repeats the first result", async () => {
+    const g = gw();
+    const a = await g.refund({ providerRef: "P1", amount: 100, reason: "r", idempotencyKey: "k1" });
+    const b = await g.refund({ providerRef: "P1", amount: 100, reason: "r", idempotencyKey: "k1" });
+    expect(a).toEqual(b);
+    expect(g.refunds).toHaveLength(1);
+    await g.refund({ providerRef: "P1", amount: 100, reason: "r", idempotencyKey: "k2" });
+    expect(g.refunds).toHaveLength(2);
+  });
 });
 
 describe("mock pay page logic", () => {

@@ -89,8 +89,17 @@ export class MockSinoPacGateway implements PaymentGateway {
     return { ok: true, notice: parsed };
   }
 
-  async refund(r: { providerRef: string; amount: number; reason: string }) {
+  /** Refunds actually made (a repeat of an idempotency key is not one). */
+  readonly refunds: { providerRef: string; amount: number; refundRef: string }[] = [];
+  private readonly byKey = new Map<string, string>();
+
+  async refund(r: { providerRef: string; amount: number; reason: string; idempotencyKey?: string }) {
     if (this.failRefund) return { ok: false as const, error: "MOCK_REFUND_FAILED" };
-    return { ok: true as const, refundRef: `MOCK-REFUND-${r.providerRef}-${randomHex(4)}` };
+    const seen = r.idempotencyKey === undefined ? undefined : this.byKey.get(r.idempotencyKey);
+    if (seen) return { ok: true as const, refundRef: seen };
+    const refundRef = `MOCK-REFUND-${r.providerRef}-${randomHex(4)}`;
+    this.refunds.push({ providerRef: r.providerRef, amount: r.amount, refundRef });
+    if (r.idempotencyKey !== undefined) this.byKey.set(r.idempotencyKey, refundRef);
+    return { ok: true as const, refundRef };
   }
 }

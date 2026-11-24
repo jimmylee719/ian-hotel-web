@@ -138,7 +138,7 @@ export async function refundStray(deps: Deps, reservationId: string, charge: Cha
     await deps.db.update(reservations)
       .set({ lastSyncError: `STRAY_REFUND_FAILED: ${charge.providerRef}: ${r.error}`, updatedAt: now.getTime() })
       .where(eq(reservations.id, reservationId));
-  await notifyStaff(deps, reservationId, "staff_payment_alert", now, {}, charge.providerRef ?? charge.id);
+  await notifyStaff(deps, reservationId, "staff_payment_alert", now, {}, (!r.ok && r.pendingRefundId) || (charge.providerRef ?? charge.id));
 }
 
 /**

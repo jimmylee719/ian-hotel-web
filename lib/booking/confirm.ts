@@ -124,25 +124,22 @@ export async function refundAndFail(
   if (!res) return false;
 
   let refunded = 0;
-  let error: string | undefined;
   for (const c of await refundableCharges(db, reservationId)) {
     if (c.remaining <= 0) continue;
-    const r = await refundCharge(deps, c, c.remaining, reason, now);
-    if (!r.ok) { error = r.error; break; }
+    const r = await refundCharge(deps, c, c.remaining, reason, now, { countsAsBookingRefund: true });
+    if (!r.ok) {
+      await db.update(reservations)
+        .set({ lastSyncError: `REFUND_FAILED: ${r.error} (${reason})`, updatedAt: now.getTime() })
+        .where(eq(reservations.id, reservationId));
+      await notifyStaff(deps, reservationId, "staff_payment_alert", now, {}, r.pendingRefundId ?? "");
+      return false;
+    }
     refunded += c.remaining;
   }
   const refundedAmount = res.refundedAmount + refunded;
 
-  if (error) {
-    await db.update(reservations)
-      .set({ refundedAmount, lastSyncError: `REFUND_FAILED: ${error} (${reason})`, updatedAt: now.getTime() })
-      .where(eq(reservations.id, reservationId));
-    await notifyStaff(deps, reservationId, "staff_payment_alert", now);
-    return false;
-  }
-
   const held = res.holdExpiresAt != null;
-  if (!await transition(db, reservationId, "paid_pending_confirm", "confirm_failed_refunded", { refundedAmount, holdExpiresAt: null }, now))
+  if (!await transition(db, reservationId, "paid_pending_confirm", "confirm_failed_refunded", { holdExpiresAt: null }, now))
     return false;
   if (held) await releaseInventory(db, await holdItemsFor(db, res));
   if (o.guestKind) await notifyGuest(deps, reservationId, o.guestKind, now, { refundAmount: refundedAmount });
@@ -150,22 +147,48 @@ export async function refundAndFail(
   return true;
 }
 
-/** Refund `amount` of one charge against its own provider ref and record the refund row. */
+export type RefundOutcome = { ok: true } | { ok: false; error: string; pendingRefundId?: string };
+
+/**
+ * Refund `amount` of one charge against its own provider ref.
+ * The refund row is written first as a `pending` intent and its id is the gateway's idempotency key;
+ * success marks it `succeeded` (and, with `countsAsBookingRefund`, adds it to the booking's
+ * refundedAmount in the same batch), a definitive failure marks it `failed`. A thrown gateway call has
+ * an unknown outcome, so the intent stays `pending`. While any refund of the booking is `pending`,
+ * no new refund is started: it may already have happened, and only a human can reconcile it.
+ * Callers alert staff with `pendingRefundId` as the ref when it is set.
+ */
 export async function refundCharge(
-  deps: Deps, charge: ChargeRow, amount: number, reason: string, now: Date,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+  deps: Deps, charge: ChargeRow, amount: number, reason: string, now: Date, o: { countsAsBookingRefund?: boolean } = {},
+): Promise<RefundOutcome> {
+  const { db } = deps;
   if (!charge.providerRef) return { ok: false, error: "NO_PROVIDER_REF" };
+  const [pending] = await db.select({ id: payments.id }).from(payments).where(and(
+    eq(payments.reservationId, charge.reservationId), eq(payments.kind, "refund"), eq(payments.status, "pending"),
+  )).limit(1);
+  if (pending) return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${pending.id}`, pendingRefundId: pending.id };
+
+  const id = crypto.randomUUID();
+  await db.insert(payments).values({
+    id, reservationId: charge.reservationId, kind: "refund", method: charge.method, amount,
+    status: "pending", refundOf: charge.id, createdAt: now.getTime(),
+  });
   let r: Awaited<ReturnType<Deps["gateway"]["refund"]>>;
   try {
-    r = await deps.gateway.refund({ providerRef: charge.providerRef, amount, reason });
+    r = await deps.gateway.refund({ providerRef: charge.providerRef, amount, reason, idempotencyKey: id });
   } catch (e) {
-    r = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${e instanceof Error ? e.message : String(e)}`, pendingRefundId: id };
   }
-  if (!r.ok) return r;
-  await deps.db.insert(payments).values({
-    id: crypto.randomUUID(), reservationId: charge.reservationId, kind: "refund", method: charge.method, amount,
-    status: "succeeded", providerRef: r.refundRef, refundOf: charge.id, createdAt: now.getTime(),
-  });
+  if (!r.ok) {
+    await db.update(payments).set({ status: "failed" }).where(eq(payments.id, id));
+    return r;
+  }
+  await runAtomic(db, [
+    db.update(payments).set({ status: "succeeded", providerRef: r.refundRef }).where(eq(payments.id, id)),
+    ...(o.countsAsBookingRefund
+      ? [db.update(reservations).set({ refundedAmount: sql`${reservations.refundedAmount} + ${amount}` }).where(eq(reservations.id, charge.reservationId))]
+      : []),
+  ]);
   return { ok: true };
 }
 
