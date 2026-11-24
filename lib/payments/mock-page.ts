@@ -3,12 +3,15 @@ import { MockSinoPacGateway } from "./mock-sinopac";
 /** Signing secret when MOCK_PAYMENT_SECRET is not set (mock mode only; the gateway and the pay page share it). */
 export const MOCK_DEFAULT_SECRET = "mock-secret";
 
-/** The mock pay page exists only when PAYMENT_MODE is "mock". */
+/**
+ * The mock pay page exists only when PAYMENT_MODE is "mock" and ENVIRONMENT is exactly "local": the
+ * same rule bookingDisabledReason (lib/runtime/deps.ts) applies to the mock modes, so /dev/pay 404s
+ * on any other environment, including one where ENVIRONMENT is unset.
+ */
 export function isMockPaymentMode(
   env: { PAYMENT_MODE?: string; ENVIRONMENT?: string } = process.env as { PAYMENT_MODE?: string; ENVIRONMENT?: string },
 ): boolean {
-  // /dev/pay is local-only: 404 on production whatever PAYMENT_MODE says.
-  return env.PAYMENT_MODE === "mock" && env.ENVIRONMENT !== "production";
+  return env.PAYMENT_MODE === "mock" && env.ENVIRONMENT === "local";
 }
 
 /** Recover the reservation code from a ref shaped MOCK-<code>-<8 hex>. */

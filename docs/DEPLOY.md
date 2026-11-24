@@ -43,6 +43,8 @@ by the build; each step is yours to run.
    `RESEND_API_KEY`, `STAFF_EMAILS` (comma-separated), and optionally `EMAIL_FROM`.
    **`BASE_URL`** (for example `https://www.nkhostel.com`) is also required: the cron worker has no
    request to take the site's address from, and the pre-arrival email's "manage booking" link uses it.
+   Without it, production keeps booking off (`BASE_URL_NOT_SET`) and the cron skips every email job
+   with a `console.error`, rather than sending links to localhost.
    Set it as a var in `env.production.vars` or as a secret. `.dev.vars.example` lists the local equivalents.
    Do **not** set `PAYMENT_MODE` or `CHANNEL_MODE` yet.
 4. **Migrations.** `npx wrangler d1 migrations apply nk-booking --remote --env production`.

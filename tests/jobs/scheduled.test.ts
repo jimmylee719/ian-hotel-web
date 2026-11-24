@@ -96,3 +96,17 @@ test("runCron survives a channel builder that throws: expiry and pre-arrival sti
   expect(error).toHaveBeenCalled();
   log.mockRestore(); warn.mockRestore(); error.mockRestore();
 });
+
+test("in production without BASE_URL the cron still expires holds but sends no email (no localhost links)", async () => {
+  const { db, email, reservation, b } = await scenario();
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  await runCron({ ENVIRONMENT: "production", PAYMENT_MODE: "sinopac", CHANNEL_MODE: "siteminder" } as never, RUN, db);
+  expect(log).toHaveBeenCalledWith(expect.stringContaining("expired=1 attempted=0 preArrival=0"));
+  expect(error).toHaveBeenCalledWith(expect.stringContaining("BASE_URL_NOT_SET"));
+  expect(email.sent).toHaveLength(0);
+  expect(await db.select().from(notifications).where(eq(notifications.kind, "pre_arrival"))).toHaveLength(0);
+  expect((await reservation(b)).status).toBe("paid_pending_confirm");
+  log.mockRestore(); warn.mockRestore(); error.mockRestore();
+});

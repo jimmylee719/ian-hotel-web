@@ -87,3 +87,19 @@ test("cron deps never throw: a broken channel config only switches the sync off"
   error.mockRestore();
   expect(buildScheduledDeps(base, db).syncSkipReason).toBeNull();
 });
+
+test("ENVIRONMENT=production requires BASE_URL: booking is off and the cron never falls back to localhost", () => {
+  const prod = { ENVIRONMENT: "production", PAYMENT_MODE: "sinopac", CHANNEL_MODE: "siteminder" };
+  expect(bookingDisabledReason(prod)).toBe("BASE_URL_NOT_SET");
+  expect(() => buildDeps(prod, db, "https://nkhostel.com")).toThrow("BASE_URL_NOT_SET");
+  expect(() => buildDeps(prod, db, "https://nkhostel.com")).toThrow(BookingDisabledError);
+  expect(bookingDisabledReason({ ...prod, BASE_URL: "https://nkhostel.com" })).toBeNull();
+
+  const cron = buildScheduledDeps({ ENVIRONMENT: "production" }, db);
+  expect(cron.baseUrl).not.toContain("localhost");
+  expect(cron.emailSkipReason).toBe("BASE_URL_NOT_SET");
+  expect(buildScheduledDeps({ ENVIRONMENT: "production", BASE_URL: "https://nkhostel.com" }, db))
+    .toMatchObject({ baseUrl: "https://nkhostel.com", emailSkipReason: null });
+  // Local development keeps the wrangler dev fallback.
+  expect(buildScheduledDeps(base, db)).toMatchObject({ baseUrl: "http://localhost:8787", emailSkipReason: null });
+});

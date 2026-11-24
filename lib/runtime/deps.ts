@@ -26,13 +26,22 @@ export class BookingDisabledError extends Error {
 /**
  * Why online booking must stay off, or null if it may run. Fails closed: both modes must be set, and
  * the mock modes are accepted only when ENVIRONMENT === "local" (wrangler.jsonc sets it for the default
- * env; env.production sets "production"), so mock payments can never serve a public host.
+ * env; env.production sets "production"), so mock payments can never serve a public host; and
+ * ENVIRONMENT=production needs BASE_URL.
  */
 export function bookingDisabledReason(env: AppEnv): string | null {
   if (!env.PAYMENT_MODE) return "PAYMENT_MODE_NOT_SET";
   if (!env.CHANNEL_MODE) return "CHANNEL_MODE_NOT_SET";
   if ((env.PAYMENT_MODE === "mock" || env.CHANNEL_MODE === "mock") && env.ENVIRONMENT !== "local") return "MOCK_MODE_IN_PRODUCTION";
-  return null;
+  return baseUrlMissingReason(env);
+}
+
+/**
+ * Production must name its public origin: links in emails and the gateway's return/notify URLs are
+ * built from BASE_URL, and the cron has no request origin to fall back on (only localhost).
+ */
+export function baseUrlMissingReason(env: AppEnv): string | null {
+  return env.ENVIRONMENT === "production" && !env.BASE_URL ? "BASE_URL_NOT_SET" : null;
 }
 
 /** Is online booking on? */
@@ -76,15 +85,21 @@ export function buildDeps(env: AppEnv, db: Db, origin: string): Deps {
   return { ...core, gateway: paymentGateway(env, core.baseUrl), channel: channelManager(env) };
 }
 
-export type ScheduledDeps = Deps & { syncSkipReason: string | null };
+export type ScheduledDeps = Deps & { syncSkipReason: string | null; emailSkipReason: string | null };
+
+/** The cron's base URL when BASE_URL is unset outside production: `wrangler dev`. */
+const LOCAL_DEV_ORIGIN = "http://localhost:8787";
 
 /**
  * Deps for the cron worker. Never throws: the email deps always build, and a missing or broken payment
  * or channel config only switches the channel-dependent job (sync retry) off, so hold expiry,
  * pre-arrival emails and pruning keep running. `syncSkipReason` says why sync is off, else null.
+ * `emailSkipReason` is set when production has no BASE_URL: the email-sending jobs must not run then,
+ * because their links would have no valid origin (never localhost).
  */
 export function buildScheduledDeps(env: AppEnv, db: Db): ScheduledDeps {
-  const core = buildCoreDeps(env, db, "http://localhost:8787");
+  const emailSkipReason = baseUrlMissingReason(env);
+  const core = buildCoreDeps(env, db, emailSkipReason ? "" : LOCAL_DEV_ORIGIN);
   let syncSkipReason = bookingDisabledReason(env);
   let gateway = disabledGateway;
   let channel = disabledChannel;
@@ -99,7 +114,7 @@ export function buildScheduledDeps(env: AppEnv, db: Db): ScheduledDeps {
       syncSkipReason = e instanceof Error ? e.message : String(e);
     }
   }
-  return { ...core, gateway, channel, syncSkipReason };
+  return { ...core, gateway, channel, syncSkipReason, emailSkipReason };
 }
 
 const disabledGateway: PaymentGateway = {

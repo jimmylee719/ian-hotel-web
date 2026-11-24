@@ -80,8 +80,10 @@ describe("mock pay page logic", () => {
     expect(r.ok && r.notice.status).toBe("failed");
   });
 
-  it("is enabled only in mock mode", () => {
-    expect(isMockPaymentMode({ PAYMENT_MODE: "mock" })).toBe(true);
+  it("is enabled only in mock mode with ENVIRONMENT=local, the rule deps.ts uses", () => {
+    expect(isMockPaymentMode({ PAYMENT_MODE: "mock" })).toBe(false); // ENVIRONMENT unset: not local
+    expect(isMockPaymentMode({ PAYMENT_MODE: "mock", ENVIRONMENT: "staging" })).toBe(false);
+    expect(isMockPaymentMode({ PAYMENT_MODE: "mock", ENVIRONMENT: "" })).toBe(false);
     expect(isMockPaymentMode({ PAYMENT_MODE: "sinopac" })).toBe(false);
     expect(isMockPaymentMode({})).toBe(false);
     expect(isMockPaymentMode({ PAYMENT_MODE: "mock", ENVIRONMENT: "production" })).toBe(false); // /dev/pay 404s in production
