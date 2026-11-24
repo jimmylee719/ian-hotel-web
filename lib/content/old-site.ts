@@ -56,3 +56,14 @@ export function oldSiteContent(): OldSiteContent {
 export function roomImages(slug: string): string[] {
   return data.rooms.find((r) => r.slug === slug)?.images ?? [];
 }
+
+/** Photos for a content page (R2 keys), from the old-site pages it was migrated from. Icons (PNG) are skipped. */
+export function pageImages(slug: string): string[] {
+  const sources = PAGE_SOURCES[slug] ?? (data.pages.some((p) => p.slug === slug) ? [slug] : []);
+  return sources.flatMap((s) => data.pages.find((p) => p.slug === s)?.images ?? []).filter((k) => !k.endsWith(".png"));
+}
+
+/** Photos of a news item (R2 keys). */
+export function newsImages(slug: string): string[] {
+  return data.news.find((n) => n.slug === slug)?.images ?? [];
+}

@@ -33,7 +33,8 @@
     "attractions": "周邊景點",
     "groups": "團體與長住",
     "faq": "常見問題",
-    "news": "最新消息"
+    "news": "最新消息",
+    "reviews": "住客評價"
   },
   "home": {
     "taglineFirst": "旅行",
@@ -42,7 +43,25 @@
     "intro": "在南京東路五段的五樓，替遠道而來的你留一盞燈。白天走進城市，晚上回到像家一樣的房間。",
     "nearMrt": "鄰近捷運南京三民站",
     "heroAlt": "景緻雙人套房：皮革床頭、壁燈與落地紗簾",
-    "heroCaption": "景緻雙人套房，午後三點的光"
+    "heroCaption": "景緻雙人套房，午後三點的光",
+    "storyTitle": "關於小公館",
+    "storyLead": "旅途中，也可以回家。",
+    "storyBody1": "我們相信旅行是生活的延伸，是一種體會世界的態度。在這裡，我們想分享的不只是睡覺休息的地方。",
+    "storyBody2": "每一件家具與備品，都用替家人挑選的心情挑過；每一個角落，都花了時間佈置。因為一個舒服、放鬆的空間，能讓人與人之間多一點溫度。",
+    "storyBody3": "等你來，和我們一起完成台北市這一隅的溫暖風景。",
+    "storyPhotoAlt": "八樓交誼廳：紅磚牆、藍色沙發與落地窗",
+    "roomsTitle": "房型",
+    "allRooms": "全部 {count} 種房型",
+    "facilitiesTitle": "公共空間",
+    "facilitiesBody": "五樓有 24 小時櫃台、NK BAR 與共用廚房；八樓有交誼廳與自助洗衣房；十四樓的頂樓露臺看得到台北 101。",
+    "facilitiesMore": "看所有公共空間",
+    "reviewsTitle": "住客評分",
+    "reviewsBody": "謝謝每一位住過的旅客，這些分數是你們給的。",
+    "reviewsMore": "看所有評價與獎項",
+    "locationTitle": "位置",
+    "locationBody": "捷運南京三民站 4 號出口步行約 8 分鐘，樓下就有公車站。饒河街夜市與松山車站都在步行範圍內，到松山機場搭計程車約 10 分鐘。",
+    "directions": "完整交通方式",
+    "openMap": "在 Google 地圖開啟"
   },
   "booking": {
     "title": "查詢空房",
@@ -59,7 +78,9 @@
     "done": "完成",
     "search": "查詢空房",
     "checkOutAfterCheckIn": "退房日期須晚於入住日期",
-    "selectDate": "選擇日期"
+    "selectDate": "選擇日期",
+    "openSearch": "查詢空房與價格",
+    "close": "收合"
   },
   "footer": {
     "address": "105 台北市松山區南京東路五段 399 號 5 樓",
@@ -115,5 +136,97 @@
     "title": "找不到這個頁面",
     "body": "網址可能打錯了，或頁面已經移除。",
     "back": "回到首頁"
+  },
+  "rooms": {
+    "title": "房型",
+    "description": "小公館的八種房型：個人旅艙、四人與六人客房、迷你、經典與景緻雙人套房、行政四人連通房。查看照片、床型、坪數與房內設施。",
+    "intro": "從一個人的旅艙，到一家人或一群朋友的連通房，每一間都鋪上 350 織精梳棉寢具。",
+    "perNight": "起／晚",
+    "viewRoom": "看這間房",
+    "guests": "可住人數",
+    "guestsValue": "最多 {count} 人",
+    "bed": "床型",
+    "size": "面積",
+    "sizeValue": "{sqm} 平方公尺",
+    "fromPrice": "近 7 日最低價",
+    "priceNote": "實際房價依日期與人數而定",
+    "amenitiesTitle": "房內設施",
+    "aboutTitle": "房型介紹",
+    "checkPrices": "查看日期與價格",
+    "allRooms": "所有房型",
+    "otherRooms": "其他房型",
+    "photos": "{room}照片",
+    "photoAlt": "{room}，第 {n} 張照片",
+    "openPhoto": "放大第 {n} 張照片",
+    "close": "關閉",
+    "prev": "上一張",
+    "next": "下一張",
+    "counter": "第 {n} 張，共 {total} 張"
+  },
+  "pages": {
+    "facilitiesDescription": "小公館的公共空間：五樓 24 小時櫃台、NK BAR、共用廚房與露臺，八樓交誼廳與自助洗衣房，十四樓頂樓露臺。",
+    "locationDescription": "如何到小公館：捷運南京三民站步行 8 分鐘，公車、台鐵、高鐵、桃園與松山機場的交通方式，機場接送與停車資訊。",
+    "attractionsDescription": "小公館周邊景點：饒河街夜市、松山慈祐宮、彩虹河濱公園、台北小巨蛋、台北 101 與象山。",
+    "groupsDescription": "班級旅行、球隊與員工訓練的團體住宿，以及半月租、月租長住方案。填寫表單，我們會盡快回覆。",
+    "privacyDescription": "小公館人文旅舍如何蒐集、使用與保護你的個人資料。",
+    "termsDescription": "小公館人文旅舍官網訂房條款：付款、取消與退款規定。",
+    "photoAlt": "{title}，第 {n} 張照片",
+    "addressTitle": "地址",
+    "facilityPhotos": "公共空間照片"
+  },
+  "facilityPhoto": {
+    "bar": "五樓 NK BAR 吧台",
+    "terrace": "五樓露臺的小花園",
+    "lounge8": "八樓交誼廳",
+    "kitchen": "五樓共用廚房與長桌",
+    "lounge5": "五樓交誼廳的閱讀角落",
+    "laundry": "八樓自助洗衣房",
+    "rooftop": "十四樓頂樓露臺，遠方是台北 101"
+  },
+  "news": {
+    "title": "最新消息",
+    "description": "小公館人文旅舍的最新消息與公告。",
+    "empty": "目前沒有新的消息。",
+    "readMore": "閱讀全文",
+    "back": "所有消息"
+  },
+  "faq": {
+    "title": "常見問題",
+    "description": "訂房、取消、入住與退房時間、付款、行李寄放與設施的常見問題。",
+    "intro": "訂房、入住與館內設施的常見問題。",
+    "stillQuestions": "沒有找到答案嗎？歡迎來電或寫信給我們。"
+  },
+  "reviews": {
+    "title": "住客評價",
+    "description": "小公館人文旅舍在 Booking.com、Agoda、Hostelworld、Hotels.com、Expedia、Tripadvisor、Airbnb 與攜程獲得的評分與獎項。",
+    "intro": "這些分數與獎項，來自在各訂房平台上留下評價的住客。謝謝你們。",
+    "score": "{score} / {scale} 分",
+    "travellersChoice": "旅行者之選",
+    "reviewAward": "住客評價獎",
+    "guestRated": "住客評分獎",
+    "superhost": "超讚房東",
+    "guestRating": "住客評分",
+    "badgeAlt": "{platform}頒發的獎項證明",
+    "leaveReview": "住過小公館嗎？歡迎在你訂房的平台留下評價。"
+  },
+  "inquiry": {
+    "title": "團體訂房洽詢",
+    "intro": "告訴我們人數與日期，我們會依需求安排房型並回覆報價。",
+    "name": "聯絡人姓名",
+    "email": "Email",
+    "phone": "電話",
+    "groupSize": "人數",
+    "checkIn": "入住日期",
+    "checkOut": "退房日期",
+    "message": "需求說明",
+    "messageHint": "例如團體性質、房型偏好、是否需要接送或會議空間。",
+    "honeypot": "請勿填寫此欄",
+    "submit": "送出洽詢",
+    "sending": "傳送中…",
+    "success": "已收到你的洽詢，我們會盡快回信到 {email}。",
+    "errorValidation": "有欄位需要修正，請檢查標示的地方。",
+    "errorSend": "目前無法送出。請稍後再試，或直接寫信到 {email}。",
+    "fieldError": "請檢查這個欄位",
+    "required": "必填"
   }
 }

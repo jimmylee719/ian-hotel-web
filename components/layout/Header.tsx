@@ -8,7 +8,7 @@ import { LocaleSwitcher } from "./LocaleSwitcher";
 export const NAV_ITEMS = [
   { key: "rooms", href: "/rooms" },
   { key: "facilities", href: "/facilities" },
-  { key: "access", href: "/access" },
+  { key: "access", href: "/location" },
   { key: "faq", href: "/faq" },
 ] as const;
 

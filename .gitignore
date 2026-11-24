@@ -6,3 +6,5 @@
 .wrangler
 node_modules
 tsconfig.tsbuildinfo
+# Self-hosted CJK fonts, downloaded by scripts/fetch-fonts.ts (npm prebuild)
+public/fonts/

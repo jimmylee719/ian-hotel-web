@@ -33,7 +33,8 @@
     "attractions": "Nearby",
     "groups": "Groups",
     "faq": "FAQ",
-    "news": "News"
+    "news": "News",
+    "reviews": "Reviews"
   },
   "home": {
     "taglineFirst": "旅行",
@@ -42,7 +43,25 @@
     "intro": "On the fifth floor of Nanjing East Road, we keep a light on for you. Spend the day out in the city, and come back at night to a room that feels like home.",
     "nearMrt": "Near Nanjing Sanmin MRT station",
     "heroAlt": "Deluxe Room: leather headboard, wall lamps and full-length sheer curtains",
-    "heroCaption": "The Deluxe Room in the three o'clock light"
+    "heroCaption": "The Deluxe Room in the three o'clock light",
+    "storyTitle": "About NK Hostel",
+    "storyLead": "A home, even while you travel.",
+    "storyBody1": "We believe travel is an extension of life, a way of meeting the world. What we want to share is more than a place to sleep.",
+    "storyBody2": "Every piece of furniture and every towel was chosen the way you would choose for your own family, and every corner was arranged with care, because a comfortable, relaxed space brings people a little closer.",
+    "storyBody3": "Come and help us finish this warm corner of Taipei.",
+    "storyPhotoAlt": "8th-floor lounge: red brick walls, a blue sofa and tall windows",
+    "roomsTitle": "Rooms",
+    "allRooms": "All {count} room types",
+    "facilitiesTitle": "Shared spaces",
+    "facilitiesBody": "The 5th floor has a 24-hour front desk, the NK BAR and a shared kitchen; the 8th floor has a lounge and self-service laundry; the 14th-floor roof terrace looks out to Taipei 101.",
+    "facilitiesMore": "See all shared spaces",
+    "reviewsTitle": "Guest ratings",
+    "reviewsBody": "Thank you to everyone who has stayed with us. These scores are yours.",
+    "reviewsMore": "See all ratings and awards",
+    "locationTitle": "Location",
+    "locationBody": "About 8 minutes' walk from exit 4 of Nanjing Sanmin MRT station, with a bus stop right outside. Raohe Street Night Market and Songshan Station are within walking distance, and Songshan Airport is about 10 minutes by taxi.",
+    "directions": "Full directions",
+    "openMap": "Open in Google Maps"
   },
   "booking": {
     "title": "Check availability",
@@ -59,7 +78,9 @@
     "done": "Done",
     "search": "Check availability",
     "checkOutAfterCheckIn": "Check-out must be after check-in",
-    "selectDate": "Select a date"
+    "selectDate": "Select a date",
+    "openSearch": "Check dates and prices",
+    "close": "Close"
   },
   "footer": {
     "address": "5F, No. 399, Sec. 5, Nanjing E. Rd, Songshan Dist., Taipei 105, Taiwan",
@@ -115,5 +136,97 @@
     "title": "Page not found",
     "body": "The address may be mistyped, or the page has been removed.",
     "back": "Back to the home page"
+  },
+  "rooms": {
+    "title": "Rooms",
+    "description": "Eight room types at NK Hostel: capsule beds, rooms for four and six, Mini, Classic and Deluxe double rooms, and a connecting room for four. Photos, beds, sizes and in-room amenities.",
+    "intro": "From a capsule for one to a connecting room for a family or a group of friends, every bed is made up with 350-thread-count combed cotton.",
+    "perNight": "from, per night",
+    "viewRoom": "View room",
+    "guests": "Sleeps",
+    "guestsValue": "Up to {count, plural, one {# guest} other {# guests}}",
+    "bed": "Beds",
+    "size": "Size",
+    "sizeValue": "{sqm} m²",
+    "fromPrice": "Lowest price, next 7 days",
+    "priceNote": "Prices vary with dates and number of guests",
+    "amenitiesTitle": "In the room",
+    "aboutTitle": "About this room",
+    "checkPrices": "Check dates and prices",
+    "allRooms": "All rooms",
+    "otherRooms": "Other rooms",
+    "photos": "Photos of the {room}",
+    "photoAlt": "{room}, photo {n}",
+    "openPhoto": "Enlarge photo {n}",
+    "close": "Close",
+    "prev": "Previous photo",
+    "next": "Next photo",
+    "counter": "Photo {n} of {total}"
+  },
+  "pages": {
+    "facilitiesDescription": "Shared spaces at NK Hostel: 24-hour front desk, NK BAR, shared kitchen and terrace on 5F, lounge and self-service laundry on 8F, and a roof terrace on 14F.",
+    "locationDescription": "How to reach NK Hostel: 8 minutes' walk from Nanjing Sanmin MRT, plus buses, trains, high-speed rail, Taoyuan and Songshan airports, airport transfers and parking.",
+    "attractionsDescription": "Near NK Hostel: Raohe Street Night Market, Songshan Ciyou Temple, Rainbow Riverside Park, Taipei Arena, Taipei 101 and Elephant Mountain.",
+    "groupsDescription": "Group stays for school trips, sports teams and staff training, plus half-month and monthly long stays. Send us the form and we will reply as soon as we can.",
+    "privacyDescription": "How NK Hostel collects, uses and protects your personal data.",
+    "termsDescription": "NK Hostel direct booking terms: payment, cancellation and refunds.",
+    "photoAlt": "{title}, photo {n}",
+    "addressTitle": "Address",
+    "facilityPhotos": "Photos of the shared spaces"
+  },
+  "facilityPhoto": {
+    "bar": "The NK BAR counter on 5F",
+    "terrace": "The small garden on the 5F terrace",
+    "lounge8": "The 8F lounge",
+    "kitchen": "The shared kitchen and long table on 5F",
+    "lounge5": "The reading corner in the 5F lounge",
+    "laundry": "Self-service laundry on 8F",
+    "rooftop": "The 14F roof terrace, with Taipei 101 in the distance"
+  },
+  "news": {
+    "title": "News",
+    "description": "News and announcements from NK Hostel.",
+    "empty": "No news right now.",
+    "readMore": "Read more",
+    "back": "All news"
+  },
+  "faq": {
+    "title": "FAQ",
+    "description": "Common questions about booking, cancellation, check-in and check-out times, payment, luggage storage and facilities.",
+    "intro": "Common questions about booking, your stay and our facilities.",
+    "stillQuestions": "Didn't find your answer? Call or email us."
+  },
+  "reviews": {
+    "title": "Reviews",
+    "description": "NK Hostel's guest ratings and awards on Booking.com, Agoda, Hostelworld, Hotels.com, Expedia, Tripadvisor, Airbnb and Ctrip.",
+    "intro": "These scores and awards come from guests who reviewed us on each booking site. Thank you.",
+    "score": "{score} out of {scale}",
+    "travellersChoice": "Travellers' Choice",
+    "reviewAward": "Traveller Review Award",
+    "guestRated": "Guest Rated Award",
+    "superhost": "Superhost",
+    "guestRating": "Guest rating",
+    "badgeAlt": "Award certificate from {platform}",
+    "leaveReview": "Stayed with us? We would love a review on the site you booked through."
+  },
+  "inquiry": {
+    "title": "Group inquiry",
+    "intro": "Tell us how many of you there are and when, and we will suggest rooms and send a quote.",
+    "name": "Contact name",
+    "email": "Email",
+    "phone": "Phone",
+    "groupSize": "Number of guests",
+    "checkIn": "Check-in",
+    "checkOut": "Check-out",
+    "message": "What you need",
+    "messageHint": "For example the kind of group, room preferences, airport transfers or a meeting space.",
+    "honeypot": "Leave this field empty",
+    "submit": "Send inquiry",
+    "sending": "Sending…",
+    "success": "Thank you. We have your inquiry and will reply to {email} as soon as we can.",
+    "errorValidation": "Some fields need fixing. Please check the marked ones.",
+    "errorSend": "We couldn't send your inquiry. Please try again later, or email us at {email}.",
+    "fieldError": "Please check this field",
+    "required": "Required"
   }
 }

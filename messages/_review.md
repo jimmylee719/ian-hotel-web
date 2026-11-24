@@ -24,10 +24,20 @@ locale on purpose.
 | `footer.phone`, `footer.email`, `footer.line`, `footer.privacy`, `footer.terms`, `footer.copyright`, `footer.contact`, `footer.siteLinks`, `footer.legal` | MT | MT | MT |
 | `amenities.*` (33 keys) | old /en/ icon labels, EDIT (capitalisation, "Safety" -> "Safe", "public bath" -> "Shared bathroom") | MT | MT |
 | `notFound.*` | MT | MT | MT |
+| `nav.reviews`, `booking.openSearch`, `booking.close` (Task 8) | MT | MT | MT |
+| `home.story*`, `home.rooms*`, `home.allRooms`, `home.facilities*`, `home.reviews*`, `home.location*`, `home.directions`, `home.openMap` (Task 8) | MT; story text is EDIT of the old /en/ home page | MT | MT |
+| `rooms.*` (Task 8, room list and room pages) | MT | MT | MT |
+| `pages.*` (Task 8, meta descriptions, photo alt text, address heading) | MT | MT | MT |
+| `facilityPhoto.*` (Task 8, captions written from the photos) | MT | MT | MT |
+| `news.*`, `faq.*` (Task 8) | MT | MT | MT |
+| `reviews.*` (Task 8); award names follow the wording on each platform's certificate | MT | MT | MT |
+| `inquiry.*` (Task 8, group inquiry form) | MT | MT | MT |
 
 zh-TW keys that are NEW (not on the old site): `meta.title`, `meta.description`, `home.intro`,
 `home.heroCaption`, `home.heroAlt` (from design/proposals/a.html), `footer.nearMrt`, `booking.*`,
-`notFound.*`.
+`notFound.*`, and everything added in Task 8 except `home.storyBody*` (EDIT of the old home page text).
+
+Task 8 also hard-codes, in four languages, the hotel amenity names in `lib/jsonld.ts` (`HOTEL_AMENITIES`, MT) and the PostalAddress parts there (ja/ko reuse the zh-TW/en forms; please check). The ratings in `lib/content/reviews.ts` were read off the old award images; the owner should confirm they are still current before launch.
 
 ## 2. Database content (`content/localized/*.ts`, seeded by `lib/db/seed-content.ts`)
 

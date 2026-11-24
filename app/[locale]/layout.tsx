@@ -4,7 +4,9 @@ import { hasLocale, NextIntlClientProvider } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { routing } from "@/i18n/routing";
 import { Footer } from "@/components/layout/Footer";
+import { CjkFonts } from "@/components/layout/CjkFonts";
 import { Header } from "@/components/layout/Header";
+import { BookingDock } from "@/components/site/BookingDock";
 import { SITE_URL } from "@/lib/seo";
 import { fontVariables } from "./fonts";
 
@@ -33,8 +35,9 @@ export default async function LocaleLayout({
   const t = await getTranslations({ locale, namespace: "header" });
 
   return (
-    <html lang={locale} className={fontVariables(locale)}>
+    <html lang={locale} className={fontVariables}>
       <body>
+        <CjkFonts locale={locale} />
         <NextIntlClientProvider>
           <a className="skip-link" href="#main">
             {t("skipToContent")}
@@ -43,6 +46,7 @@ export default async function LocaleLayout({
             <Header />
           </div>
           {children}
+          <BookingDock />
           <div className="wrap">
             <Footer locale={locale} />
           </div>

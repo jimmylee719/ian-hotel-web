@@ -33,7 +33,8 @@
     "attractions": "주변 명소",
     "groups": "단체·장기 투숙",
     "faq": "자주 묻는 질문",
-    "news": "소식"
+    "news": "소식",
+    "reviews": "투숙객 평가"
   },
   "home": {
     "taglineFirst": "여행은",
@@ -42,7 +43,25 @@
     "intro": "난징동로 5단의 5층에서, 멀리서 오신 당신을 위해 불을 밝혀 둡니다. 낮에는 도시로 나가고, 밤에는 집 같은 방으로 돌아오세요.",
     "nearMrt": "MRT 난징싼민역 근처",
     "heroAlt": "디럭스룸: 가죽 헤드보드, 벽등, 바닥까지 내려오는 시어 커튼",
-    "heroCaption": "오후 세 시의 빛이 드는 디럭스룸"
+    "heroCaption": "오후 세 시의 빛이 드는 디럭스룸",
+    "storyTitle": "NK 호스텔 이야기",
+    "storyLead": "여행 중에도 돌아갈 집이 있습니다.",
+    "storyBody1": "우리는 여행이 삶의 연장이며 세상을 만나는 하나의 태도라고 믿습니다. 여기서 나누고 싶은 것은 그저 잠만 자는 곳이 아닙니다.",
+    "storyBody2": "가구와 비품 하나하나를 가족을 위해 고르듯 골랐고, 구석구석 시간을 들여 꾸몄습니다. 편안하고 여유로운 공간이 사람 사이를 조금 더 가깝게 만들어 주기 때문입니다.",
+    "storyBody3": "타이베이 한쪽의 따뜻한 풍경을 저희와 함께 완성해 주세요.",
+    "storyPhotoAlt": "8층 라운지: 붉은 벽돌 벽, 파란 소파와 큰 창",
+    "roomsTitle": "객실",
+    "allRooms": "객실 {count}종 모두 보기",
+    "facilitiesTitle": "공용 공간",
+    "facilitiesBody": "5층에는 24시간 프런트, NK BAR, 공용 주방이 있고, 8층에는 라운지와 셀프 세탁실이 있습니다. 14층 옥상 테라스에서는 타이베이 101이 보입니다.",
+    "facilitiesMore": "공용 공간 모두 보기",
+    "reviewsTitle": "투숙객 평점",
+    "reviewsBody": "머물러 주신 모든 분께 감사드립니다. 이 점수는 여러분이 주신 것입니다.",
+    "reviewsMore": "평점과 수상 내역 모두 보기",
+    "locationTitle": "위치",
+    "locationBody": "MRT 난징싼민역 4번 출구에서 걸어서 약 8분, 건물 앞에 버스 정류장이 있습니다. 라오허제 야시장과 쑹산역은 걸어서 갈 수 있고, 쑹산공항까지는 택시로 약 10분입니다.",
+    "directions": "자세한 교통 안내",
+    "openMap": "Google 지도에서 열기"
   },
   "booking": {
     "title": "빈 객실 검색",
@@ -59,7 +78,9 @@
     "done": "완료",
     "search": "빈 객실 검색",
     "checkOutAfterCheckIn": "체크아웃 날짜는 체크인 날짜 이후여야 합니다",
-    "selectDate": "날짜 선택"
+    "selectDate": "날짜 선택",
+    "openSearch": "날짜와 요금 확인",
+    "close": "닫기"
   },
   "footer": {
     "address": "대만 타이베이시 쑹산구 난징동로 5단 399호 5층 (우편번호 105)",
@@ -115,5 +136,97 @@
     "title": "페이지를 찾을 수 없습니다",
     "body": "주소가 잘못되었거나 페이지가 삭제되었을 수 있습니다.",
     "back": "홈으로 돌아가기"
+  },
+  "rooms": {
+    "title": "객실",
+    "description": "NK 호스텔의 객실 8종: 캡슐 베드, 4인실과 6인실, 미니·클래식·디럭스 더블룸, 4인 커넥팅룸. 사진, 침대, 면적, 객실 설비를 확인하세요.",
+    "intro": "혼자를 위한 캡슐부터 가족이나 친구들을 위한 커넥팅룸까지, 모든 침대에 350수 코마 면 침구를 갖췄습니다.",
+    "perNight": "부터／1박",
+    "viewRoom": "객실 보기",
+    "guests": "투숙 인원",
+    "guestsValue": "최대 {count}명",
+    "bed": "침대",
+    "size": "면적",
+    "sizeValue": "{sqm}제곱미터",
+    "fromPrice": "향후 7일 최저가",
+    "priceNote": "요금은 날짜와 인원에 따라 달라집니다",
+    "amenitiesTitle": "객실 설비",
+    "aboutTitle": "객실 소개",
+    "checkPrices": "날짜와 요금 확인",
+    "allRooms": "모든 객실",
+    "otherRooms": "다른 객실",
+    "photos": "{room} 사진",
+    "photoAlt": "{room}, 사진 {n}",
+    "openPhoto": "사진 {n} 크게 보기",
+    "close": "닫기",
+    "prev": "이전 사진",
+    "next": "다음 사진",
+    "counter": "{total}장 중 {n}번째 사진"
+  },
+  "pages": {
+    "facilitiesDescription": "NK 호스텔의 공용 공간: 5층 24시간 프런트, NK BAR, 공용 주방과 테라스, 8층 라운지와 셀프 세탁실, 14층 옥상 테라스.",
+    "locationDescription": "NK 호스텔 오시는 길: MRT 난징싼민역에서 걸어서 8분. 버스, 기차, 고속철도, 타오위안·쑹산 공항에서 오는 방법과 공항 픽업, 주차 안내.",
+    "attractionsDescription": "NK 호스텔 주변 명소: 라오허제 야시장, 쑹산 츠유궁, 무지개 강변공원, 타이베이 아레나, 타이베이 101, 샹산.",
+    "groupsDescription": "수학여행, 스포츠 팀, 직원 연수를 위한 단체 숙박과 보름·한 달 장기 투숙. 양식을 보내 주시면 최대한 빨리 답변드립니다.",
+    "privacyDescription": "NK 호스텔이 개인정보를 수집·이용·보호하는 방법.",
+    "termsDescription": "NK 호스텔 공식 웹사이트 예약 약관: 결제, 취소, 환불.",
+    "photoAlt": "{title}, 사진 {n}",
+    "addressTitle": "주소",
+    "facilityPhotos": "공용 공간 사진"
+  },
+  "facilityPhoto": {
+    "bar": "5층 NK BAR 카운터",
+    "terrace": "5층 테라스의 작은 정원",
+    "lounge8": "8층 라운지",
+    "kitchen": "5층 공용 주방과 긴 테이블",
+    "lounge5": "5층 라운지의 독서 공간",
+    "laundry": "8층 셀프 세탁실",
+    "rooftop": "14층 옥상 테라스, 멀리 보이는 타이베이 101"
+  },
+  "news": {
+    "title": "소식",
+    "description": "NK 호스텔의 소식과 공지.",
+    "empty": "현재 새로운 소식이 없습니다.",
+    "readMore": "자세히 보기",
+    "back": "전체 소식"
+  },
+  "faq": {
+    "title": "자주 묻는 질문",
+    "description": "예약, 취소, 체크인·체크아웃 시간, 결제, 짐 보관, 시설에 관한 자주 묻는 질문.",
+    "intro": "예약, 투숙, 시설에 관한 자주 묻는 질문입니다.",
+    "stillQuestions": "답을 찾지 못하셨나요? 전화나 이메일로 문의해 주세요."
+  },
+  "reviews": {
+    "title": "투숙객 평가",
+    "description": "Booking.com, Agoda, Hostelworld, Hotels.com, Expedia, Tripadvisor, Airbnb, Ctrip에서 NK 호스텔이 받은 평점과 수상 내역.",
+    "intro": "각 예약 사이트에 후기를 남겨 주신 투숙객 여러분께 받은 점수와 상입니다. 감사합니다.",
+    "score": "{scale}점 만점에 {score}점",
+    "travellersChoice": "트래블러스 초이스",
+    "reviewAward": "트래블러 리뷰 어워드",
+    "guestRated": "게스트 평가 어워드",
+    "superhost": "슈퍼호스트",
+    "guestRating": "투숙객 평점",
+    "badgeAlt": "{platform} 수상 증명",
+    "leaveReview": "저희와 함께 머무셨나요? 예약하신 사이트에 후기를 남겨 주세요."
+  },
+  "inquiry": {
+    "title": "단체 예약 문의",
+    "intro": "인원과 날짜를 알려 주시면 필요에 맞는 객실을 제안하고 견적을 보내 드립니다.",
+    "name": "담당자 이름",
+    "email": "이메일",
+    "phone": "전화번호",
+    "groupSize": "인원",
+    "checkIn": "체크인 날짜",
+    "checkOut": "체크아웃 날짜",
+    "message": "요청 사항",
+    "messageHint": "예: 단체 성격, 선호 객실, 공항 픽업이나 회의 공간 필요 여부.",
+    "honeypot": "이 칸은 비워 두세요",
+    "submit": "문의 보내기",
+    "sending": "보내는 중…",
+    "success": "문의를 받았습니다. 최대한 빨리 {email}(으)로 답장드리겠습니다.",
+    "errorValidation": "수정이 필요한 항목이 있습니다. 표시된 칸을 확인해 주세요.",
+    "errorSend": "문의를 보내지 못했습니다. 잠시 후 다시 시도하시거나 {email}(으)로 이메일을 보내 주세요.",
+    "fieldError": "이 칸을 확인해 주세요",
+    "required": "필수"
   }
 }

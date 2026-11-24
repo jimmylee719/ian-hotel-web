@@ -14,6 +14,17 @@ export const SOCIAL = [
   { key: "line", href: "https://line.me/R/ti/p/3_Pw43MsVn" },
 ] as const;
 
+const FOOTER_LINKS = [
+  ["rooms", "/rooms"],
+  ["facilities", "/facilities"],
+  ["access", "/location"],
+  ["attractions", "/attractions"],
+  ["groups", "/groups"],
+  ["reviews", "/reviews"],
+  ["news", "/news"],
+  ["faq", "/faq"],
+] as const;
+
 export async function Footer({ locale }: { locale: Locale }) {
   const t = await getTranslations({ locale, namespace: "footer" });
   const h = await getTranslations({ locale, namespace: "header" });
@@ -49,9 +60,9 @@ export async function Footer({ locale }: { locale: Locale }) {
         </div>
         <nav aria-label={t("siteLinks")}>
           <ul>
-            {(["rooms", "facilities", "access", "attractions", "groups", "news", "faq"] as const).map((k) => (
+            {FOOTER_LINKS.map(([k, href]) => (
               <li key={k}>
-                <Link href={`/${k}`}>{nav(k)}</Link>
+                <Link href={href}>{nav(k)}</Link>
               </li>
             ))}
           </ul>
@@ -63,7 +74,7 @@ export async function Footer({ locale }: { locale: Locale }) {
         </span>
         <nav aria-label={t("legal")}>
           <Link href="/privacy">{t("privacy")}</Link>
-          <Link href="/booking-terms">{t("terms")}</Link>
+          <Link href="/terms">{t("terms")}</Link>
         </nav>
       </div>
     </footer>

@@ -26,6 +26,7 @@ export function LocaleSwitcher() {
             hrefLang={locale}
             lang={locale}
             aria-current={locale === current ? "true" : undefined}
+            aria-label={t(`localeNames.${locale}`)}
           >
             <span className="long">{t(`localeNames.${locale}`)}</span>
             <span className="short" aria-hidden="true">

@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "tsx scripts/fetch-fonts.ts",
     "dev": "next dev",
+    "prebuild": "tsx scripts/fetch-fonts.ts",
     "build": "next build",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
@@ -11,7 +13,8 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply nk-booking --local",
-    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
+    "media:variants": "tsx scripts/media-variants.ts"
   },
   "dependencies": {
     "date-fns": "^4.4.0",
@@ -36,6 +39,7 @@
     "eslint": "^9",
     "eslint-config-next": "15.5.29",
     "node-html-parser": "^9.0.7",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",

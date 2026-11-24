@@ -1,1 +1,5 @@
-# Local secrets for wrangler dev (copy to .dev.vars). None needed in Plan 1.
+# Local secrets for wrangler dev (copy to .dev.vars).
+# Group inquiry emails (/api/inquiry). Without RESEND_API_KEY the email is only logged.
+# RESEND_API_KEY=re_xxx
+# EMAIL_FROM="NK Hostel <noreply@nkhostel.com>"
+# STAFF_EMAILS=front@nkhostel.com,manager@nkhostel.com
