@@ -1,9 +1,10 @@
-import { and, eq, gte, inArray, like, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, like, lte, or, sql } from "drizzle-orm";
 import { addDaysISO, todayInTaipei, type ISODate } from "@/lib/domain/dates";
 import { formatTwd } from "@/lib/email/templates";
-import { guests, notifications, paymentEvents, payments, reservationRooms, reservations } from "@/lib/db/schema";
+import { guests, jobRuns, notifications, paymentEvents, payments, reservationRooms, reservations } from "@/lib/db/schema";
+import { CHANNEL_RECONCILE_JOB, type ChannelMismatch } from "@/lib/jobs/reconcile-channel";
 import type { Db } from "@/lib/db/types";
-import { MONEY_KINDS, netDelta } from "./money-metrics";
+import { MONEY_KINDS, moneyMovedAt, netDelta } from "./money-metrics";
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -26,8 +27,8 @@ export type ReservationRow = {
 };
 
 export type AlertKind =
-  | "sync_failed" | "sync_pending_stale" | "refund_pending" | "stray_refund_failed" | "email_failed" | "payment_alert"
-  | "desk_refund_due";
+  | "sync_failed" | "sync_pending_stale" | "refund_pending" | "refund_failed" | "stray_refund_failed" | "email_failed"
+  | "payment_alert" | "desk_refund_due" | "channel_mismatch";
 
 export type Alert = { kind: AlertKind; reservationId?: string; code?: string; detail: string; since: number };
 
@@ -44,13 +45,14 @@ export type Dashboard = {
 
 /** Where an alert leads: refund trouble to the refunds page, otherwise the reservation (or refunds when none is known). */
 export function alertHref(a: Alert): string {
-  if (a.kind === "refund_pending" || !a.reservationId) return "/admin/refunds";
+  if (a.kind === "refund_pending" || a.kind === "refund_failed" || !a.reservationId) return "/admin/refunds";
   return `/admin/reservations/${a.reservationId}`;
 }
 
 /** Most urgent first. */
 const SEVERITY: AlertKind[] = [
-  "stray_refund_failed", "payment_alert", "refund_pending", "desk_refund_due", "sync_failed", "sync_pending_stale", "email_failed",
+  "stray_refund_failed", "payment_alert", "refund_failed", "refund_pending", "desk_refund_due", "sync_failed", "channel_mismatch", "sync_pending_stale",
+  "email_failed",
 ];
 
 const ROW = {
@@ -103,7 +105,7 @@ async function loadAlerts(db: Db, propertyId: string, nowMs: number): Promise<Al
   const recent = nowMs - RECENT_MS;
   // How long the desk has owed it: since its desk-due last rose from 0.
   const owedSince = reservations.deskDueSince;
-  const [failed, stale, strays, refunds, emails, events, deskDue] = await Promise.all([
+  const [failed, stale, strays, refunds, failedRefunds, emails, events, deskDue] = await Promise.all([
     db.select({ id: reservations.id, code: reservations.code, err: reservations.lastSyncError, at: reservations.updatedAt })
       .from(reservations).where(and(own, eq(reservations.syncState, "failed"))),
     db.select({ id: reservations.id, code: reservations.code, at: reservations.nextSyncAt })
@@ -113,6 +115,16 @@ async function loadAlerts(db: Db, propertyId: string, nowMs: number): Promise<Al
     db.select({ id: reservations.id, code: reservations.code, amount: payments.amount, at: payments.createdAt })
       .from(payments).innerJoin(reservations, eq(reservations.id, payments.reservationId))
       .where(and(own, eq(payments.kind, "refund"), eq(payments.status, "pending"), lte(payments.createdAt, nowMs - REFUND_STALE_MS))),
+    // A failed refund that is still the booking's open intent: a cancellation's (`cancel:<id>`) while the booking is
+    // confirmed with its cancel claim kept (a cancel that failed outright drops the claim, and the guest was told),
+    // or a staff modification's (`modify:<id>:<n>`) on a confirmed booking (it blocks cancels until settled).
+    // Retrying or settling the row by hand (/admin/refunds), or the cancel finishing, ends it.
+    db.select({ id: reservations.id, code: reservations.code, amount: payments.amount, at: payments.createdAt })
+      .from(payments).innerJoin(reservations, eq(reservations.id, payments.reservationId))
+      .where(and(own, eq(payments.kind, "refund"), eq(payments.status, "failed"), eq(reservations.status, "confirmed"), or(
+        and(eq(payments.idempotencyKey, sql`'cancel:' || ${reservations.id}`), isNotNull(reservations.cancelledAt)),
+        like(payments.idempotencyKey, sql`'modify:' || ${reservations.id} || ':%'`),
+      ))),
     db.select({ id: reservations.id, code: reservations.code, kind: notifications.kind, at: notifications.at })
       .from(notifications).innerJoin(reservations, eq(reservations.id, notifications.reservationId))
       .where(and(eq(notifications.propertyId, propertyId), eq(notifications.status, "failed"), gte(notifications.at, recent))),
@@ -123,6 +135,13 @@ async function loadAlerts(db: Db, propertyId: string, nowMs: number): Promise<Al
       .from(reservations)
       .where(and(own, sql`${reservations.frontDeskRefundDue} > 0`, lte(owedSince, nowMs - DESK_REFUND_STALE_MS))),
   ]);
+
+  // The latest completed channel reconcile's mismatches (a run that errored or was skipped has none recorded):
+  // they stand until a later run no longer finds them.
+  const [lastReconcile] = await db.select({ result: jobRuns.result, at: jobRuns.startedAt }).from(jobRuns)
+    .where(and(eq(jobRuns.name, CHANNEL_RECONCILE_JOB), sql`json_type(${jobRuns.result}, '$.mismatches') = 'array'`))
+    .orderBy(desc(jobRuns.startedAt), desc(jobRuns.id)).limit(1);
+  const mismatches = ((lastReconcile?.result.mismatches ?? []) as ChannelMismatch[]).filter((m) => m.propertyId === propertyId);
 
   // A payment event carries the reservation code, not its id.
   const codes = [...new Set(events.map((e) => e.code).filter((c): c is string => !!c))];
@@ -135,8 +154,13 @@ async function loadAlerts(db: Db, propertyId: string, nowMs: number): Promise<Al
 
   const alerts: Alert[] = [
     ...failed.map((r): Alert => ({ kind: "sync_failed", reservationId: r.id, code: r.code, detail: r.err ?? "同步失敗", since: r.at })),
+    ...mismatches.map((m): Alert => ({
+      kind: "channel_mismatch", reservationId: m.reservationId, code: m.code, since: lastReconcile!.at,
+      detail: `通路確認號不一致：本系統 ${m.local ?? "（無）"}，通路 ${m.channel}${m.channelState === "cancelled" ? "（通路已取消）" : ""}`,
+    })),
     ...stale.map((r): Alert => ({ kind: "sync_pending_stale", reservationId: r.id, code: r.code, detail: "同步逾時未完成", since: r.at ?? 0 })),
     ...strays.map((r): Alert => ({ kind: "stray_refund_failed", reservationId: r.id, code: r.code, detail: r.err ?? "", since: r.at })),
+    ...failedRefunds.map((r): Alert => ({ kind: "refund_failed", reservationId: r.id, code: r.code, detail: `退款 NT$${r.amount} 失敗，需重試或線下退款`, since: r.at })),
     ...refunds.map((r): Alert => ({ kind: "refund_pending", reservationId: r.id, code: r.code, detail: `退款 NT$${r.amount} 處理中逾 10 分鐘`, since: r.at })),
     ...deskDue.map((r): Alert => ({
       kind: "desk_refund_due", reservationId: r.id, code: r.code, detail: `櫃檯尚未退還 ${formatTwd(r.amount)}，已超過 1 天`, since: Number(r.at),
@@ -157,10 +181,10 @@ async function loadKpis(db: Db, propertyId: string, today: ISODate, monthStart: 
   // Taipei is UTC+8 with no DST, so the month's first instant is its first midnight minus 8h.
   const monthStartMs = Date.parse(monthStart) - 8 * 60 * MIN;
 
-  const money = await db.select({ kind: payments.kind, amount: payments.amount, at: payments.createdAt })
+  const money = await db.select({ kind: payments.kind, amount: payments.amount, at: moneyMovedAt })
     .from(payments).innerJoin(reservations, eq(reservations.id, payments.reservationId))
     .where(and(own, eq(reservations.channel, "direct"), eq(payments.status, "succeeded"),
-      inArray(payments.kind, [...MONEY_KINDS]), gte(payments.createdAt, monthStartMs)));
+      inArray(payments.kind, [...MONEY_KINDS]), gte(moneyMovedAt, monthStartMs)));
 
   const stays = await db.select({ id: reservations.id, checkIn: reservations.checkIn, checkOut: reservations.checkOut })
     .from(reservations)

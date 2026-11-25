@@ -1,5 +1,5 @@
 import type {
-  ChargeRequest, ChargeStart, PaymentGateway, PaymentNotice, VerifyResult,
+  ChargeRequest, ChargeStart, PaymentGateway, PaymentNotice, RefundQueryResult, RefundResult, TransactionQueryResult, VerifyResult,
 } from "./types";
 
 export const MOCK_SIGNATURE_HEADER = "x-mock-signature";
@@ -37,27 +37,37 @@ function isNotice(v: unknown): v is PaymentNotice {
     typeof n.amount === "number" && Number.isInteger(n.amount) &&
     (n.status === "succeeded" || n.status === "failed") &&
     (n.authCode === undefined || typeof n.authCode === "string") &&
-    (n.last4 === undefined || typeof n.last4 === "string")
+    (n.last4 === undefined || typeof n.last4 === "string") &&
+    (n.merchantOrderNo === undefined || typeof n.merchantOrderNo === "string")
   );
 }
 
 export class MockSinoPacGateway implements PaymentGateway {
   readonly provider = "mock" as const;
   readonly supportsPreauth = false;
+  readonly timeoutMs = 10_000;
   private readonly secret: string;
   private readonly baseUrl: string;
   private readonly failRefund: boolean;
+  /** How many of the next refunds are made but answered with a TIMEOUT (the answer lost on the way back). */
+  refundTimeoutNext: number;
 
-  constructor(o: { secret: string; baseUrl: string; failRefund?: boolean }) {
+  constructor(o: { secret: string; baseUrl: string; failRefund?: boolean; refundTimeoutNext?: number }) {
     this.secret = o.secret;
     this.baseUrl = o.baseUrl.replace(/\/+$/, "");
     this.failRefund = o.failRefund ?? false;
+    this.refundTimeoutNext = o.refundTimeoutNext ?? 0;
   }
+
+  /** Charges this instance started or saw a verified notice for, by providerRef. */
+  private readonly charges = new Map<string, { merchantOrderNo?: string; amount: number; status: "succeeded" | "failed" | "pending" }>();
 
   async startCharge(r: ChargeRequest): Promise<ChargeStart> {
     const ref = `MOCK-${r.reservationCode}-${randomHex(4)}`;
+    this.charges.set(ref, { merchantOrderNo: r.merchantOrderNo, amount: r.amount, status: "pending" });
     const q = new URLSearchParams({
       code: r.reservationCode,
+      order: r.merchantOrderNo,
       amount: String(r.amount),
       locale: r.locale,
       returnUrl: r.returnUrl,
@@ -86,20 +96,50 @@ export class MockSinoPacGateway implements PaymentGateway {
     if (!timingSafeEqual(given, await hmacHex(this.secret, req.body))) {
       return { ok: false, error: "BAD_SIGNATURE" };
     }
+    // The provider's notice carries its own transaction ref and, when it reports one, the attempt's order number.
+    const known = this.charges.get(parsed.providerRef);
+    const merchantOrderNo = parsed.merchantOrderNo ?? known?.merchantOrderNo;
+    this.charges.set(parsed.providerRef, { merchantOrderNo, amount: parsed.amount, status: parsed.status });
     return { ok: true, notice: parsed };
+  }
+
+  /**
+   * By providerRef, or by merchantOrderNo: an attempt is first known under the ref startCharge made up and then, once
+   * paid, under the notice's ref; the settled outcome (succeeded, then failed) wins over the still-pending start.
+   */
+  async queryTransaction(ref: { providerRef?: string; merchantOrderNo?: string }): Promise<TransactionQueryResult> {
+    const rank = { succeeded: 0, failed: 1, pending: 2 } as const;
+    const hit = [...this.charges].filter(([providerRef, c]) =>
+      (ref.providerRef !== undefined && providerRef === ref.providerRef) ||
+      (ref.merchantOrderNo !== undefined && c.merchantOrderNo === ref.merchantOrderNo))
+      .sort(([, a], [, b]) => rank[a.status] - rank[b.status])[0];
+    if (!hit) return { status: "not_found" };
+    const [providerRef, c] = hit;
+    return { status: c.status, amount: c.amount, providerRef };
   }
 
   /** Refunds actually made (a repeat of an idempotency key is not one). */
   readonly refunds: { providerRef: string; amount: number; refundRef: string }[] = [];
   private readonly byKey = new Map<string, string>();
 
-  async refund(r: { providerRef: string; amount: number; reason: string; idempotencyKey?: string }) {
-    if (this.failRefund) return { ok: false as const, error: "MOCK_REFUND_FAILED" };
+  async refund(r: { providerRef: string; amount: number; reason: string; idempotencyKey?: string }): Promise<RefundResult> {
+    if (this.failRefund) return { ok: false, error: "MOCK_REFUND_FAILED" };
     const seen = r.idempotencyKey === undefined ? undefined : this.byKey.get(r.idempotencyKey);
-    if (seen) return { ok: true as const, refundRef: seen };
-    const refundRef = `MOCK-REFUND-${r.providerRef}-${randomHex(4)}`;
-    this.refunds.push({ providerRef: r.providerRef, amount: r.amount, refundRef });
-    if (r.idempotencyKey !== undefined) this.byKey.set(r.idempotencyKey, refundRef);
-    return { ok: true as const, refundRef };
+    let refundRef = seen;
+    if (!refundRef) {
+      refundRef = `MOCK-REFUND-${r.providerRef}-${randomHex(4)}`;
+      this.refunds.push({ providerRef: r.providerRef, amount: r.amount, refundRef });
+      if (r.idempotencyKey !== undefined) this.byKey.set(r.idempotencyKey, refundRef);
+    }
+    if (this.refundTimeoutNext > 0) {
+      this.refundTimeoutNext--;
+      return { ok: false, error: "TIMEOUT", outcomeUnknown: true }; // made, but the answer never arrives
+    }
+    return { ok: true, refundRef };
+  }
+
+  async queryRefund(idempotencyKey: string): Promise<RefundQueryResult> {
+    const refundRef = this.byKey.get(idempotencyKey);
+    return refundRef ? { status: "succeeded", refundRef } : { status: "not_found" };
   }
 }

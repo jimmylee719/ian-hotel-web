@@ -33,12 +33,14 @@ export const bookingInput = (over: Partial<CreateInput> = {}): CreateInput => ({
   ...over,
 });
 
-export async function bookingSetup(o: { available?: number; channel?: MockChannelManager; failRefund?: boolean } = {}) {
+export async function bookingSetup(
+  o: { available?: number; channel?: MockChannelManager; failRefund?: boolean; refundTimeoutNext?: number } = {},
+) {
   const db = createTestDb();
   const { propertyId } = await seedNk(db);
   await fillAri(db, propertyId, "2026-12-01", 5, { available: o.available ?? 3 });
   const ids = await idsFor(db, "mixed-cube");
-  const gateway = new MockSinoPacGateway({ secret: "s", baseUrl: BASE, failRefund: o.failRefund });
+  const gateway = new MockSinoPacGateway({ secret: "s", baseUrl: BASE, failRefund: o.failRefund, refundTimeoutNext: o.refundTimeoutNext });
   const channel = o.channel ?? new MockChannelManager();
   const email = new MockEmailSender();
   const deps: Deps = { db, gateway, channel, email, staffEmails: [STAFF], baseUrl: BASE };

@@ -1,5 +1,5 @@
 import { bookingTerms } from "./terms";
-import { and, eq, exists, isNull, lte, notExists, or, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, isNull, lte, notExists, or, sql } from "drizzle-orm";
 import type { CancelResult } from "@/lib/channel/types";
 import { releaseInventory, type HoldItem } from "@/lib/db/inventory-hold";
 import { auditLog, payments, reservationRooms, reservations, unitTypes, type I18n } from "@/lib/db/schema";
@@ -194,7 +194,10 @@ export type CancelCoreOptions = {
   refundOverride?: number;
   /** Give back only the nights on or after this date (a stay already under way); default every night. */
   releaseFrom?: ISODate;
-  /** Email the guest (default true). Staff are always emailed. */
+  /**
+   * Email the guest (default true). Staff are always emailed. A `false` is also stored on the refund intent this
+   * call creates, so a later completion by refund reconciliation (finishFlow) keeps it.
+   */
   notifyGuest?: boolean;
   /**
    * False when no payment gateway is configured: a cancellation that would move money then fails with
@@ -261,25 +264,32 @@ export async function cancelConfirmed(deps: Deps, reservationId: string, now: Da
     exists(db.select({ one: sql`1` }).from(payments).where(and(eq(payments.idempotencyKey, key), eq(payments.status, "succeeded")))),
   );
   // Only now does the desk owe the cancellation's share: a cancel that failed and dropped its claim changed nothing.
+  // The share is the one STORED with the intent (cancelDeskDue, read by this same UPDATE), not this attempt's
+  // `r.frontDesk`: an attempt that stalled past its lease may have planned a share a takeover attempt has since
+  // replaced. (SET expressions see the row as it was before the UPDATE, so cancelDeskDue is read before it is zeroed.)
+  // Desk-due can't move while the claim is held, so the row's frontDeskRefundDue tells whether it was already owed.
   const cancelled = await transition(db, reservationId, "confirmed", "cancelled", {
-    holdExpiresAt: null, frontDeskRefundDue: r.frontDesk, cancelDeskDue: 0,
-    // Desk-due can't move while the claim is held, so the claim's row tells whether it was already owed.
-    deskDueSince: r.frontDesk > 0 ? (claim.frontDeskRefundDue > 0 ? claim.deskDueSince ?? now.getTime() : now.getTime()) : null,
+    holdExpiresAt: null, frontDeskRefundDue: sql`${reservations.cancelDeskDue}`, cancelDeskDue: 0,
+    deskDueSince: sql`case when ${reservations.cancelDeskDue} > 0
+      then (case when ${reservations.frontDeskRefundDue} > 0 then coalesce(${reservations.deskDueSince}, ${now.getTime()}) else ${now.getTime()} end)
+      else null end`,
     syncState: "pending", syncAttempts: 0, nextSyncAt: now.getTime(), lastSyncError: null,
   }, now, refundSettled);
   if (!cancelled) return settledElsewhere(db, reservationId);
+  const [{ frontDesk }] = await db.select({ frontDesk: reservations.frontDeskRefundDue }).from(reservations)
+    .where(eq(reservations.id, reservationId));
 
   if (claim.holdExpiresAt != null) {
     const items = nightsFrom(await holdItemsFor(db, claim), o.releaseFrom);
     if (items.length) await releaseInventory(db, items);
   }
   await cancelWithChannel(deps, reservationId, now);
-  const mail = { refundAmount: r.amount, ...frontDeskField(r.frontDesk) };
+  const mail = { refundAmount: r.amount, ...frontDeskField(frontDesk) };
   const clamp = r.overrideClamped ? { overrideClamped: r.overrideClamped } : {};
   if (o.notifyGuest !== false) await notifyGuest(deps, reservationId, "cancelled", now, mail);
   await notifyStaff(deps, reservationId, "cancelled", now, mail);
-  if (r.frontDesk > 0) await notifyStaff(deps, reservationId, "staff_payment_alert", now, mail, "front-desk-refund");
-  return { ok: true, refunded: r.amount, ...frontDeskField(r.frontDesk), alreadyCancelled: false, ...clamp };
+  if (frontDesk > 0) await notifyStaff(deps, reservationId, "staff_payment_alert", now, mail, "front-desk-refund");
+  return { ok: true, refunded: r.amount, ...frontDeskField(frontDesk), alreadyCancelled: false, ...clamp };
 }
 
 /** The hold items limited to nights on or after `from` (all of them when `from` is unset); empty items dropped. */
@@ -327,7 +337,9 @@ async function refundCancellation(deps: Deps, claim: Reservation, now: Date, o: 
   const charge = (await refundableCharges(db, claim.id)).find((c) => c.id === chargeId);
   if (!charge) return { ok: false, error: "NO_PAYING_CHARGE" };
   if (!intent && charge.remaining < amount) return { ok: false, error: `REFUNDABLE_${charge.remaining}_LT_${amount}` };
-  const r = await refundOnce(deps, cancelKey(claim.id), charge, amount, o.reason, now, { countsAsBookingRefund: true });
+  const r = await refundOnce(deps, cancelKey(claim.id), charge, amount, o.reason, now, {
+    countsAsBookingRefund: true, notifyGuest: o.notifyGuest,
+  });
   return r.ok ? { ...r, frontDesk: plan.frontDesk, ...clamp } : r;
 }
 
@@ -361,34 +373,43 @@ async function settledElsewhere(db: Db, reservationId: string): Promise<CancelOu
 }
 
 /**
- * Tell the channel a `cancelled` booking is gone. Lease-guarded like confirmWithChannel, so the
- * cancel request and the retry job never call it at the same time. Success → synced; a retryable
- * failure retries in 5 minutes; a non-retryable one, or one after MAX_SYNC_ATTEMPTS retries, → failed
- * and staff are alerted.
+ * Tell the channel a booking is gone: a `cancelled` one, or a `confirm_failed_refunded` one whose pushes all
+ * failed here (any of them may have landed, its answer lost). The latter is looked up first and cancelled only
+ * if the channel holds it as active; not there, or already cancelled there, counts as success.
+ * Lease-guarded like confirmWithChannel, so a request and the retry job never call it at the same time.
+ * Success → synced; a retryable failure retries in 5 minutes; a non-retryable one, or one after
+ * MAX_SYNC_ATTEMPTS retries, → failed and staff are alerted.
  */
 export async function cancelWithChannel(deps: Deps, reservationId: string, now: Date): Promise<void> {
   const { db } = deps;
   const [res] = await db.update(reservations)
     .set({ nextSyncAt: now.getTime() + SYNC_LEASE_MS })
     .where(and(
-      eq(reservations.id, reservationId), eq(reservations.status, "cancelled"), eq(reservations.syncState, "pending"),
-      or(isNull(reservations.nextSyncAt), lte(reservations.nextSyncAt, now.getTime())),
+      eq(reservations.id, reservationId), inArray(reservations.status, ["cancelled", "confirm_failed_refunded"]),
+      eq(reservations.syncState, "pending"), or(isNull(reservations.nextSyncAt), lte(reservations.nextSyncAt, now.getTime())),
     ))
     .returning();
   if (!res) return;
+  const refunded = res.status === "confirm_failed_refunded";
 
   let r: CancelResult;
   try {
-    r = await deps.channel.cancelReservation(res.code);
+    // A cancelled booking carries the smConfirmation its push returned; a refunded one (or one without) asks the channel.
+    r = !refunded && res.smConfirmation
+      ? await deps.channel.cancelReservation(res.code, res.smConfirmation)
+      : await cancelIfActive(deps, res.code);
   } catch (e) {
     r = { ok: false, retryable: true, error: e instanceof Error ? e.message : String(e) };
   }
   const mine = and(
-    eq(reservations.id, reservationId), eq(reservations.status, "cancelled"),
+    eq(reservations.id, reservationId), eq(reservations.status, res.status),
     eq(reservations.syncState, "pending"), eq(reservations.syncAttempts, res.syncAttempts),
   );
   if (r.ok) {
-    await db.update(reservations).set({ syncState: "synced", nextSyncAt: null, lastSyncError: null, updatedAt: now.getTime() }).where(mine);
+    // A refunded booking keeps lastSyncError: its failure reason (or the error of a channel check that failed since).
+    await db.update(reservations)
+      .set({ syncState: "synced", nextSyncAt: null, ...(refunded ? {} : { lastSyncError: null }), updatedAt: now.getTime() })
+      .where(mine);
     return;
   }
   const error = r.error ?? "CHANNEL_CANCEL_FAILED";
@@ -403,4 +424,12 @@ export async function cancelWithChannel(deps: Deps, reservationId: string, now: 
     .set({ syncState: "failed", syncAttempts: attempts, nextSyncAt: null, lastSyncError: error, updatedAt: now.getTime() })
     .where(mine).returning({ id: reservations.id });
   if (failed.length) await notifyStaff(deps, reservationId, "staff_sync_failed", now, {}, "cancel");
+}
+
+/** Cancel `code` at the channel, under the smConfirmation the channel reports, only if it holds it as active. */
+export async function cancelIfActive(deps: Deps, code: string): Promise<CancelResult> {
+  const l = await deps.channel.lookupReservation(code);
+  if ("error" in l) return { ok: false, retryable: l.retryable, error: `LOOKUP_FAILED: ${l.error}` };
+  if (!l.found || l.state === "cancelled") return { ok: true, retryable: false };
+  return deps.channel.cancelReservation(code, l.smConfirmation);
 }

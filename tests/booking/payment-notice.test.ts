@@ -113,7 +113,7 @@ test("a non-retryable channel failure refunds, releases inventory and apologises
 
   const res = await reservation(code);
   expect(res.status).toBe("confirm_failed_refunded");
-  expect(res.syncState).toBe("failed");
+  expect(res.syncState).toBe("pending"); // the retry job checks the channel never kept it
   expect(res.refundedAmount).toBe(PAY_NOW);
   expect(refund).toHaveBeenCalledWith(expect.objectContaining({ providerRef: `REF-${code}`, amount: PAY_NOW }));
   expect(await avail()).toBe(3);

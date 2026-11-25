@@ -218,6 +218,7 @@ test("reconciling a lost cancel refund completes the cancellation with the desk'
   await recordFrontDeskPayment(db, frontDesk, id, cash(DEPOSIT), DAY);
   const real = gateway.refund.bind(gateway);
   vi.spyOn(gateway, "refund").mockImplementationOnce(async (r) => { await real(r); throw new Error("connection reset"); });
+  vi.spyOn(gateway, "queryRefund").mockResolvedValueOnce({ error: "QUERY_DOWN" }); // and the gateway cannot say
   expect(await cancelReservation(deps, code, GUEST, EARLY)).toEqual({ ok: false, error: "REFUND_FAILED" });
   const [row] = await refunds();
   expect(row).toMatchObject({ status: "pending", amount: DEPOSIT });

@@ -19,7 +19,7 @@ test("a retryable failure is reported, then the retry succeeds with a confirmati
 
 test("cancel removes a pushed reservation", async () => {
   const cm = new MockChannelManager();
-  await cm.pushReservation(res);
-  expect(await cm.cancelReservation("NK-TEST01")).toEqual({ ok: true, retryable: false });
+  const p = await cm.pushReservation(res);
+  expect(await cm.cancelReservation("NK-TEST01", p.ok ? p.smConfirmation : "")).toEqual({ ok: true, retryable: false });
   expect(cm.pushed).toHaveLength(0);
 });

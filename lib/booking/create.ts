@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { runAtomic } from "@/lib/db/atomic";
 import { holdStatements, isCheckViolation, type HoldItem } from "@/lib/db/inventory-hold";
@@ -110,8 +110,9 @@ export async function createReservation(deps: Deps, raw: CreateInput, now: Date)
     throw e;
   }
 
-  // 8. Start the payment.
+  // 8. Start the payment (null only if the booking already left pending_payment: answer as a replay would).
   const start = await startCharge(deps, code, q.payNow, input.locale, now);
+  if (!start) return (await replayExisting(deps, input.idempotencyKey, input.locale, now)) ?? fail("INVALID_INPUT", "EXPIRED");
   return { ok: true, code, start };
 }
 
@@ -138,18 +139,27 @@ async function replayExisting(deps: Deps, idempotencyKey: string, locale: Locale
   const [charge] = charges;
   if (!charge) throw new Error(`Reservation ${existing.code} has no charge row`);
   const start = await startCharge(deps, existing.code, charge.amount, (existing.locale as Locale) ?? locale, now);
+  // Paid or expired since it was read: answer from its new status (which never starts a charge again).
+  if (!start) return replayExisting(deps, idempotencyKey, locale, now);
   return { ok: true, code: existing.code, start };
 }
 
 /**
- * Start (or restart) the payment. The start time is recorded first, so a payment failure from an
- * earlier attempt is not mistaken for this attempt's result (see the status API's paymentState).
+ * Start (or restart) the payment. One conditional UPDATE, only while the booking still awaits payment, records
+ * the start time (so a payment failure from an earlier attempt is not mistaken for this attempt's result, see
+ * the status API's paymentState) and takes the next attempt number, whose merchantOrderNo `<code>-<n>` no
+ * earlier attempt used. Null when the booking is no longer pending_payment: no charge is started.
  */
-async function startCharge(deps: Deps, code: string, amount: number, locale: Locale, now: Date): Promise<ChargeStart> {
-  await deps.db.update(reservations).set({ lastChargeStartedAt: now.getTime() }).where(eq(reservations.code, code));
+async function startCharge(deps: Deps, code: string, amount: number, locale: Locale, now: Date): Promise<ChargeStart | null> {
+  const [attempt] = await deps.db.update(reservations)
+    .set({ lastChargeStartedAt: now.getTime(), chargeAttempt: sql`${reservations.chargeAttempt} + 1` })
+    .where(and(eq(reservations.code, code), eq(reservations.status, "pending_payment")))
+    .returning({ n: reservations.chargeAttempt });
+  if (!attempt) return null;
   const base = deps.baseUrl.replace(/\/+$/, "");
   return deps.gateway.startCharge({
     reservationCode: code,
+    merchantOrderNo: `${code}-${attempt.n}`,
     amount,
     locale,
     returnUrl: `${base}/${locale}/book/return/${code}`,

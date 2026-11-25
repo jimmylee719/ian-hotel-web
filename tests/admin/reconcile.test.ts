@@ -3,9 +3,11 @@ import { describe, expect, test, vi } from "vitest";
 import type { StaffContext } from "@/lib/admin/auth";
 import { listPendingRefunds, reconcileRefund } from "@/lib/admin/reconcile";
 import { moneyOf } from "@/lib/admin/money-metrics";
+import { staffCancel } from "@/lib/admin/staff-cancel";
 import { cancelReservation, findReservation } from "@/lib/booking/manage";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { auditLog, inventoryDaily, notifications, payments, reservations, staff } from "@/lib/db/schema";
+import { buildDepsOrOffline } from "@/lib/runtime/deps";
 import { fillAri } from "@/tests/helpers/ari";
 import { bookingSetup, minutes, PAY_NOW } from "@/tests/helpers/booking";
 import { AT, ONE_NIGHT, tenK } from "@/tests/helpers/money";
@@ -38,6 +40,7 @@ async function stuckCancellation() {
   await handlePaymentNotice(s.deps, await s.notice(code, { amount: PAID }), minutes(2));
   const real = s.gateway.refund.bind(s.gateway);
   vi.spyOn(s.gateway, "refund").mockImplementationOnce(async (r) => { await real(r); throw new Error("connection reset"); });
+  vi.spyOn(s.gateway, "queryRefund").mockResolvedValueOnce({ error: "QUERY_DOWN" }); // and the gateway cannot say
   expect(await cancelReservation(s.deps, code, GUEST, EARLY)).toEqual({ ok: false, error: "REFUND_FAILED" });
   const res = await s.reservation(code);
   const [row] = await s.refundRows(res.id);
@@ -61,7 +64,7 @@ test("mark_succeeded on a stuck cancellation refund finishes the cancellation; a
     .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
 
   expect(await reservation(code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, cancelledAt: EARLY.getTime() });
-  expect(await refundRows(id)).toMatchObject([{ status: "succeeded", providerRef: "BANK-123", amount: PAID }]);
+  expect(await refundRows(id)).toMatchObject([{ status: "succeeded", providerRef: "BANK-123", amount: PAID, settledAt: LATER.getTime() }]);
   expect(await avail("2026-12-10")).toBe(3);
   expect(email.sent.filter((e) => e.to === GUEST && e.subject.includes("cancelled"))).toHaveLength(1);
   expect(await db.select().from(auditLog).where(eq(auditLog.entityId, row.id)))
@@ -70,6 +73,25 @@ test("mark_succeeded on a stuck cancellation refund finishes the cancellation; a
   expect(await reconcileRefund(deps, manager, row.id, { kind: "mark_succeeded", providerRef: "BANK-123" }, LATER))
     .toEqual({ ok: false, error: "ALREADY_RESOLVED" });
   expect((await reservation(code)).refundedAmount).toBe(PAID);
+});
+
+test("a staff cancel with notifyGuest false keeps the guest un-emailed when reconciliation completes it", async () => {
+  for (const notify of [false, true]) {
+    const s = await setup();
+    const code = await s.book({ checkIn: "2026-12-10", checkOut: "2026-12-12" });
+    await handlePaymentNotice(s.deps, await s.notice(code, { amount: PAID }), minutes(2));
+    vi.spyOn(s.gateway, "refund").mockRejectedValueOnce(new Error("connection reset"));
+    vi.spyOn(s.gateway, "queryRefund").mockResolvedValueOnce({ error: "QUERY_DOWN" });
+    const res = await s.reservation(code);
+    expect(await staffCancel(s.deps, s.manager, res.id, { reason: "guest called", notifyGuest: notify }, EARLY))
+      .toEqual({ ok: false, error: "REFUND_FAILED" });
+    const [row] = await s.refundRows(res.id);
+    expect(row.status).toBe("pending");
+    expect(await reconcileRefund(s.deps, s.manager, row.id, { kind: "mark_succeeded", providerRef: `BANK-${notify}` }, LATER))
+      .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
+    expect(s.email.sent.filter((e) => e.to === GUEST && e.subject.includes("cancelled"))).toHaveLength(notify ? 1 : 0);
+    expect(s.email.sent.filter((e) => e.to !== GUEST).length).toBeGreaterThan(0); // staff are still told
+  }
 });
 
 test("mark_failed only marks it failed; retry then calls the gateway with the same idempotency key", async () => {
@@ -84,6 +106,7 @@ test("mark_failed only marks it failed; retry then calls the gateway with the sa
   expect(await reconcileRefund(deps, manager, row.id, { kind: "retry" }, LATER)).toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
   expect(refund).toHaveBeenCalledTimes(1);
   expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: `cancel:${id}`, amount: PAID }));
+  expect(await refundRows(id)).toMatchObject([{ status: "succeeded", settledAt: LATER.getTime() }]); // when it succeeded, not row.createdAt
   expect(await reservation(code)).toMatchObject({ status: "cancelled", refundedAmount: PAID });
   expect(await reconcileRefund(deps, manager, row.id, { kind: "retry" }, LATER)).toEqual({ ok: false, error: "ALREADY_RESOLVED" });
   expect(refund).toHaveBeenCalledTimes(1);
@@ -112,7 +135,7 @@ test("a successful retry of a cancel refund whose claim was dropped completes th
     .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
   expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: `cancel:${s.id}` }));
   expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, cancelledAt: s.row.createdAt, syncState: "synced" });
-  expect(cancel).toHaveBeenCalledWith(s.code);
+  expect(cancel).toHaveBeenCalledWith(s.code, (await s.reservation(s.code)).smConfirmation);
   expect(await s.avail("2026-12-10")).toBe(3);
   expect(await s.avail("2026-12-11")).toBe(3);
   expect(s.email.sent.filter((e) => e.to === GUEST && e.subject.includes("cancelled"))).toHaveLength(1);
@@ -175,6 +198,7 @@ test("mark_succeeded on a stuck fail: refund finishes the failed booking and ema
   const { db, deps, gateway, email, manager, book, notice, reservation, refundRows, avail } = await setup();
   const code = await book();
   vi.spyOn(gateway, "refund").mockRejectedValueOnce(new Error("timeout"));
+  vi.spyOn(gateway, "queryRefund").mockResolvedValueOnce({ status: "pending" });
   await handlePaymentNotice(deps, await notice(code, { amount: PAY_NOW - 1 }), minutes(2)); // AMOUNT_MISMATCH, refund outcome unknown
   const res = await reservation(code);
   expect(res).toMatchObject({ status: "paid_pending_confirm", syncState: "failed" });
@@ -201,6 +225,7 @@ test("a reconcile that hits a second refund failure keeps the mismatch reason, s
     providerRef: "REF-EXTRA", createdAt: minutes(1).getTime(),
   });
   vi.spyOn(gateway, "refund").mockRejectedValueOnce(new Error("timeout")); // first refund: outcome unknown
+  vi.spyOn(gateway, "queryRefund").mockResolvedValueOnce({ status: "pending" }); // the gateway cannot say yet
   await handlePaymentNotice(deps, await notice(code, { amount: PAY_NOW - 1 }), minutes(2)); // AMOUNT_MISMATCH
   const [first] = await refundRows(res0.id);
   expect(first.status).toBe("pending");
@@ -233,8 +258,8 @@ describe("settle_offline: a refund the gateway will not take, paid back by the h
       .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
     expect(refund).not.toHaveBeenCalled(); // the money moved by bank transfer, not through the gateway
     expect(await s.refundRows(s.id)).toMatchObject([{
-      status: "succeeded", amount: PAID, method: "sinopac_online", providerRef: `offline:${OFFLINE.reference}`,
-      note: expect.stringContaining("匯款"),
+      status: "succeeded", amount: PAID, method: "sinopac_online", providerRef: `offline:${OFFLINE.reference}:${s.row.id}`,
+      note: expect.stringContaining("匯款"), settledAt: LATER.getTime(),
     }]);
     expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, frontDeskRefundDue: 0, cancelledAt: s.row.createdAt });
     expect(await s.avail("2026-12-10")).toBe(3);
@@ -244,7 +269,7 @@ describe("settle_offline: a refund the gateway will not take, paid back by the h
     expect(await s.db.select().from(auditLog).where(eq(auditLog.entityId, s.row.id))).toMatchObject([{
       action: "payment.reconcile", entity: "payment", staffEmail: s.manager.email,
       before: { status: "failed" },
-      after: { kind: "settle_offline", method: "transfer", reference: OFFLINE.reference, providerRef: `offline:${OFFLINE.reference}` },
+      after: { kind: "settle_offline", method: "transfer", reference: OFFLINE.reference, providerRef: `offline:${OFFLINE.reference}:${s.row.id}` },
     }]);
 
     expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER)).toEqual({ ok: false, error: "ALREADY_RESOLVED" });
@@ -252,11 +277,82 @@ describe("settle_offline: a refund the gateway will not take, paid back by the h
     expect(await s.db.select().from(auditLog).where(eq(auditLog.entityId, s.row.id))).toHaveLength(1);
   });
 
-  test("a pending (outcome unknown) row can be settled offline too", async () => {
+  test("a pending (outcome unknown) row can be settled offline too, once the gateway still cannot say it made it", async () => {
     const s = await stuckCancellation();
+    const query = vi.spyOn(s.gateway, "queryRefund");
+    query.mockClear(); // forget the original attempt's query
+    query.mockResolvedValueOnce({ status: "pending" });
     expect(await reconcileRefund(s.deps, s.manager, s.row.id, { ...OFFLINE, method: "cash" }, LATER))
       .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
+    expect(query).toHaveBeenCalledWith(`cancel:${s.id}`);
+    expect(await s.refundRows(s.id)).toMatchObject([{ status: "succeeded", providerRef: expect.stringMatching(/^offline:/) }]);
     expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID });
+  });
+
+  test("settle_offline on a pending row first asks the gateway: if it made the refund, that settles it and the offline entry is not used", async () => {
+    const s = await stuckCancellation(); // the mock gateway did make this refund; only its answer was lost
+    const query = vi.spyOn(s.gateway, "queryRefund");
+    query.mockClear();
+    expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER))
+      .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled", settledByGateway: true });
+    expect(query).toHaveBeenCalledWith(`cancel:${s.id}`);
+    const [row] = await s.refundRows(s.id);
+    expect(row).toMatchObject({ status: "succeeded", providerRef: s.gateway.refunds[0].refundRef, note: null, settledAt: LATER.getTime() });
+    expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID }); // counted once
+    expect(await s.db.select().from(auditLog).where(eq(auditLog.entityId, s.row.id))).toMatchObject([{
+      action: "payment.reconcile", staffEmail: s.manager.email,
+      after: { kind: "settle_offline", outcome: "gateway_succeeded", reference: OFFLINE.reference },
+    }]);
+    expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER)).toEqual({ ok: false, error: "ALREADY_RESOLVED" });
+  });
+
+  test("settle_offline on a failed row asks the gateway too: not made → settled offline", async () => {
+    const s = await droppedClaim();
+    const query = vi.spyOn(s.gateway, "queryRefund");
+    query.mockClear();
+    const r = await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER);
+    expect(r).toMatchObject({ ok: true, status: "succeeded" });
+    expect(r).not.toHaveProperty("settledByGateway");
+    expect(query).toHaveBeenCalledWith(`cancel:${s.id}`);
+    expect(await s.refundRows(s.id)).toMatchObject([{ providerRef: `offline:${OFFLINE.reference}:${s.row.id}` }]);
+  });
+
+  test("settle_offline on a failed row the gateway reports made after all is settled with the gateway's ref, offline entry unused", async () => {
+    const s = await droppedClaim();
+    vi.spyOn(s.gateway, "queryRefund").mockResolvedValueOnce({ status: "succeeded", refundRef: "BANK-LATE" });
+    expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER))
+      .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled", settledByGateway: true });
+    expect(await s.refundRows(s.id)).toMatchObject([{ status: "succeeded", providerRef: "BANK-LATE", note: null }]);
+    expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID });
+    expect(await s.db.select().from(auditLog).where(eq(auditLog.entityId, s.row.id))).toMatchObject([{
+      before: { status: "failed" }, after: { kind: "settle_offline", outcome: "gateway_succeeded" },
+    }]);
+  });
+
+  test("one transfer can settle several refund rows: providerRef is offline:<reference>:<rowId>, the reference is in the note", async () => {
+    const { db, deps, gateway, manager, book, notice, reservation, refundRows } = await setup();
+    const code = await book();
+    const res0 = await reservation(code);
+    await db.insert(payments).values({
+      id: "extra-charge", reservationId: res0.id, kind: "charge", method: "sinopac_online", amount: 100, status: "succeeded",
+      providerRef: "REF-EXTRA", createdAt: minutes(1).getTime(),
+    });
+    vi.spyOn(gateway, "refund").mockResolvedValueOnce({ ok: false, error: "WINDOW_CLOSED" }); // first refund refused
+    await handlePaymentNotice(deps, await notice(code, { amount: PAY_NOW - 1 }), minutes(2)); // AMOUNT_MISMATCH
+    const [first] = await refundRows(res0.id);
+    expect(first.status).toBe("failed");
+    vi.spyOn(gateway, "refund").mockResolvedValueOnce({ ok: false, error: "WINDOW_CLOSED" }); // and the other one, on completion
+    expect(await reconcileRefund(deps, manager, first.id, OFFLINE, minutes(60)))
+      .toMatchObject({ ok: true, status: "succeeded", completed: null });
+    const second = (await refundRows(res0.id)).find((r) => r.id !== first.id)!;
+    expect(second.status).toBe("failed");
+
+    // The hotel paid both back in one transfer: the same reference settles the second row too.
+    expect(await reconcileRefund(deps, manager, second.id, OFFLINE, minutes(61)))
+      .toEqual({ ok: true, status: "succeeded", completed: "refund_and_fail", reservationStatus: "confirm_failed_refunded" });
+    const rows = await refundRows(res0.id);
+    expect(rows.map((r) => r.providerRef).sort()).toEqual([`offline:${OFFLINE.reference}:${first.id}`, `offline:${OFFLINE.reference}:${second.id}`].sort());
+    expect(rows.every((r) => r.status === "succeeded" && r.note?.includes(OFFLINE.reference))).toBe(true);
   });
 
   test("a failed modify: row settled offline lets the guest cancel again", async () => {
@@ -281,5 +377,57 @@ describe("settle_offline: a refund the gateway will not take, paid back by the h
     expect(await settle("ok", s.frontDesk)).toEqual({ ok: false, error: "FORBIDDEN" });
     expect(await s.refundRows(s.id)).toMatchObject([{ status: "failed" }]);
     expect((await s.reservation(s.code)).status).toBe("confirmed");
+  });
+});
+
+describe("reconciling while online payments are not configured (PAYMENT_MODE / CHANNEL_MODE unset, production today)", () => {
+  const OFFLINE = { kind: "settle_offline" as const, reference: "匯款 末五碼 55555", method: "transfer" as const };
+  const offline = (s: { db: Parameters<typeof buildDepsOrOffline>[1] }) => buildDepsOrOffline({}, s.db, "http://x");
+
+  test("without the modes set, the route gets email-only deps and is told payments are unavailable; with them, the full deps", async () => {
+    const s = await setup();
+    const o = offline(s);
+    expect(o.paymentsUnavailable).toBe(true);
+    await expect(o.deps.gateway.queryRefund("k")).rejects.toThrow();
+    const on = buildDepsOrOffline({ PAYMENT_MODE: "mock", CHANNEL_MODE: "mock", ENVIRONMENT: "local" }, s.db, "http://x");
+    expect(on.paymentsUnavailable).toBe(false);
+  });
+
+  test("settle_offline still works: the gateway query is skipped and the cancellation completes; the channel cancel waits for the retry job", async () => {
+    const s = await stuckCancellation();
+    const { deps, paymentsUnavailable } = offline(s);
+    const query = vi.spyOn(deps.gateway, "queryRefund");
+    expect(await reconcileRefund(deps, s.manager, s.row.id, OFFLINE, LATER, { paymentsUnavailable }))
+      .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
+    expect(query).not.toHaveBeenCalled();
+    expect(await s.refundRows(s.id)).toMatchObject([{ status: "succeeded", providerRef: expect.stringMatching(/^offline:/) }]);
+    expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, syncState: "pending" });
+    expect(await s.avail("2026-12-10")).toBe(3);
+  });
+
+  test("the other actions need the gateway: PAYMENTS_UNAVAILABLE, nothing changes", async () => {
+    const s = await stuckCancellation();
+    const { deps, paymentsUnavailable } = offline(s);
+    for (const action of [{ kind: "retry" as const }, { kind: "mark_failed" as const }, { kind: "mark_succeeded" as const, providerRef: "B" }])
+      expect(await reconcileRefund(deps, s.manager, s.row.id, action, LATER, { paymentsUnavailable })).toEqual({ ok: false, error: "PAYMENTS_UNAVAILABLE" });
+    expect(await s.refundRows(s.id)).toMatchObject([{ status: "pending" }]);
+  });
+
+  test("a failed booking with another charge still to refund is not finished offline: no refund is started against the missing gateway", async () => {
+    const { db, deps: online, gateway, manager, book, notice, reservation, refundRows } = await setup();
+    const code = await book();
+    const res0 = await reservation(code);
+    await db.insert(payments).values({
+      id: "extra-charge", reservationId: res0.id, kind: "charge", method: "sinopac_online", amount: 100, status: "succeeded",
+      providerRef: "REF-EXTRA", createdAt: minutes(1).getTime(),
+    });
+    vi.spyOn(gateway, "refund").mockRejectedValueOnce(new Error("timeout"));
+    vi.spyOn(gateway, "queryRefund").mockResolvedValueOnce({ status: "pending" });
+    await handlePaymentNotice(online, await notice(code, { amount: PAY_NOW - 1 }), minutes(2)); // AMOUNT_MISMATCH, first refund unknown
+    const [first] = await refundRows(res0.id);
+    const { deps, paymentsUnavailable } = buildDepsOrOffline({}, db, "http://x");
+    expect(await reconcileRefund(deps, manager, first.id, OFFLINE, minutes(60), { paymentsUnavailable }))
+      .toEqual({ ok: true, status: "succeeded", completed: null, reservationStatus: "paid_pending_confirm" });
+    expect(await refundRows(res0.id)).toHaveLength(1); // no pending row for the other charge
   });
 });

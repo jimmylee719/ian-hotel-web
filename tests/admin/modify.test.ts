@@ -242,7 +242,7 @@ test("a staff cancel in offline mode waits for the channel, and the retry job th
   const cancel = vi.spyOn(s.channel, "cancelReservation");
   const modify = vi.spyOn(s.channel, "modifyReservation");
   expect(await runSyncRetry(s.deps, minutes(30))).toEqual({ attempted: 1 });
-  expect(cancel).toHaveBeenCalledWith(s.code);
+  expect(cancel).toHaveBeenCalledWith(s.code, (await s.reservation(s.code)).smConfirmation);
   expect(modify).not.toHaveBeenCalled();
   expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", syncState: "synced" });
 });

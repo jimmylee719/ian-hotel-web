@@ -15,7 +15,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply nk-booking --local",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
-    "media:variants": "tsx scripts/media-variants.ts"
+    "media:variants": "tsx scripts/media-variants.ts",
+    "content:import-remote": "tsx scripts/import-content-remote.ts"
   },
   "dependencies": {
     "date-fns": "^4.4.0",

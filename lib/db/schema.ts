@@ -174,6 +174,8 @@ export const reservations = sqliteTable(
     cancelledAt: integer("cancelled_at"),
     /** Epoch ms of the latest payment start (create, or a retry with the same idempotency key). */
     lastChargeStartedAt: integer("last_charge_started_at"),
+    /** How many payment attempts were started; attempt n's merchantOrderNo is `<code>-<n>`. */
+    chargeAttempt: integer("charge_attempt").notNull().default(0),
     /** Cancellation and failed-booking refunds only; every refund (staff modifications too) is in the money module's `refunded`. */
     refundedAmount: integer("refunded_amount").notNull().default(0),
     /** Lower-cased guest email, for lookups. */
@@ -237,6 +239,23 @@ export const payments = sqliteTable(
     createdAt: ms("created_at"),
     /** Front-desk payments: the staff's free-text note (e.g. transfer reference); null otherwise. */
     note: text("note"),
+    /**
+     * For an online charge: the payment attempt's order number (`<code>-<n>`) when known (the notice carried it, or
+     * the gateway reconcile job recorded or matched it), so that job does not ask about that attempt again. Null otherwise.
+     */
+    merchantOrderNo: text("merchant_order_no"),
+    /**
+     * For a cancellation's refund intent (`cancel:<id>`): whether the guest is emailed when the cancellation
+     * completes. Fixed with the intent (a staff cancel may choose not to), so a completion by refund
+     * reconciliation honours it. Null (every other row, and intents from before this column) means yes.
+     */
+    notifyGuest: integer("notify_guest", { mode: "boolean" }),
+    /**
+     * For a refund: when it became `succeeded` (epoch ms), which is when the money went back: reports count a
+     * refund on this date (a pending refund settled days later by reconciliation belongs to that later day).
+     * Set by every path that settles a refund; null while it is pending or failed, and for other kinds.
+     */
+    settledAt: integer("settled_at"),
   },
   (t) => [
     uniqueIndex("payments_provider_ref_unique").on(t.providerRef), // NULLs never collide

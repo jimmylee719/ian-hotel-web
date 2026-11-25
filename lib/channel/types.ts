@@ -28,10 +28,29 @@ export type ChannelReservation = {
 
 export type PushResult = { ok: true; smConfirmation: string } | { ok: false; retryable: boolean; error: string };
 export type CancelResult = { ok: boolean; retryable: boolean; error?: string };
+/** What the channel holds under a code: asked after a push whose answer was lost (timeout). */
+export type LookupResult =
+  | { found: true; smConfirmation: string; state: "active" | "cancelled" }
+  | { found: false }
+  | { error: string; retryable: boolean };
 
-/** SiteMinder (SiteConnect) in production; MockChannelManager until certification. */
+/** The longest any ChannelManager's timeoutMs may be (conformance rule 4). */
+export const CHANNEL_MAX_TIMEOUT_MS = 60_000;
+
+/**
+ * SiteMinder (SiteConnect) in production; MockChannelManager until certification.
+ * Rules (tests/conformance/channel.ts): pushing a code again gives the same smConfirmation; modify and cancel carry
+ * that smConfirmation, and fail (not retryable) for an unknown code or a smConfirmation that does not match it; a timeout is retryable; timeoutMs ≤ 60000
+ * (CHANNEL_MAX_TIMEOUT_MS: one lease runs at most two calls, a lookup then a push / modify / cancel, and SYNC_LEASE_MS
+ * is set above twice this, so the calls of one lease end before another worker may take it); lookup finds what a push left.
+ */
 export interface ChannelManager {
   pushReservation(r: ChannelReservation): Promise<PushResult>;
-  modifyReservation(r: ChannelReservation): Promise<PushResult>;
-  cancelReservation(code: string): Promise<CancelResult>;
+  /** Replace the channel's copy of `r.code`; `smConfirmation` is the one its push returned. */
+  modifyReservation(r: ChannelReservation, smConfirmation: string): Promise<PushResult>;
+  /** Cancel `code`; `smConfirmation` is the one its push returned. */
+  cancelReservation(code: string, smConfirmation: string): Promise<CancelResult>;
+  lookupReservation(code: string): Promise<LookupResult>;
+  /** How long one call may take before it is abandoned (and reported retryable). */
+  readonly timeoutMs: number;
 }

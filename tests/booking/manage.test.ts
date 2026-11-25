@@ -82,7 +82,8 @@ test("cancelling on check-in day refunds nothing but still cancels and tells Sit
   expect(res.status).toBe("cancelled");
   expect(res.refundedAmount).toBe(0);
   expect(refund).not.toHaveBeenCalled();
-  expect(cancel).toHaveBeenCalledWith(code);
+  expect(cancel).toHaveBeenCalledWith(code, res.smConfirmation); // the confirmation its push returned
+  expect(res.smConfirmation).toMatch(/^SM-/);
   expect(channel.pushed).toEqual([]);
   expect(await avail10()).toBe(3);
 });
@@ -220,6 +221,7 @@ test("a refund whose outcome is unknown (gateway refunded, then the call failed)
   const real = gateway.refund.bind(gateway);
   // The gateway refunds, then the call dies before we can record the result.
   vi.spyOn(gateway, "refund").mockImplementationOnce(async (r) => { await real(r); throw new Error("connection reset"); });
+  vi.spyOn(gateway, "queryRefund").mockResolvedValueOnce({ error: "QUERY_DOWN" }); // and the gateway cannot say
 
   expect(await cancelReservation(deps, code, GUEST, EARLY)).toEqual({ ok: false, error: "REFUND_FAILED" });
   const res = await reservation(code);

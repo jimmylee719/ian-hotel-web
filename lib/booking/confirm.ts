@@ -13,8 +13,12 @@ import { toChannelReservation } from "./to-channel";
 /** Retries after the first failed push; the next failure after this many refunds the guest. */
 export const MAX_SYNC_ATTEMPTS = 6;
 export const SYNC_RETRY_MS = 5 * 60_000;
-/** How long one worker owns a booking while it pushes; after that the retry job may take over. */
-export const SYNC_LEASE_MS = 2 * 60_000;
+/**
+ * How long one worker owns a booking while it pushes; after that the retry job may take over. A lease covers up to
+ * two channel calls (a lookup, then a push / modify / cancel), each at most CHANNEL_MAX_TIMEOUT_MS (60 s): 2 × 60 s
+ * plus a minute of margin for our own work around them.
+ */
+export const SYNC_LEASE_MS = 3 * 60_000;
 
 /**
  * Drive a `paid_pending_confirm` booking to its end state. Safe to call from any number of workers:
@@ -23,6 +27,9 @@ export const SYNC_LEASE_MS = 2 * 60_000;
  * - No inventory held (paid after expiry) → take it again, or refund if sold out.
  * - Otherwise push to SiteMinder: success confirms; a retryable failure retries in 5 minutes;
  *   a non-retryable failure, or one after MAX_SYNC_ATTEMPTS retries, refunds.
+ *   A retry first looks the code up: if the channel already holds it (a push that timed out but landed),
+ *   its smConfirmation is the success and nothing is pushed. A failed lookup just falls back to the push,
+ *   which is idempotent by code.
  */
 export async function confirmWithChannel(deps: Deps, reservationId: string, now: Date): Promise<void> {
   const { db } = deps;
@@ -42,11 +49,14 @@ export async function confirmWithChannel(deps: Deps, reservationId: string, now:
     return;
   }
 
-  let result: PushResult;
-  try {
-    result = await deps.channel.pushReservation(await toChannelReservation(db, reservationId));
-  } catch (e) {
-    result = { ok: false, retryable: true, error: e instanceof Error ? e.message : String(e) };
+  // After a retryable failure the push may have landed with its answer lost: ask before pushing again.
+  let result = res.syncAttempts > 0 ? await activeOnChannel(deps, res.code) : undefined;
+  if (!result) {
+    try {
+      result = await deps.channel.pushReservation(await toChannelReservation(db, reservationId));
+    } catch (e) {
+      result = { ok: false, retryable: true, error: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   if (result.ok) {
@@ -76,6 +86,17 @@ export async function confirmWithChannel(deps: Deps, reservationId: string, now:
   await refundAndFail(deps, reservationId, result.error, now, {
     guestKind: "booking_failed_refunded", staffKind: "staff_sync_failed", patch: { syncAttempts: attempts },
   });
+}
+
+/** A successful push result if the channel already holds `code` as active; otherwise (or if the lookup fails) undefined. */
+async function activeOnChannel(deps: Deps, code: string): Promise<PushResult | undefined> {
+  try {
+    const l = await deps.channel.lookupReservation(code);
+    if ("found" in l && l.found && l.state === "active") return { ok: true, smConfirmation: l.smConfirmation };
+  } catch {
+    // The push decides.
+  }
+  return undefined;
 }
 
 /** One conditional UPDATE: own the booking for SYNC_LEASE_MS if it is due and nobody else owns it. */
@@ -109,7 +130,8 @@ async function reHold(db: Db, res: Reservation, now: Date): Promise<boolean> {
 
 /**
  * Refund what is left on every succeeded charge and move a `paid_pending_confirm` reservation to
- * `confirm_failed_refunded`, releasing its inventory if it still holds any.
+ * `confirm_failed_refunded`, releasing its inventory if it still holds any. If a push may have reached the
+ * channel it queues a channel check (syncState → "pending"; the retry job cancels it there if it landed after all).
  * It first claims the reservation (syncState → "failed"); after that no push can confirm it.
  * If a refund fails, the status is left alone, the error is recorded and staff are alerted.
  * Returns true when the reservation ended refunded.
@@ -131,8 +153,9 @@ export type RefundAndFailKinds = { guestKind?: NotificationKind; staffKind: Noti
 
 /**
  * The steps of refundAndFail after its claim (`res` is the claimed row, syncState "failed"): refund what
- * is left on every charge, then `confirm_failed_refunded`, release, emails. Refund reconciliation calls it
- * again once a stuck refund is settled by hand; refunds already settled are skipped.
+ * is left on every charge, then `confirm_failed_refunded` (channel check queued if a push may have landed), release,
+ * emails. Refund reconciliation calls it again once a stuck refund is settled by hand; refunds already settled
+ * are skipped.
  */
 export async function finishRefundAndFail(
   deps: Deps, res: Reservation, reason: string, now: Date, o: RefundAndFailKinds,
@@ -156,12 +179,26 @@ export async function finishRefundAndFail(
   const refundedAmount = res.refundedAmount + refunded;
 
   const held = res.holdExpiresAt != null;
-  if (!await transition(db, reservationId, "paid_pending_confirm", "confirm_failed_refunded", { holdExpiresAt: null }, now))
+  // If a push may have reached the channel though none succeeded here (answer lost, or one still in flight),
+  // queue a channel check for the retry job (cancelWithChannel), due once any in-flight push is past its lease.
+  // A booking refunded before any push keeps syncState "failed".
+  const check = mayHaveReachedChannel(res, reason)
+    ? { syncState: "pending" as const, syncAttempts: 0, nextSyncAt: now.getTime() + SYNC_LEASE_MS } : {};
+  if (!await transition(db, reservationId, "paid_pending_confirm", "confirm_failed_refunded", { holdExpiresAt: null, ...check }, now))
     return false;
   if (held) await releaseInventory(db, await holdItemsFor(db, res));
   if (o.guestKind) await notifyGuest(deps, reservationId, o.guestKind, now, { refundAmount: refundedAmount });
   await notifyStaff(deps, reservationId, o.staffKind, now, { refundAmount: refundedAmount });
   return true;
+}
+
+/**
+ * Whether a push for this booking may have reached the channel: one was attempted (syncAttempts > 0), or the
+ * refund is not one of confirmWithChannel's gate failures decided before its push (amount mismatch, sold out
+ * after expiry) — any other refund came after a sync lease was taken for a push, which may still be in flight.
+ */
+function mayHaveReachedChannel(res: Reservation, reason: string): boolean {
+  return res.syncAttempts > 0 || !(reason.startsWith("AMOUNT_MISMATCH") || reason.startsWith("SOLD_OUT_AFTER_EXPIRY"));
 }
 
 export type RefundOutcome =
@@ -181,24 +218,27 @@ export type PaymentRow = typeof payments.$inferSelect;
  * Make the refund identified by `key` happen at most once, however many attempts run it.
  * The first attempt creates the intent row (`pending`, with `amount`); every later attempt reads that
  * row back and uses ITS amount (the `amount` passed in is ignored then). `key` is also the gateway's
- * idempotency key. By the row's status:
+ * idempotency key. `notifyGuest: false` is stored on a row this call creates (see payments.notifyGuest). By the row's status:
  * - `succeeded`: nothing to do, report success.
  * - `pending`: another attempt is in flight, or died with an unknown outcome → never call the gateway;
  *   report `pendingRefundId` so the caller alerts staff.
  * - `failed`: one attempt flips it back to `pending` (conditional UPDATE) and retries.
  * Gateway success marks the row `succeeded` (with `countsAsBookingRefund`, also adds it to the
- * booking's refundedAmount, in the same batch); a definitive failure marks it `failed`; a thrown call
- * leaves it `pending`.
+ * booking's refundedAmount, in the same batch); a definite rejection marks it `failed`. When the outcome is
+ * unknown (the call threw, or the gateway reports `outcomeUnknown`: timeout, network error) the gateway is
+ * asked with queryRefund(key) instead: `succeeded` settles the row as above, `failed` / `not_found` marks
+ * it `failed` (retrying is safe), `pending` or a failed query leaves it `pending` for refund reconciliation.
  */
 export async function refundOnce(
   deps: Deps, key: string, charge: ChargeRow, amount: number, reason: string, now: Date,
-  o: { countsAsBookingRefund?: boolean } = {},
+  o: { countsAsBookingRefund?: boolean; notifyGuest?: boolean } = {},
 ): Promise<RefundOutcome> {
   const { db } = deps;
   if (!charge.providerRef) return { ok: false, error: "NO_PROVIDER_REF" };
   const created = await db.insert(payments).values({
     id: crypto.randomUUID(), reservationId: charge.reservationId, kind: "refund", method: charge.method, amount,
     status: "pending", refundOf: charge.id, idempotencyKey: key, createdAt: now.getTime(),
+    ...(o.notifyGuest === false ? { notifyGuest: false } : {}),
   }).onConflictDoNothing({ target: payments.idempotencyKey }).returning();
   let row: PaymentRow | undefined = created[0];
   if (!row) {
@@ -211,28 +251,60 @@ export async function refundOnce(
     if (!row) return refundOnce(deps, key, charge, amount, reason, now, o); // another attempt won the retry
   }
 
-  let r: Awaited<ReturnType<Deps["gateway"]["refund"]>>;
-  try {
-    r = await deps.gateway.refund({ providerRef: charge.providerRef, amount: row.amount, reason, idempotencyKey: key });
-  } catch (e) {
-    return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${e instanceof Error ? e.message : String(e)}`, pendingRefundId: row.id, refundId: row.id };
+  const pending = row;
+  const markFailed = async (error: string): Promise<RefundOutcome> => {
+    await markRefundFailed(db, pending.id);
+    return { ok: false, error, refundId: pending.id };
+  };
+  let refundRef: string | null;
+  const r = await deps.gateway.refund({ providerRef: charge.providerRef, amount: row.amount, reason, idempotencyKey: key })
+    .catch((e: unknown) => ({ ok: false as const, error: errorText(e), outcomeUnknown: true }));
+  if (r.ok) refundRef = r.refundRef;
+  else if (!r.outcomeUnknown) return markFailed(r.error);
+  else {
+    // The call may have reached the provider (timeout, network): ask it rather than assume either way.
+    const q = await deps.gateway.queryRefund(key).catch((e: unknown) => ({ error: errorText(e) }));
+    if ("error" in q || q.status === "pending") {
+      const why = "error" in q ? `query ${q.error}` : "query pending";
+      return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${r.error}; ${why}`, pendingRefundId: row.id, refundId: row.id };
+    }
+    if (q.status !== "succeeded") return markFailed(`${r.error}; query ${q.status}`);
+    refundRef = q.refundRef ?? null;
   }
-  if (!r.ok) {
-    await db.update(payments).set({ status: "failed" }).where(and(eq(payments.id, row.id), eq(payments.status, "pending")));
-    return { ok: false, error: r.error, refundId: row.id };
-  }
-  // Only the first writer to settle the row counts it: staff may have marked it succeeded by hand
-  // (refund reconciliation) while this call was in flight. The bump runs first, while the row is unsettled.
-  const unsettled = and(eq(payments.id, row.id), ne(payments.status, "succeeded"));
-  await runAtomic(db, [
-    ...(o.countsAsBookingRefund
-      ? [db.update(reservations).set({ refundedAmount: sql`${reservations.refundedAmount} + ${row.amount}` })
-        .where(and(eq(reservations.id, charge.reservationId), exists(db.select({ one: sql`1` }).from(payments).where(unsettled))))]
-      : []),
-    db.update(payments).set({ status: "succeeded", providerRef: r.refundRef }).where(unsettled),
-  ]);
+  await settleRefundRow(db, row, refundRef, !!o.countsAsBookingRefund, now);
   return { ok: true, amount: row.amount };
 }
+
+/**
+ * Mark a refund row the gateway confirmed as made `succeeded` (with its refund ref, settledAt = now), and with
+ * `countsAsBookingRefund` add its amount to the booking's refundedAmount, in one batch.
+ * Only the first writer to settle the row counts it: staff may have marked it succeeded by hand
+ * (refund reconciliation) while a call was in flight. The bump runs first, while the row is unsettled.
+ * Used by refundOnce and by the gateway reconcile job (a pending row whose queryRefund says succeeded).
+ */
+export async function settleRefundRow(
+  db: Db, row: Pick<PaymentRow, "id" | "amount" | "reservationId">, refundRef: string | null, countsAsBookingRefund: boolean,
+  now: Date,
+): Promise<void> {
+  const unsettled = and(eq(payments.id, row.id), ne(payments.status, "succeeded"));
+  await runAtomic(db, [
+    ...(countsAsBookingRefund
+      ? [db.update(reservations).set({ refundedAmount: sql`${reservations.refundedAmount} + ${row.amount}` })
+        .where(and(eq(reservations.id, row.reservationId), exists(db.select({ one: sql`1` }).from(payments).where(unsettled))))]
+      : []),
+    db.update(payments).set({ status: "succeeded", providerRef: refundRef, settledAt: now.getTime() }).where(unsettled),
+  ]);
+}
+
+/** A refund row the gateway definitely did not make: pending → failed (only while still pending), so it may be retried. */
+export async function markRefundFailed(db: Db, refundId: string): Promise<void> {
+  await db.update(payments).set({ status: "failed" }).where(and(eq(payments.id, refundId), eq(payments.status, "pending")));
+}
+
+/** Refunds that count toward the booking's refundedAmount (cancellations and failed bookings); stray-charge and modification refunds do not. */
+export const countsAsBookingRefund = (key: string | null) => !!key && (key.startsWith("cancel:") || key.startsWith("fail:"));
+
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** The inventory a reservation holds: its rooms grouped by room type and rate plan, for every night. */
 export async function holdItemsFor(db: Db, res: Pick<Reservation, "id" | "checkIn" | "checkOut">): Promise<HoldItem[]> {

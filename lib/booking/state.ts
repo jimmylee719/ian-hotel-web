@@ -15,6 +15,9 @@ const ALLOWED: Record<ResStatus, readonly ResStatus[]> = {
   cancelled: [],
 };
 
+/** Columns to set alongside the status change: values, or SQL expressions over the row. */
+export type ReservationPatch = { [K in keyof Reservation]?: Reservation[K] | SQL };
+
 export function canTransition(from: ResStatus, to: ResStatus): boolean {
   return ALLOWED[from].includes(to);
 }
@@ -22,10 +25,11 @@ export function canTransition(from: ResStatus, to: ResStatus): boolean {
 /**
  * Move a reservation from `from` to `to` with an optimistic lock (`WHERE status = from`).
  * Returns false if the transition is not allowed or the status was already changed by someone else.
+ * `patch` values may be SQL expressions over the row (read as it was before this UPDATE).
  * `guard` adds an extra condition to the same UPDATE (e.g. "not claimed by a refund").
  */
 export async function transition(
-  db: Db, reservationId: string, from: ResStatus, to: ResStatus, patch: Partial<Reservation>, now: Date, guard?: SQL,
+  db: Db, reservationId: string, from: ResStatus, to: ResStatus, patch: ReservationPatch, now: Date, guard?: SQL,
 ): Promise<boolean> {
   if (!canTransition(from, to)) return false;
   const rows = await db.update(reservations)

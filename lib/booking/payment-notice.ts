@@ -36,24 +36,34 @@ export function truncateUtf8(s: string, maxBytes: number): string {
 export async function handlePaymentNotice(
   deps: Deps, req: { headers: Record<string, string>; body: string }, now: Date,
 ): Promise<Result> {
-  const { db, gateway } = deps;
-  const log = async (verdict: PaymentEventVerdict, n?: PaymentNotice, res?: Reservation) => {
-    // Unauthenticated or unmatched notices are anyone's input: keep enough to debug, not to fill D1.
-    const untrusted = verdict === "bad_signature" || verdict === "unknown_reservation";
-    await db.insert(paymentEvents).values({
-      id: crypto.randomUUID(), propertyId: res?.propertyId ?? null, provider: gateway.provider,
-      providerRef: n?.providerRef ?? null, reservationCode: n?.reservationCode ?? null,
-      rawBody: untrusted ? truncateUtf8(req.body, UNTRUSTED_BODY_BYTES) : req.body, verdict, at: now.getTime(),
-    });
-  };
-
   // 1. Signature.
-  const v = await gateway.verifyNotice(req);
+  const v = await deps.gateway.verifyNotice(req);
   if (!v.ok) {
-    await log("bad_signature");
+    await logEvent(deps, "bad_signature", req.body, now);
     return { status: 400, verdict: "bad_signature" };
   }
-  const n = v.notice;
+  return applyPaymentNotice(deps, v.notice, req.body, now);
+}
+
+async function logEvent(deps: Deps, verdict: PaymentEventVerdict, rawBody: string, now: Date, n?: PaymentNotice, res?: Reservation) {
+  // Unauthenticated or unmatched notices are anyone's input: keep enough to debug, not to fill D1.
+  const untrusted = verdict === "bad_signature" || verdict === "unknown_reservation";
+  await deps.db.insert(paymentEvents).values({
+    id: crypto.randomUUID(), propertyId: res?.propertyId ?? null, provider: deps.gateway.provider,
+    providerRef: n?.providerRef ?? null, reservationCode: n?.reservationCode ?? null,
+    rawBody: untrusted ? truncateUtf8(rawBody, UNTRUSTED_BODY_BYTES) : rawBody, verdict, at: now.getTime(),
+  });
+}
+
+/**
+ * Apply an authenticated payment result: a verified notice (handlePaymentNotice), or what the gateway's
+ * queryTransaction reported for a payment whose notice never came (the gateway reconcile job). Steps 2–7 of
+ * the notice path, logged in payment_events with `rawBody`: dedupe by providerRef, record the charge, then
+ * the amount check, re-hold and channel push (settle → confirmWithChannel).
+ */
+export async function applyPaymentNotice(deps: Deps, n: PaymentNotice, rawBody: string, now: Date): Promise<Result> {
+  const { db } = deps;
+  const log = (verdict: PaymentEventVerdict, notice?: PaymentNotice, res?: Reservation) => logEvent(deps, verdict, rawBody, now, notice, res);
   const reply = async (verdict: PaymentEventVerdict, res: Reservation): Promise<Result> => {
     await log(verdict, n, res);
     return { status: 200, verdict };
@@ -168,6 +178,7 @@ export async function refundStray(deps: Deps, reservationId: string, charge: Cha
 async function recordCharge(db: Db, reservationId: string, n: PaymentNotice, now: Date): Promise<ChargeRow | null> {
   const fields = {
     status: n.status, amount: n.amount, providerRef: n.providerRef, authCode: n.authCode ?? null, last4: n.last4 ?? null,
+    merchantOrderNo: n.merchantOrderNo ?? null,
   } as const;
   try {
     if (n.status === "succeeded") {

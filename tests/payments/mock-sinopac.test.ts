@@ -38,7 +38,7 @@ describe("MockSinoPacGateway", () => {
 
   it("startCharge redirects to the mock pay page", async () => {
     const start = await gw().startCharge({
-      reservationCode: "NK-1234", amount: 4960, locale: "ja",
+      reservationCode: "NK-1234", merchantOrderNo: "NK-1234-1", amount: 4960, locale: "ja",
       returnUrl: "https://hotel.test/ja/booking/NK-1234", notifyUrl: "https://hotel.test/api/payments/notify", description: "x",
     });
     expect(start.kind).toBe("redirect");
