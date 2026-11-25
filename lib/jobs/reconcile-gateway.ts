@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, isNotNull, isNull, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte } from "drizzle-orm";
 import { finishFlow } from "@/lib/admin/reconcile";
 import { countsAsBookingRefund, markRefundFailed, settleRefundRow } from "@/lib/booking/confirm";
 import type { Deps } from "@/lib/booking/notify";
@@ -9,6 +9,11 @@ import { payments, reservations } from "@/lib/db/schema";
 export const GATEWAY_RECONCILE_AFTER_MS = 10 * 60_000;
 /** A payment started longer ago than this is no longer asked about (an abandoned payment page). */
 export const CHARGE_LOOKBACK_MS = 24 * 3600_000;
+/** The gateway reconcile's cron interval (lib/jobs/cron.ts CRON_GATEWAY_RECONCILE). */
+const RUN_INTERVAL_MS = 15 * 60_000;
+/** A booking whose latest payment started over an hour ago has its attempts asked about only hourly. */
+export const SLOW_QUERY_AFTER_MS = 60 * 60_000;
+const SLOW_QUERY_EVERY_MS = 60 * 60_000;
 /** At most this many refunds and this many charge-attempt queries per run. */
 export const GATEWAY_RECONCILE_BATCH = 50;
 
@@ -28,7 +33,8 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
  *   closed); failed / not_found → marked failed (pending → failed only); pending or no answer → left pending for
  *   staff (the dashboard's refund_pending alert).
  * - Bookings whose latest payment attempt started under a day ago (any status) → queryTransaction for each
- *   attempt `<code>-1 … <code>-<chargeAttempt>` not yet recorded as a charge (the latest only once 10 minutes old);
+ *   attempt `<code>-1 … <code>-<chargeAttempt>` not yet recorded as a charge (the latest only once 10 minutes old),
+ *   newest bookings first, every run for the first hour and hourly after that;
  *   succeeded → applied exactly like a verified notice (applyPaymentNotice: dedupe, amount check, re-hold, channel
  *   push, stray refund of a second payment); the charge row then carries its order number and is not asked about
  *   again. Anything else changes nothing.
@@ -77,8 +83,13 @@ export async function runGatewayReconcile(deps: Deps, now: Date): Promise<Gatewa
       eq(reservations.channel, "direct"), gt(reservations.chargeAttempt, 0),
       gte(reservations.lastChargeStartedAt, now.getTime() - CHARGE_LOOKBACK_MS),
     ))
-    .orderBy(asc(reservations.lastChargeStartedAt), asc(reservations.id));
+    // Newest first: a recent lost notice is the most likely to be recoverable, and never waits behind old attempts.
+    .orderBy(desc(reservations.lastChargeStartedAt), asc(reservations.id));
   charges: for (const b of bookings) {
+    // Within the first hour every run asks; after that, about once an hour (every 4th 15-minute run since the start),
+    // so abandoned attempts the gateway keeps answering not_found / failed do not use up each run's budget.
+    const age = now.getTime() - (b.startedAt ?? 0);
+    if (age >= SLOW_QUERY_AFTER_MS && Math.floor(age / RUN_INTERVAL_MS) % (SLOW_QUERY_EVERY_MS / RUN_INTERVAL_MS) !== 0) continue;
     const recorded = new Set((await deps.db.select({ order: payments.merchantOrderNo }).from(payments)
       .where(and(eq(payments.reservationId, b.id), eq(payments.kind, "charge"), isNotNull(payments.merchantOrderNo))))
       .map((r) => r.order));

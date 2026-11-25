@@ -207,3 +207,26 @@ test("two attempts both paid: one settles, the other is refunded as a stray exac
   expect(gateway.refunds).toHaveLength(1);
   expect((await charges()).map((c) => c.merchantOrderNo).sort()).toEqual([`${code}-1`, `${code}-2`]);
 });
+
+test("over 50 abandoned attempts do not starve a recent lost-notice payment: newest first, in a single run", async () => {
+  const s = await bookingSetup({ available: 80 });
+  for (let i = 0; i < 55; i++) await s.book({ idempotencyKey: `key-old-${String(i).padStart(4, "0")}` }, minutes(i % 5));
+  const recent = await s.book({ idempotencyKey: "key-recent-0001" }, minutes(20));
+  const query = vi.spyOn(s.gateway, "queryTransaction").mockImplementation(async ({ merchantOrderNo }) =>
+    merchantOrderNo === `${recent}-1` ? { status: "succeeded", amount: PAY_NOW, providerRef: "BANK-NEW" } : { status: "not_found" });
+  const r = await runGatewayReconcile(s.deps, minutes(31));
+  expect(r).toMatchObject({ chargesChecked: 50, chargesApplied: 1 });
+  expect(query.mock.calls[0]).toEqual([{ merchantOrderNo: `${recent}-1` }]);
+  expect((await s.reservation(recent)).status).toBe("confirmed");
+});
+
+test("an attempt over an hour old is asked about about hourly, not on every 15-minute run", async () => {
+  const s = await bookingSetup();
+  await s.book();
+  const query = vi.spyOn(s.gateway, "queryTransaction").mockResolvedValue({ status: "not_found" });
+  for (let m = 15; m < 60; m += 15) await runGatewayReconcile(s.deps, minutes(m));
+  expect(query).toHaveBeenCalledTimes(3); // first hour: every run
+  query.mockClear();
+  for (let m = 60; m < 180; m += 15) await runGatewayReconcile(s.deps, minutes(m));
+  expect(query).toHaveBeenCalledTimes(2); // then once an hour
+});
