@@ -39,6 +39,17 @@ describe("brand and company pages", () => {
     }
   });
 
+  test("company keeps the facilities page's guest restrictions on 8F and 14F", () => {
+    const body = pageText.company.body["zh-TW"];
+    expect(body).toContain("- 8 樓（限 8 樓住客）：交誼廳、吧台區、自助洗衣房");
+    expect(body).toContain("- 14 樓：頂樓露臺與花園（限景緻與經典雙人套房住客）");
+    for (const l of LOCALES) expect(pageText.company.body[l].match(/^- 14.*$/m)?.[0], l).toMatch(/[（(].+[）)]$/);
+  });
+
+  test("partners names the email once, in the mailto block, not in the body", () => {
+    for (const l of LOCALES) expect(pageText.partners.body[l], l).not.toContain("@");
+  });
+
   test("company lists exactly the agreed facts", () => {
     const headings = splitSections(pageText.company.body["zh-TW"]).flatMap((s) => (s.heading ? [s.heading] : []));
     expect(headings).toEqual(["品牌名稱", "地址", "電話", "Email", "櫃台服務", "入住／退房時間", "房型", "公共空間樓層"]);
@@ -58,7 +69,6 @@ describe("brand and company pages", () => {
         const emails = pageText[slug].body[l].match(/[\w.+-]+@[\w-]+\.[\w.]+/g) ?? [];
         expect(emails.every((e) => e === "info@nkhostel.com"), `${slug} ${l}`).toBe(true);
       }
-    expect(pageText.partners.body["zh-TW"]).toContain("info@nkhostel.com");
   });
 
   test("are in the sitemap", () => {

@@ -713,7 +713,7 @@ We look forward to every guest who comes to leave more stories at NK Hostel.`,
 ## 우리의 믿음
 우리는 여행이 삶의 연장이며 세상을 만나는 하나의 태도라고 믿습니다.
 
-그렇다면 여행 중에도 집으로 돌아올 수 있어야 합니다. 소공관이 나누고 싶은 것은 그저 잠만 자는 곳이 아니라, 온기와 정과 추억이 있는 '집'입니다.
+하지만 여행 중에는 집에 돌아갈 수 없다고 누가 말했을까요? 소공관이 나누고 싶은 것은 그저 잠만 자는 곳이 아니라, 온기와 정과 추억이 있는 '집'입니다.
 
 ## 정성스러운 공간
 가족을 위해 고르는 마음으로 모든 가구와 생활용품을 하나하나 고르고, 구석구석 정성껏 꾸몄습니다. 편안하고 여유로운 공간이 사람과 사람 사이의 따뜻한 교류를 만든다고 믿습니다.
@@ -851,8 +851,8 @@ info@nkhostel.com
 
 ## 公共空間樓層
 - 5 樓：交誼廳、NK BAR、共用廚房與公共露臺
-- 8 樓：交誼廳、吧台區與自助洗衣房（限 8 樓住客）
-- 14 樓：頂樓露臺與花園`,
+- 8 樓（限 8 樓住客）：交誼廳、吧台區、自助洗衣房
+- 14 樓：頂樓露臺與花園（限景緻與經典雙人套房住客）`,
       en: `Key facts about NK Hostel.
 
 ## Brand name
@@ -878,8 +878,8 @@ Eight room types: capsule beds, rooms for four and six, Mini, Classic and Deluxe
 
 ## Shared spaces
 - 5F: lounge, NK BAR, shared kitchen and terrace
-- 8F: lounge, bar table and self-service laundry (8th-floor guests only)
-- 14F: rooftop terrace and garden`,
+- 8F (8th-floor guests only): lounge, bar table, self-service laundry
+- 14F: rooftop terrace and garden (Deluxe and Classic Room guests only)`,
       ja: `小公館人文旅舎の概要です。
 
 ## ブランド名
@@ -905,8 +905,8 @@ info@nkhostel.com
 
 ## 共用スペース
 - 5 階：ラウンジ、NK BAR、共用キッチン、テラス
-- 8 階：ラウンジ、バーテーブル、セルフランドリー（8 階にご宿泊のお客様専用）
-- 14 階：屋上テラスとガーデン`,
+- 8 階（8 階にご宿泊のお客様専用）：ラウンジ、バーテーブル、セルフランドリー
+- 14 階：屋上テラスとガーデン（デラックスルームとクラシックルームのお客様専用）`,
       ko: `소공관 인문여관의 기본 정보입니다.
 
 ## 브랜드명
@@ -932,8 +932,8 @@ info@nkhostel.com
 
 ## 공용 공간
 - 5층: 라운지, NK BAR, 공용 주방, 테라스
-- 8층: 라운지, 바 테이블, 셀프 세탁실(8층 투숙객 전용)
-- 14층: 옥상 테라스와 정원`,
+- 8층(8층 투숙객 전용): 라운지, 바 테이블, 셀프 세탁실
+- 14층: 옥상 테라스와 정원(디럭스룸과 클래식룸 투숙객 전용)`,
     },
   },
 
@@ -958,10 +958,8 @@ info@nkhostel.com
 - Tripadvisor：旅行者之選（2019）
 - Airbnb：超讚房東
 
-各平台的獎項證明，請見住客評價頁。
-
 ## 洽談合作
-投資、合作或其他業務洽詢，請來信 info@nkhostel.com，主旨請註明「投資與合作洽詢」。`,
+投資、合作或其他業務洽詢，歡迎來信，主旨請註明「投資與合作洽詢」。`,
       en: `An introduction to NK Hostel for investors and partners.
 
 ## Positioning
@@ -980,10 +978,8 @@ Guest ratings and awards on the booking platforms:
 - Tripadvisor: Travellers' Choice (2019)
 - Airbnb: Superhost
 
-The certificates from each platform are shown on our reviews page.
-
 ## Get in touch
-For investment, partnership or other business enquiries, please email info@nkhostel.com with the subject "Investment and partnership enquiry".`,
+For investment, partnership or other business enquiries, please email us with the subject "Investment and partnership enquiry".`,
       ja: `投資家・提携先の皆さまに向けた小公館のご紹介です。
 
 ## ブランドの位置づけ
@@ -1002,10 +998,8 @@ For investment, partnership or other business enquiries, please email info@nkhos
 - Tripadvisor：トラベラーズチョイス（2019 年）
 - Airbnb：スーパーホスト
 
-各サイトの受賞証明は、口コミ・評価のページでご覧いただけます。
-
 ## お問い合わせ
-投資・提携その他のご相談は、件名に「投資・提携のご相談」とご記入のうえ、info@nkhostel.com までメールでお問い合わせください。`,
+投資・提携その他のご相談は、件名に「投資・提携のご相談」とご記入のうえ、メールでお問い合わせください。`,
       ko: `투자자와 제휴 파트너를 위한 소공관 소개입니다.
 
 ## 브랜드 포지셔닝
@@ -1024,10 +1018,8 @@ For investment, partnership or other business enquiries, please email info@nkhos
 - Tripadvisor: 트래블러스 초이스 (2019년)
 - Airbnb: 슈퍼호스트
 
-각 사이트의 수상 증명은 투숙객 평가 페이지에서 보실 수 있습니다.
-
 ## 제휴 문의
-투자, 제휴 및 기타 사업 문의는 제목에 '투자 및 제휴 문의'라고 적어 info@nkhostel.com으로 보내 주시기 바랍니다.`,
+투자, 제휴 및 기타 사업 문의는 제목에 '투자 및 제휴 문의'라고 적어 이메일로 보내 주시기 바랍니다.`,
     },
   },
 };

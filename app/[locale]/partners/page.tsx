@@ -1,5 +1,6 @@
 import { getTranslations } from "next-intl/server";
 import { CONTACT } from "@/components/layout/Footer";
+import { Link } from "@/i18n/navigation";
 import { ContentPage, contentPageMetadata } from "@/components/site/ContentPage";
 import type { Locale } from "@/lib/db/schema";
 import { mailtoWithSubject } from "@/lib/mailto";
@@ -25,5 +26,12 @@ export default async function PartnersPage({ params }: Props) {
       <span className="partners-contact-address">{CONTACT.email}</span>
     </p>
   );
-  return <ContentPage locale={locale} slug="partners" layout="chapters" lastChapterExtra={contact} />;
+  // Chapter 2 (guest recognition) links to the reviews page with the certificates; chapter 3 ends with the contact.
+  const reviews = (
+    <Link className="text-link" href="/reviews">
+      {t("partnersReviewsLink")}
+      <span aria-hidden="true"> →</span>
+    </Link>
+  );
+  return <ContentPage locale={locale} slug="partners" layout="chapters" chapterExtras={[null, reviews, contact]} />;
 }

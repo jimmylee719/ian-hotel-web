@@ -182,7 +182,8 @@
     "companyDescription": "소공관 인문여관 회사 정보: 브랜드명, 주소, 전화, 이메일, 24시간 프런트, 체크인·체크아웃 시간, 객실 종류와 공용 공간 층.",
     "partnersDescription": "투자자와 제휴 파트너를 위한 안내: 소공관 인문여관의 브랜드 포지셔닝, 예약 사이트별 평점과 수상 내역, 문의 방법을 소개합니다.",
     "partnersMailSubject": "투자 및 제휴 문의",
-    "partnersMailLink": "이메일로 문의하기"
+    "partnersMailLink": "이메일로 문의하기",
+    "partnersReviewsLink": "각 사이트의 수상 증명 보기"
   },
   "facilityPhoto": {
     "bar": "5층 NK BAR 카운터",

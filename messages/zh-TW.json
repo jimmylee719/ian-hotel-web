@@ -182,7 +182,8 @@
     "companyDescription": "小公館人文旅舍公司資訊：品牌名稱、地址、電話、Email、24 小時櫃台、入住與退房時間、房型與公共空間樓層。",
     "partnersDescription": "給投資人與合作夥伴：小公館人文旅舍的品牌定位、各訂房平台的住客評分與獎項，以及洽談合作的方式。",
     "partnersMailSubject": "投資與合作洽詢",
-    "partnersMailLink": "來信洽詢"
+    "partnersMailLink": "來信洽詢",
+    "partnersReviewsLink": "查看各平台的獎項證明"
   },
   "facilityPhoto": {
     "bar": "五樓 NK BAR 吧台",

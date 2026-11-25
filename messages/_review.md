@@ -33,7 +33,7 @@ locale on purpose.
 | `reviews.*` (Task 8); award names follow the wording on each platform's certificate | MT | MT | MT |
 | `inquiry.*` (Task 8, group inquiry form) | MT | MT | MT |
 | `book.*`, `checkout.*`, `bookingStatus.*`, `manage.*`, `footer.manageBooking` (Task 9, booking flow: search results, details form, payment return, manage booking) | MT | MT | MT |
-| `nav.about`, `nav.sustainability`, `nav.company`, `nav.partners`, `footer.aboutTitle`, `home.storyMore`, `pages.aboutDescription`, `pages.sustainabilityDescription`, `pages.companyDescription`, `pages.partnersDescription`, `pages.partnersMailSubject`, `pages.partnersMailLink` (brand and company layer) | MT | MT | MT |
+| `nav.about`, `nav.sustainability`, `nav.company`, `nav.partners`, `footer.aboutTitle`, `home.storyMore`, `pages.aboutDescription`, `pages.sustainabilityDescription`, `pages.companyDescription`, `pages.partnersDescription`, `pages.partnersMailSubject`, `pages.partnersMailLink`, `pages.partnersReviewsLink` (brand and company layer) | MT | MT | MT |
 
 zh-TW keys that are NEW (not on the old site): `meta.title`, `meta.description`, `home.intro`,
 `home.heroCaption`, `home.heroAlt` (from design/proposals/a.html), `footer.nearMrt`, `booking.*`,

@@ -182,7 +182,8 @@
     "companyDescription": "NK Hostel company information: brand name, address, phone, email, 24-hour front desk, check-in and check-out times, room types and shared-space floors.",
     "partnersDescription": "For investors and partners: NK Hostel's positioning, guest ratings and awards on the booking platforms, and how to get in touch.",
     "partnersMailSubject": "Investment and partnership enquiry",
-    "partnersMailLink": "Email us"
+    "partnersMailLink": "Email us",
+    "partnersReviewsLink": "See the certificates from each platform"
   },
   "facilityPhoto": {
     "bar": "The NK BAR counter on 5F",

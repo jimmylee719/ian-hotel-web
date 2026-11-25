@@ -182,7 +182,8 @@
     "companyDescription": "小公館人文旅舎の会社概要：ブランド名、所在地、電話、メール、24 時間対応のフロント、チェックイン・チェックアウト時間、客室タイプ、共用スペースのフロア。",
     "partnersDescription": "投資家・提携先の皆さまへ：小公館人文旅舎のブランドの位置づけ、各予約サイトでの評価と受賞歴、お問い合わせ方法をご案内します。",
     "partnersMailSubject": "投資・提携のご相談",
-    "partnersMailLink": "メールでお問い合わせ"
+    "partnersMailLink": "メールでお問い合わせ",
+    "partnersReviewsLink": "各サイトの受賞証明を見る"
   },
   "facilityPhoto": {
     "bar": "5 階 NK BAR のカウンター",

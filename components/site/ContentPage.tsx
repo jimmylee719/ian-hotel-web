@@ -54,12 +54,12 @@ type Props = {
   layout?: "chapters" | "list";
   /** Chapters layout: each photo's floor; a chapter then gets the photos of the floor its English heading names. */
   photoFloors?: Record<string, number | null>;
-  /** Chapters layout: extra content at the end of the last chapter, after its text (e.g. a contact link). */
-  lastChapterExtra?: ReactNode;
+  /** Chapters layout: extra content after the text of chapter i (by index), e.g. a link or a contact block. */
+  chapterExtras?: ReactNode[];
 };
 
 /** A database content page laid out from its `## ` sections (spec §5.3): ink head, then chapters or a list. */
-export async function ContentPage({ locale, slug, captions = {}, plain, aside, children, maxPhotos = 6, layout = "list", photoFloors, lastChapterExtra }: Props) {
+export async function ContentPage({ locale, slug, captions = {}, plain, aside, children, maxPhotos = 6, layout = "list", photoFloors, chapterExtras = [] }: Props) {
   setRequestLocale(locale);
   const [page, enPage] = await Promise.all([loadPage(slug, locale), plain || locale === "en" ? null : loadPage(slug, "en")]);
   if (!page) notFound();
@@ -108,7 +108,7 @@ export async function ContentPage({ locale, slug, captions = {}, plain, aside, c
           const text = (
             <>
               <RichText text={s.body} />
-              {i === sections.length - 1 && lastChapterExtra}
+              {chapterExtras[i]}
             </>
           );
           return (

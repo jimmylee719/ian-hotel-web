@@ -14,6 +14,9 @@ sustainability and evidence.
 - Four new public pages, in all four languages, built from the existing content system (DB `content_pages`, editable in
   /admin like facilities): `about` 品牌故事, `sustainability` 永續與在地, `company` 公司資訊, `partners` 投資與合作.
 - A "關於小公館" footer column linking them (plus 住客評價), and 品牌故事 first in the header nav.
+  - Controller ruling (2026-11-26): 品牌故事 is first in the ≤900px menu panel and in the footer only, not in the
+    desktop header row, because the header must never wrap or overflow (with it in the row, ja overflowed at ~905px
+    and the centred brand was pushed aside in en/ja/ko).
 - Home: the intro statement links to the brand story; the ratings strip links to the reviews/awards page.
 
 ## Hard rule: no invented facts
