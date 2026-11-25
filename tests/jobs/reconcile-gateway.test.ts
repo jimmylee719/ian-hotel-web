@@ -438,3 +438,34 @@ test("over 50 stuck orphan bookings do not starve a newer orphan: distinct booki
   expect(r).toMatchObject({ flowsFinished: 1 }); // only the one that actually completed counts
   expect((await s.reservation(fresh)).status).toBe("cancelled");
 });
+
+test("the refund loop settles a fail: row the gateway reports made but leaves a booking with a failed sibling to staff", async () => {
+  const s = await bookingSetup({ refundTimeoutNext: 1 });
+  const code = await s.book();
+  const res0 = await s.reservation(code);
+  await s.db.insert(payments).values({
+    id: "charge-b", reservationId: res0.id, kind: "charge", method: "sinopac_online", amount: 100, status: "succeeded",
+    providerRef: "REF-B", createdAt: minutes(1).getTime(),
+  });
+  // Wrong amount: refundAndFail's first refund (A) is made but its answer lost, the gateway cannot say yet.
+  vi.spyOn(s.gateway, "queryRefund").mockResolvedValueOnce({ status: "pending" });
+  await handlePaymentNotice(s.deps, await s.notice(code, { amount: PAY_NOW - 1 }), minutes(2));
+  const rows = () => s.db.select().from(payments).where(and(eq(payments.reservationId, res0.id), eq(payments.kind, "refund")));
+  const [a] = await rows();
+  expect(a).toMatchObject({ status: "pending", idempotencyKey: expect.stringMatching(/^fail:/) });
+  // B's refund was refused outright (e.g. by an earlier attempt).
+  await s.db.insert(payments).values({
+    id: "refund-b", reservationId: res0.id, kind: "refund", method: "sinopac_online", amount: 100, status: "failed",
+    refundOf: "charge-b", idempotencyKey: `fail:${res0.id}:charge-b`, createdAt: minutes(2).getTime(),
+  });
+  const refund = vi.spyOn(s.gateway, "refund");
+  refund.mockClear();
+
+  expect(await runGatewayReconcile(s.deps, minutes(15))).toMatchObject({ refundsSettled: 1 });
+  expect((await rows()).find((r) => r.id === a.id)).toMatchObject({ status: "succeeded" });
+  expect(refund).not.toHaveBeenCalled();
+  expect((await rows()).find((r) => r.id === "refund-b")).toMatchObject({ status: "failed" });
+  expect(await s.reservation(code)).toMatchObject({ status: "paid_pending_confirm", syncState: "failed" });
+  await runGatewayReconcile(s.deps, minutes(30));
+  expect(refund).not.toHaveBeenCalled();
+});

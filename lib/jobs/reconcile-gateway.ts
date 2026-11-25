@@ -1,10 +1,11 @@
 import { and, asc, desc, eq, gt, gte, isNotNull, isNull, like, lte, ne, notExists, or, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/sqlite-core";
+import { alias, type SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { finishFlow } from "@/lib/admin/reconcile";
 import { countsAsBookingRefund, markRefundFailed, settleRefundRow, type PaymentRow } from "@/lib/booking/confirm";
 import { notifyStaff, type Deps } from "@/lib/booking/notify";
 import { applyPaymentNotice } from "@/lib/booking/payment-notice";
 import { payments, reservations } from "@/lib/db/schema";
+import type { Db } from "@/lib/db/types";
 import { CallBudget, type StoppedEarly } from "./budget";
 
 /** A payment or refund is asked about once it has been pending this long (the gateway's own calls time out far sooner). */
@@ -93,7 +94,10 @@ export async function runGatewayReconcile(
         await settleRefundRow(deps.db, row, q.refundRef ?? null, countsAsBookingRefund(row.idempotencyKey), now);
         out.refundsSettled++;
         // If finishing throws, the row is settled all the same: the sweep below finishes it on a later run.
-        await finishOrAlert(deps, row, now);
+        // A failed booking with another fail: refund failed or pending is left to staff, as in the sweep.
+        const leftToStaff = row.idempotencyKey.startsWith("fail:")
+          && (await openFailRefunds(deps.db, row.reservationId).limit(1)).length > 0;
+        if (!leftToStaff) await finishOrAlert(deps, row, now);
       } else {
         await markRefundFailed(deps.db, row.id);
         // The refund_pending alert goes with the pending row: tell staff (once per row) and let the dashboard's
@@ -117,7 +121,6 @@ export async function runGatewayReconcile(
   // One row per booking (a failed booking may have several), newest first, so bookings that never finish cannot
   // starve a newer orphan out of the batch.
   const settledBefore = now.getTime() - GATEWAY_RECONCILE_AFTER_MS;
-  const sibling = alias(payments, "sibling");
   const settled = sql<number>`max(coalesce(${payments.settledAt}, ${payments.createdAt}))`;
   const orphans = await deps.db.select({
     reservationId: payments.reservationId,
@@ -132,10 +135,7 @@ export async function runGatewayReconcile(
         and(
           eq(reservations.status, "paid_pending_confirm"), eq(reservations.syncState, "failed"),
           like(payments.idempotencyKey, sql`'fail:' || ${reservations.id} || ':%'`),
-          notExists(deps.db.select({ one: sql`1` }).from(sibling).where(and(
-            eq(sibling.reservationId, reservations.id), eq(sibling.kind, "refund"),
-            like(sibling.idempotencyKey, sql`'fail:' || ${reservations.id} || ':%'`), ne(sibling.status, "succeeded"),
-          ))),
+          notExists(openFailRefunds(deps.db, reservations.id)),
         ),
       ),
     ))
@@ -212,4 +212,19 @@ async function finishOrAlert(
     await notifyStaff(deps, row.reservationId, "staff_payment_alert", now, {}, `${FLOW_UNFINISHED_REF}${row.id}`);
     return "threw";
   }
+}
+
+const sibling = alias(payments, "sibling");
+
+/**
+ * The booking's `fail:` refunds that are failed or pending, as a subquery (one row each). While any exists, this
+ * job never finishes the failed booking: finishing would reopen a refused refund at the gateway (refundOnce flips
+ * failed → pending), which is staff's to retry or settle offline. Shared by the refund loop and the sweep.
+ * `reservationId` is a column (correlated, in the sweep) or an id.
+ */
+function openFailRefunds(db: Db, reservationId: SQLiteColumn | string) {
+  return db.select({ one: sql`1` }).from(sibling).where(and(
+    eq(sibling.reservationId, reservationId), eq(sibling.kind, "refund"),
+    like(sibling.idempotencyKey, sql`'fail:' || ${reservationId} || ':%'`), ne(sibling.status, "succeeded"),
+  ));
 }
