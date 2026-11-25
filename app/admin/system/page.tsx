@@ -8,6 +8,7 @@ export const metadata = { title: "系統狀態" };
 const time = (ms: number) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Taipei", dateStyle: "short", timeStyle: "medium" }).format(ms);
 
 const WARNINGS: Record<SystemWarning, string> = {
+  DEV_STAFF_EMAIL_LOCAL_BYPASS: "本機模式：已略過 Cloudflare Access（DEV_STAFF_EMAIL 生效中，所有後台請求都以這個員工身分執行）。",
   DEV_STAFF_EMAIL_SET_OUTSIDE_LOCAL: "DEV_STAFF_EMAIL 不應該在本機以外設定，請立即從部署的 secret 移除（本機以外它不會生效，但不該存在）。",
   ACCESS_NOT_CONFIGURED: "Cloudflare Access 尚未設定（CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD），後台會拒絕所有登入。",
   MIGRATIONS_BEHIND: "資料庫的 migration 比程式舊，請執行 wrangler d1 migrations apply。",

@@ -149,6 +149,43 @@ describe("update and deactivate", () => {
     expect(results).toContainEqual({ ok: false, error: "LAST_OWNER" });
   });
 
+  test("nobody can change their own properties", async () => {
+    const { db, propertyId, other, mk, reload } = await setup();
+    const both = await mk("owner-ab", "owner", [propertyId, other]);
+    expect(await updateStaff(db, both, both.staff.id, { propertyIds: [propertyId] }, NOW)).toEqual({ ok: false, error: "CANNOT_CHANGE_SELF" });
+    expect((await reload(both.staff.id)).propertyIds).toEqual([propertyId, other]);
+  });
+
+  test("removing a property from its only active owner is LAST_OWNER_OF_PROPERTY (also via role and active)", async () => {
+    const { db, propertyId, other, mk, reload } = await setup();
+    const actor = await mk("actor", "owner", [propertyId, other]);
+    const soleB = await mk("sole-b", "owner", [propertyId, other]);
+    // The actor's own access to B was taken away after their request was authorised: their context is stale,
+    // so they still pass the "may hand out / may edit" checks, but the database knows soleB is B's only owner.
+    await db.update(staff).set({ propertyIds: [propertyId] }).where(eq(staff.id, actor.staff.id));
+    expect(await updateStaff(db, actor, soleB.staff.id, { propertyIds: [propertyId] }, NOW)).toEqual({ ok: false, error: "LAST_OWNER_OF_PROPERTY" });
+    expect(await updateStaff(db, actor, soleB.staff.id, { role: "manager" }, NOW)).toEqual({ ok: false, error: "LAST_OWNER_OF_PROPERTY" });
+    expect(await deactivateStaff(db, actor, soleB.staff.id, NOW)).toEqual({ ok: false, error: "LAST_OWNER_OF_PROPERTY" });
+    expect(await reload(soleB.staff.id)).toMatchObject({ role: "owner", active: true, propertyIds: [propertyId, other] });
+    expect(await db.select().from(auditLog).where(eq(auditLog.entityId, soleB.staff.id))).toHaveLength(0);
+    // Adding properties or editing the name is never blocked by it.
+    expect(await updateStaff(db, actor, soleB.staff.id, { name: "B 店主" }, NOW)).toEqual({ ok: true });
+  });
+
+  test("two owners removing a shared property from each other at once leave it an owner", async () => {
+    const { db, propertyId, other, mk } = await setup();
+    const x = await mk("owner-x", "owner", [propertyId, other]);
+    const y = await mk("owner-y", "owner", [propertyId, other]);
+    const results = await Promise.all([
+      updateStaff(db, x, y.staff.id, { propertyIds: [propertyId] }, NOW),
+      updateStaff(db, y, x.staff.id, { propertyIds: [propertyId] }, NOW),
+    ]);
+    const ownersOfOther = (await db.select().from(staff)).filter((s) => s.role === "owner" && s.active && s.propertyIds.includes(other));
+    expect(ownersOfOther.length).toBeGreaterThanOrEqual(1);
+    expect(results).toContainEqual({ ok: true });
+    expect(results).toContainEqual({ ok: false, error: "LAST_OWNER_OF_PROPERTY" });
+  });
+
   test("deactivate is audited; an unknown id is NOT_FOUND", async () => {
     const { db, owner, manager, reload, audits } = await setup();
     expect(await deactivateStaff(db, owner, manager.staff.id, NOW)).toEqual({ ok: true });

@@ -64,6 +64,7 @@ describe("getSystemStatus", () => {
     expect(status.modes).toEqual({ ENVIRONMENT: "local", PAYMENT_MODE: "mock", CHANNEL_MODE: "mock" });
     expect(status.accessConfigured).toBe(false);
     expect(status.settings).toContainEqual({ name: "BASE_URL", set: false });
+    expect(status.warnings).toEqual([]);
     expect(status.bookingDisabledReason).toBeNull();
     expect(status.syncStates).toEqual(expect.objectContaining({ failed: 1 }));
     // Own property's events, plus events matching no property (unknown reservations); 24 hours only.
@@ -73,6 +74,14 @@ describe("getSystemStatus", () => {
     expect(status.migrations.applied).toBe(status.migrations.expected);
     expect(status.migrations.latest).toBe(status.migrations.expectedLatest);
   });
+});
+
+test("warns that Access is bypassed when DEV_STAFF_EMAIL is set locally", async () => {
+  const { db } = await bookingSetup();
+  const status = await getSystemStatus(db, { ENVIRONMENT: "local", DEV_STAFF_EMAIL: "owner@local.test" }, { now: NOW });
+  expect(status.warnings).toContain("DEV_STAFF_EMAIL_LOCAL_BYPASS");
+  expect(status.warnings).not.toContain("DEV_STAFF_EMAIL_SET_OUTSIDE_LOCAL");
+  expect(JSON.stringify(status)).not.toContain("owner@local.test");
 });
 
 describe("cron job_runs", () => {

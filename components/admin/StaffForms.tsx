@@ -13,7 +13,7 @@ const ROLE_OPTIONS: [Role, string][] = [["owner", "店主"], ["manager", "經理
 
 /**
  * A staff account: email (their Cloudflare Access login), name, role and properties. Without `member` it
- * creates one. `self` locks the role (nobody changes their own role, email or active flag).
+ * creates one. `self` locks everything but the name (nobody changes their own role, email, properties or active flag).
  */
 export function StaffForm({ member, properties, self = false }: { member?: StaffValue; properties: PropertyOption[]; self?: boolean }) {
   const router = useRouter();
@@ -39,7 +39,7 @@ export function StaffForm({ member, properties, self = false }: { member?: Staff
   }
 
   async function save() {
-    const body = self ? { name: v.name, propertyIds: v.propertyIds } : v;
+    const body = self ? { name: v.name } : v;
     const ok = await run(
       () => (member ? send("PATCH", `/api/admin/staff/${encodeURIComponent(member.id)}`, body) : send("POST", "/api/admin/staff", body)),
       member ? "已儲存" : "已新增員工，對方用這個 Email 透過 Cloudflare Access 登入即可",
@@ -69,7 +69,7 @@ export function StaffForm({ member, properties, self = false }: { member?: Staff
         <legend>館別（至少一個）</legend>
         {properties.map((p) => (
           <label key={p.id} className="adm-check">
-            <input type="checkbox" checked={v.propertyIds.includes(p.id)} onChange={(e) => toggle(p.id, e.target.checked)} /> {p.name}
+            <input type="checkbox" checked={v.propertyIds.includes(p.id)} disabled={self} onChange={(e) => toggle(p.id, e.target.checked)} /> {p.name}
           </label>
         ))}
       </fieldset>
@@ -78,7 +78,7 @@ export function StaffForm({ member, properties, self = false }: { member?: Staff
         {!complete ? <span className="adm-form-error">Email、姓名和至少一個館別都要填。</span> : null}
         {member && !self ? <ActiveToggle member={member} onDone={() => router.refresh()} /> : null}
       </div>
-      {self ? <p className="adm-muted">這是你自己的帳號：角色、Email 與停用請由另一位店主變更。</p> : null}
+      {self ? <p className="adm-muted">這是你自己的帳號：角色、Email、館別與停用請由另一位店主變更。</p> : null}
       {toast.view}
     </form>
   );

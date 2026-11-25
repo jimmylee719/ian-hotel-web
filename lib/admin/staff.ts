@@ -1,4 +1,4 @@
-import { asc, eq, sql, type SQL } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { runAtomic } from "@/lib/db/atomic";
 import { auditLog, staff } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
@@ -10,14 +10,15 @@ import { can, type StaffRole, type StaffRow } from "./permissions";
  * Staff accounts. Every write needs `staff.manage` (owners only), may only hand out properties the actor
  * manages, may only touch staff whose properties are all ones the actor manages, and commits its audit row in
  * the same batch. Emails are stored trimmed and lowercase (the unique index is on lower(email) too).
- * Nobody may change their own role, active flag or email, and the last active owner can never be demoted or
- * deactivated: that check is part of the UPDATE itself, so two owners demoting each other at once still leave one.
+ * Nobody may change their own role, active flag, email or properties. The last active owner can never be demoted
+ * or deactivated, and no property may be left without an active owner: both checks are part of the UPDATE itself,
+ * so two owners demoting each other (or dropping a property from each other) at once still leave one.
  */
 
 export const STAFF_ROLES: readonly StaffRole[] = ["owner", "manager", "front_desk", "marketing"];
 
 export type StaffError =
-  | { ok: false; error: "FORBIDDEN" | "NOT_FOUND" | "EMAIL_TAKEN" | "PROPERTY_NOT_ALLOWED" | "CANNOT_CHANGE_SELF" | "LAST_OWNER" }
+  | { ok: false; error: "FORBIDDEN" | "NOT_FOUND" | "EMAIL_TAKEN" | "PROPERTY_NOT_ALLOWED" | "CANNOT_CHANGE_SELF" | "LAST_OWNER" | "LAST_OWNER_OF_PROPERTY" }
   | { ok: false; error: "INVALID_INPUT"; field: string };
 export type StaffResult = { ok: true } | StaffError;
 export type CreateStaffResult = { ok: true; id: string } | StaffError;
@@ -124,33 +125,50 @@ async function write(db: Db, ctx: StaffContext, id: string, patch: StaffPatch, a
   ) as StaffPatch;
   const keys = Object.keys(changed) as (keyof StaffPatch)[];
   if (keys.length === 0) return { ok: true };
-  if (row.id === ctx.staff.id && (changed.role !== undefined || changed.active !== undefined || changed.email !== undefined))
+  if (row.id === ctx.staff.id && (changed.role !== undefined || changed.active !== undefined || changed.email !== undefined || changed.propertyIds !== undefined))
     return { ok: false, error: "CANNOT_CHANGE_SELF" };
   if (changed.email !== undefined && (await emailTaken(db, changed.email, id))) return { ok: false, error: "EMAIL_TAKEN" };
 
-  // Removing an active owner (demotion or deactivation) needs another active owner at the moment of the write.
+  // Both guards are evaluated in SQL against the row as it is at the moment of the write (not as read above), so
+  // they hold under concurrency. They only bite when the target is an active owner at that moment.
+  const isActiveOwner = sql`(staff.role = 'owner' and staff.active = 1)`;
+  // 1. Removing an active owner (demotion or deactivation) needs another active owner somewhere.
   const removesOwner = (changed.role !== undefined && changed.role !== "owner") || changed.active === false;
-  const guard: SQL = removesOwner
-    ? sql`(not (${staff.role} = 'owner' and ${staff.active} = 1)
-          or (select count(*) from ${staff} o where o.role = 'owner' and o.active = 1 and o.id != ${id}) >= 1)`
+  const lastOwnerGuard = removesOwner
+    ? sql`(not ${isActiveOwner} or (select count(*) from staff o where o.role = 'owner' and o.active = 1 and o.id != ${id}) >= 1)`
     : sql`1 = 1`;
+  // 2. Every property the target stops owning (all of them if they stop being an active owner, else the ones
+  //    dropped from propertyIds) must keep another active owner.
+  const keeps = removesOwner ? [] : changed.propertyIds;
+  const propertyGuard = keeps
+    ? sql`(not ${isActiveOwner} or not exists (
+        select 1 from json_each(staff.property_ids) p
+        where p.value not in (select k.value from json_each(${JSON.stringify(keeps)}) k)
+          and not exists (select 1 from staff o, json_each(o.property_ids) op
+                          where o.id != ${id} and o.role = 'owner' and o.active = 1 and op.value = p.value)))`
+    : sql`1 = 1`;
+  const guard = sql`${lastOwnerGuard} and ${propertyGuard}`;
   const auditId = crypto.randomUUID();
   const before = Object.fromEntries(keys.map((k) => [k, row[k]]));
   try {
-    // The audit row is written first, under the same guard (evaluated against the row as it is now), so it
-    // exists exactly when the UPDATE below applies.
+    // The audit row is written first, under the same guard, so it exists exactly when the UPDATE below applies.
     await runAtomic(db, [
       db.insert(auditLog).select(sql`select ${auditId}, ${ctx.email}, ${action}, 'staff', ${id},
         ${JSON.stringify(before)}, ${JSON.stringify(changed)}, ${now.getTime()}
-        from ${staff} where ${staff.id} = ${id} and ${guard}`),
-      db.update(staff).set(changed).where(sql`${staff.id} = ${id} and ${guard}`),
+        from staff where staff.id = ${id} and ${guard}`),
+      db.update(staff).set(changed).where(sql`staff.id = ${id} and ${guard}`),
     ]);
   } catch (e) {
     if (isUniqueViolation(e)) return { ok: false, error: "EMAIL_TAKEN" };
     throw e;
   }
   const [won] = await db.select({ id: auditLog.id }).from(auditLog).where(eq(auditLog.id, auditId));
-  return won ? { ok: true } : { ok: false, error: "LAST_OWNER" };
+  if (won) return { ok: true };
+  // Which guard refused it (only picks the message; the decision above was atomic).
+  const [{ others }] = await db.all<{ others: number }>(
+    sql`select count(*) as others from staff o where o.role = 'owner' and o.active = 1 and o.id != ${id}`,
+  );
+  return { ok: false, error: removesOwner && others === 0 ? "LAST_OWNER" : "LAST_OWNER_OF_PROPERTY" };
 }
 
 export type StaffListRow = StaffRow & { manageable: boolean };

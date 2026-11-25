@@ -27,7 +27,7 @@ type ModeName = keyof typeof KNOWN_MODES;
 export const MODE_UNSET = "（未設定）";
 export const MODE_UNKNOWN = "（不明的值）";
 
-export type SystemWarning = "DEV_STAFF_EMAIL_SET_OUTSIDE_LOCAL" | "ACCESS_NOT_CONFIGURED" | "MIGRATIONS_BEHIND";
+export type SystemWarning = "DEV_STAFF_EMAIL_LOCAL_BYPASS" | "DEV_STAFF_EMAIL_SET_OUTSIDE_LOCAL" | "ACCESS_NOT_CONFIGURED" | "MIGRATIONS_BEHIND";
 
 export type SystemStatus = {
   modes: Record<ModeName, string>;
@@ -78,7 +78,8 @@ export async function getSystemStatus(
 
   const migrations = await migrationState(db);
   const warnings: SystemWarning[] = [];
-  if (isSet(env.DEV_STAFF_EMAIL) && env.ENVIRONMENT !== "local") warnings.push("DEV_STAFF_EMAIL_SET_OUTSIDE_LOCAL");
+  // Local: DEV_STAFF_EMAIL is in effect, so Access is bypassed (lib/admin/auth.ts). Elsewhere it is ignored but must not exist.
+  if (isSet(env.DEV_STAFF_EMAIL)) warnings.push(env.ENVIRONMENT === "local" ? "DEV_STAFF_EMAIL_LOCAL_BYPASS" : "DEV_STAFF_EMAIL_SET_OUTSIDE_LOCAL");
   if (!accessConfigured && env.ENVIRONMENT !== "local") warnings.push("ACCESS_NOT_CONFIGURED");
   if (migrations.applied < migrations.expected) warnings.push("MIGRATIONS_BEHIND");
 
