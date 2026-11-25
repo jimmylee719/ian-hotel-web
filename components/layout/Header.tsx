@@ -6,11 +6,17 @@ import { Link, usePathname } from "@/i18n/navigation";
 import { headerTheme } from "@/lib/design/header-theme";
 import { LocaleSwitcher } from "./LocaleSwitcher";
 
+/**
+ * `menuOnly`: shown in the ≤900px menu panel but not in the desktop row. The brand story is first in the menu; in
+ * the desktop row it would push the centred brand aside in en/ja/ko and overflow the ja header near 901px, so on
+ * desktop it is reached from the footer's "About NK" column instead.
+ */
 export const NAV_ITEMS = [
-  { key: "rooms", href: "/rooms" },
-  { key: "facilities", href: "/facilities" },
-  { key: "access", href: "/location" },
-  { key: "faq", href: "/faq" },
+  { key: "about", href: "/about", menuOnly: true },
+  { key: "rooms", href: "/rooms", menuOnly: false },
+  { key: "facilities", href: "/facilities", menuOnly: false },
+  { key: "access", href: "/location", menuOnly: false },
+  { key: "faq", href: "/faq", menuOnly: false },
 ] as const;
 
 /**
@@ -41,7 +47,7 @@ export function Header() {
           <nav id="main-nav" className="nav" aria-label={t("mainNav")} data-open={open}>
             <ul>
               {NAV_ITEMS.map((item) => (
-                <li key={item.key}>
+                <li key={item.key} className={item.menuOnly ? "nav-menu-only" : undefined}>
                   <Link
                     href={item.href}
                     aria-current={pathname.startsWith(item.href) ? "page" : undefined}

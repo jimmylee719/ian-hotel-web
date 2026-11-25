@@ -14,6 +14,12 @@ describe("sitemapEntries", () => {
     expect(new Set(urls).size).toBe(urls.length);
   });
 
+  test("lists the brand and company pages in every language", () => {
+    const urls = entries.map((e) => e.url);
+    for (const p of ["/about", "/sustainability", "/company", "/partners"])
+      for (const l of ["zh-TW", "en", "ja", "ko"]) expect(urls).toContain(`${SITE_URL}/${l}${p}`);
+  });
+
   test("every entry lists all four languages plus x-default", () => {
     for (const e of entries) expect(Object.keys(e.alternates!.languages!).sort()).toEqual(["en", "ja", "ko", "x-default", "zh-TW"]);
     const room = entries.find((e) => e.url.endsWith("/en/rooms/classic-room"))!;

@@ -3,7 +3,7 @@ import { LOCALES } from "@/lib/db/schema";
 import { DEFAULT_LOCALE, localizedPath, SITE_URL } from "@/lib/seo";
 
 /** Public pages without a database slug, as locale-less paths. */
-export const STATIC_PATHS = ["/", "/rooms", "/facilities", "/location", "/attractions", "/news", "/faq", "/reviews", "/groups", "/privacy", "/terms"];
+export const STATIC_PATHS = ["/", "/rooms", "/facilities", "/location", "/attractions", "/news", "/faq", "/reviews", "/groups", "/about", "/sustainability", "/company", "/partners", "/privacy", "/terms"];
 
 /** One entry per locale × page, each listing every language version (hreflang) plus x-default. */
 export function sitemapEntries(roomSlugs: string[], newsSlugs: string[]): MetadataRoute.Sitemap {

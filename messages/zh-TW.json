@@ -34,7 +34,11 @@
     "groups": "團體與長住",
     "faq": "常見問題",
     "news": "最新消息",
-    "reviews": "住客評價"
+    "reviews": "住客評價",
+    "about": "品牌故事",
+    "sustainability": "永續與在地",
+    "company": "公司資訊",
+    "partners": "投資與合作"
   },
   "home": {
     "taglineFirst": "旅行",
@@ -59,7 +63,8 @@
     "openMap": "在 Google 地圖開啟",
     "chapterRoomsEn": "Rooms",
     "chapterSpacesEn": "Shared spaces",
-    "chapterAccessEn": "Getting here"
+    "chapterAccessEn": "Getting here",
+    "storyMore": "閱讀品牌故事"
   },
   "booking": {
     "title": "查詢空房",
@@ -92,7 +97,8 @@
     "terms": "訂房條款",
     "copyright": "小公館人文旅舍 NK Hostel",
     "siteLinks": "網站導覽",
-    "manageBooking": "查詢訂單"
+    "manageBooking": "查詢訂單",
+    "aboutTitle": "關於小公館"
   },
   "amenities": {
     "wifi": "免費 Wi-Fi",
@@ -170,7 +176,13 @@
     "termsDescription": "小公館人文旅舍官網訂房條款：付款、取消與退款規定。",
     "photoAlt": "{title}，第 {n} 張照片",
     "addressTitle": "地址",
-    "facilityPhotos": "公共空間照片"
+    "facilityPhotos": "公共空間照片",
+    "aboutDescription": "小公館人文旅舍的品牌故事：旅行是生活的延伸，旅途中也可以回家。用為家人挑選的心情佈置每一個角落，以及住客在這裡留下的故事。",
+    "sustainabilityDescription": "小公館的永續與在地：自 2025 年起一次性備品改為大廳自取付費、房內不提供瓶裝水，以及我們在南京東路五段的街區。",
+    "companyDescription": "小公館人文旅舍公司資訊：品牌名稱、地址、電話、Email、24 小時櫃台、入住與退房時間、房型與公共空間樓層。",
+    "partnersDescription": "給投資人與合作夥伴：小公館人文旅舍的品牌定位、各訂房平台的住客評分與獎項，以及洽談合作的方式。",
+    "partnersMailSubject": "投資與合作洽詢",
+    "partnersMailLink": "來信洽詢"
   },
   "facilityPhoto": {
     "bar": "五樓 NK BAR 吧台",

@@ -238,7 +238,8 @@ a {
   background: var(--color-accent-hover);
 }
 .menu-toggle,
-.nav-book {
+.nav-book,
+.nav .nav-menu-only {
   display: none;
 }
 /* Ink header: navigation (nav, brand, languages) stays on-ink with gold for hover and the current
@@ -496,7 +497,7 @@ a {
 }
 .foot-links {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-6);
   font-family: var(--font-cjk);
   line-height: 2.1;
@@ -507,6 +508,16 @@ a {
 .band-ink .foot-links a:hover {
   color: var(--color-gold);
   text-decoration: none;
+}
+/* The "About NK" column (brand and company layer) carries a small title; its links line up with the others. */
+.foot-col-title {
+  margin: 0;
+  font-family: var(--font-cjk);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 2.1;
+  letter-spacing: 0.12em;
+  color: var(--color-on-ink-faint);
 }
 .foot-legal {
   margin: var(--space-6) 0 0;
@@ -589,6 +600,14 @@ a {
   .lang .sep {
     margin: 0 0.25em;
   }
+  /* More room for the three footer link columns, so the longest labels (en, ja) stay on one line. */
+  .foot-grid {
+    grid-template-columns: 1fr 2fr;
+    gap: var(--space-5);
+  }
+  .foot-links {
+    gap: var(--space-4);
+  }
 }
 
 @media (max-width: 900px) {
@@ -617,6 +636,14 @@ a {
   }
   .site-head .nav[data-open="true"] {
     display: block;
+  }
+  .nav .nav-menu-only {
+    display: block;
+  }
+  /* Three link columns need the full width: the brand and contact block moves above them. */
+  .foot-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-5);
   }
   .nav ul {
     flex-direction: column;
@@ -717,6 +744,10 @@ a {
     gap: var(--space-5);
   }
   .foot-links {
+    grid-template-columns: 1fr 1fr;
     gap: var(--space-4);
+  }
+  .foot-about {
+    grid-column: 1 / -1;
   }
 }

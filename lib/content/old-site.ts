@@ -13,6 +13,11 @@ export const PAGE_SOURCES: Record<string, string[]> = {
   groups: ["groups", "long-stay"],
   privacy: [],
   "booking-terms": [],
+  // Brand and company layer: no old-site photos fit these pages.
+  about: [],
+  sustainability: [],
+  company: [],
+  partners: [],
 };
 export const REQUIRED_PAGES = Object.keys(PAGE_SOURCES);
 
