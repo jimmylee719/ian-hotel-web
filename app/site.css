@@ -1036,7 +1036,8 @@ main + .booking-dock {
 }
 .page-head-photo {
   width: 100%;
-  max-width: 560px;
+  max-width: min(560px, var(--frame-max-w, 560px));
+  margin-inline: 0; /* aligned to its column edge (justify-self), not centred */
   justify-self: end;
 }
 .page-head-paper {
@@ -1083,6 +1084,11 @@ main + .booking-dock {
 
 /* ---------- photo frames (cover-fit; height from the sharpness rule, see components/site/sections/Frame.tsx) ---------- */
 .frame {
+  /* --frame-max-w = source width / 1.5 (1.4 for the arch): a frame never displays wider than its source allows;
+     a narrower frame sits centred in its slot. */
+  width: 100%;
+  max-width: var(--frame-max-w, 100%);
+  margin-inline: auto;
   height: var(--frame-h, 240px);
   overflow: hidden;
   border-radius: var(--radius);
@@ -1099,7 +1105,7 @@ main + .booking-dock {
 }
 .arch-photo {
   width: 440px;
-  max-width: 100%;
+  max-width: min(100%, var(--frame-max-w, 100%));
   height: var(--frame-h, 340px);
   /* Oversized radii are scaled down proportionally, so the top stays a half-circle of the frame's width. */
   border-radius: 999px 999px 4px 4px;
@@ -1266,7 +1272,7 @@ main + .booking-dock {
   }
   .photo-grid3 .frame,
   .photo-split .frame {
-    max-width: 640px;
+    max-width: min(640px, var(--frame-max-w, 640px));
     height: min(var(--frame-h, 240px), 62vw);
   }
   .page-head-photo {

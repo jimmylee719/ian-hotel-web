@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PHOTO_DIMENSIONS, frameHeight, maxSlotHeight, photoFits } from "@/lib/design/photo-fit";
+import { PHOTO_DIMENSIONS, frameBox, frameHeight, maxSlotHeight, photoFits } from "@/lib/design/photo-fit";
 
 describe("photo dimensions manifest", () => {
   it("has an entry for every file under content/images and nothing else", () => {
@@ -50,5 +50,19 @@ describe("frameHeight", () => {
   it("is 0 when the source cannot fill the slot sharply", () => {
     expect(frameHeight("nope.jpg", 300, 300)).toBe(0);
     expect(frameHeight("rooms/rooms_76.jpg", 800, 300)).toBe(0);
+  });
+});
+
+describe("frameBox", () => {
+  it("fits: full slot, height capped, max width = source.w / tolerance", () => {
+    expect(frameBox("rooms/rooms_76.jpg", 596, 290)).toEqual({ fits: true, maxW: 733, h: 290 });
+    expect(frameBox("amenities/amenities_32.jpg", 440, 340, 1.4)).toEqual({ fits: true, maxW: 685, h: 340 });
+  });
+  it("reports a source too narrow for the slot and gives the largest sharp box", () => {
+    // portrait 703x915 in the 596px grid3 lead: at most 468 wide, height still capped at 290
+    expect(frameBox("rooms/rooms_409.jpg", 596, 290)).toEqual({ fits: false, maxW: 468, h: 290 });
+  });
+  it("is null for an unknown key", () => {
+    expect(frameBox("nope.jpg", 300, 300)).toBeNull();
   });
 });

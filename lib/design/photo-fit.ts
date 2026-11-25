@@ -25,3 +25,15 @@ export function frameHeight(key: string, slotWidth: number, cap: number, toleran
   const h = maxSlotHeight(key, slotWidth, tolerance);
   return h === 0 ? 0 : Math.min(cap, h);
 }
+
+/**
+ * The largest sharp frame for `key` in a slot `slotWidth` wide with design height maximum `cap`:
+ * `maxW` = source.w / tolerance (never display wider), `h` = min(cap, source.h / tolerance), and `fits` = whether the
+ * source can fill the whole slot width. null for an unknown key.
+ */
+export function frameBox(key: string, slotWidth: number, cap: number, tolerance = 1.5): { fits: boolean; maxW: number; h: number } | null {
+  const src = PHOTO_DIMENSIONS[key];
+  if (!src) return null;
+  const maxW = Math.floor(src.w / tolerance);
+  return { fits: maxW >= slotWidth, maxW, h: Math.min(cap, Math.floor(src.h / tolerance)) };
+}
