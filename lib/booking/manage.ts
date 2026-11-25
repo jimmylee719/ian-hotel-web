@@ -264,25 +264,32 @@ export async function cancelConfirmed(deps: Deps, reservationId: string, now: Da
     exists(db.select({ one: sql`1` }).from(payments).where(and(eq(payments.idempotencyKey, key), eq(payments.status, "succeeded")))),
   );
   // Only now does the desk owe the cancellation's share: a cancel that failed and dropped its claim changed nothing.
+  // The share is the one STORED with the intent (cancelDeskDue, read by this same UPDATE), not this attempt's
+  // `r.frontDesk`: an attempt that stalled past its lease may have planned a share a takeover attempt has since
+  // replaced. (SET expressions see the row as it was before the UPDATE, so cancelDeskDue is read before it is zeroed.)
+  // Desk-due can't move while the claim is held, so the row's frontDeskRefundDue tells whether it was already owed.
   const cancelled = await transition(db, reservationId, "confirmed", "cancelled", {
-    holdExpiresAt: null, frontDeskRefundDue: r.frontDesk, cancelDeskDue: 0,
-    // Desk-due can't move while the claim is held, so the claim's row tells whether it was already owed.
-    deskDueSince: r.frontDesk > 0 ? (claim.frontDeskRefundDue > 0 ? claim.deskDueSince ?? now.getTime() : now.getTime()) : null,
+    holdExpiresAt: null, frontDeskRefundDue: sql`${reservations.cancelDeskDue}`, cancelDeskDue: 0,
+    deskDueSince: sql`case when ${reservations.cancelDeskDue} > 0
+      then (case when ${reservations.frontDeskRefundDue} > 0 then coalesce(${reservations.deskDueSince}, ${now.getTime()}) else ${now.getTime()} end)
+      else null end`,
     syncState: "pending", syncAttempts: 0, nextSyncAt: now.getTime(), lastSyncError: null,
   }, now, refundSettled);
   if (!cancelled) return settledElsewhere(db, reservationId);
+  const [{ frontDesk }] = await db.select({ frontDesk: reservations.frontDeskRefundDue }).from(reservations)
+    .where(eq(reservations.id, reservationId));
 
   if (claim.holdExpiresAt != null) {
     const items = nightsFrom(await holdItemsFor(db, claim), o.releaseFrom);
     if (items.length) await releaseInventory(db, items);
   }
   await cancelWithChannel(deps, reservationId, now);
-  const mail = { refundAmount: r.amount, ...frontDeskField(r.frontDesk) };
+  const mail = { refundAmount: r.amount, ...frontDeskField(frontDesk) };
   const clamp = r.overrideClamped ? { overrideClamped: r.overrideClamped } : {};
   if (o.notifyGuest !== false) await notifyGuest(deps, reservationId, "cancelled", now, mail);
   await notifyStaff(deps, reservationId, "cancelled", now, mail);
-  if (r.frontDesk > 0) await notifyStaff(deps, reservationId, "staff_payment_alert", now, mail, "front-desk-refund");
-  return { ok: true, refunded: r.amount, ...frontDeskField(r.frontDesk), alreadyCancelled: false, ...clamp };
+  if (frontDesk > 0) await notifyStaff(deps, reservationId, "staff_payment_alert", now, mail, "front-desk-refund");
+  return { ok: true, refunded: r.amount, ...frontDeskField(frontDesk), alreadyCancelled: false, ...clamp };
 }
 
 /** The hold items limited to nights on or after `from` (all of them when `from` is unset); empty items dropped. */

@@ -103,6 +103,26 @@ test("a cancel whose online refund fails outright leaves the desk-due as it was;
   expect(await s.row()).toMatchObject({ status: "cancelled", frontDeskRefundDue: 7000 });
 });
 
+test("the final transition writes the booking's stored cancelDeskDue, not the attempt's own (stale) desk share (M-1 residual)", async () => {
+  const s = await tenK({ deposit: true, desk: 7000 }); // this attempt plans 3000 online + 7000 at the desk
+  const real = s.gateway.refund.bind(s.gateway);
+  const before = s.email.sent.length;
+  vi.spyOn(s.gateway, "refund").mockImplementationOnce(async (r) => {
+    // While this attempt is stalled at the gateway, a takeover attempt has fixed the cancellation's desk share
+    // differently (as it may, once this attempt's lease has run out); its value is the one stored with the intent.
+    await s.db.update(reservations).set({ cancelDeskDue: 5000 }).where(eq(reservations.id, s.id));
+    return real(r);
+  });
+  expect(await staffCancel(s.deps, s.frontDesk, s.id, { reason: "x", notifyGuest: true }, AT))
+    .toEqual({ ok: true, refunded: 3000, frontDeskRefundDue: 5000, alreadyCancelled: false });
+  expect(await s.row()).toMatchObject({ status: "cancelled", frontDeskRefundDue: 5000, cancelDeskDue: 0, deskDueSince: AT.getTime() });
+  const cancelMail = s.email.sent.slice(before);
+  const deskLines = cancelMail.flatMap((e) => e.text.split("\n")).filter((l) => /櫃檯|front desk/.test(l));
+  expect(deskLines.length).toBeGreaterThan(0);
+  expect(deskLines.every((l) => !l.includes("7,000"))).toBe(true);
+  expect(deskLines.some((l) => l.includes("5,000"))).toBe(true);
+});
+
 test("the dashboard flags desk-due older than a day", async () => {
   const s = await owing();
   const kinds = async (at: Date) => (await getDashboard(s.db, s.propertyId, at)).alerts.filter((a) => a.kind === "desk_refund_due");
