@@ -110,3 +110,13 @@ test("staging fails closed like production: mock modes refused, BASE_URL require
   expect(buildScheduledDeps({ ENVIRONMENT: "staging" }, db).emailSkipReason).toBe("BASE_URL_NOT_SET");
   expect(buildScheduledDeps({ ENVIRONMENT: "staging", BASE_URL: "https://staging.nk.test" }, db).emailSkipReason).toBeNull();
 });
+
+test("BOOKING_OPEN=false closes guest booking even with payments configured", async () => {
+  const { guestBookingOpen } = await import("@/lib/runtime/deps");
+  expect(guestBookingOpen(base)).toBe(true);
+  expect(guestBookingOpen({ ...base, BOOKING_OPEN: "false" })).toBe(false);
+  expect(guestBookingOpen(base, { BOOKING_OPEN: "false" })).toBe(false);
+  expect(guestBookingOpen({ ...base, BOOKING_OPEN: "true" }, { BOOKING_OPEN: "false" })).toBe(true);
+  expect(guestBookingOpen({ PAYMENT_MODE: "mock" })).toBe(false);
+  expect(paymentsConfigured({ ...base, BOOKING_OPEN: "false" })).toBe(true);
+});

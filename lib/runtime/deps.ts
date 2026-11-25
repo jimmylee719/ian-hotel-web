@@ -51,8 +51,18 @@ export function paymentsConfigured(env: AppEnv): boolean {
   return bookingDisabledReason(env) === null;
 }
 
+/**
+ * Can guests start a new booking? Payments must be configured and BOOKING_OPEN must not be "false". In `next dev`
+ * the switch may also come from the shell (`BOOKING_OPEN=false npm run dev`), since wrangler vars and .dev.vars
+ * are the only things in the Cloudflare context there.
+ */
+export function guestBookingOpen(env: AppEnv, shell: { BOOKING_OPEN?: string } = {}): boolean {
+  if ((env.BOOKING_OPEN ?? shell.BOOKING_OPEN) === "false") return false;
+  return paymentsConfigured(env);
+}
+
 export async function bookingEnabled(): Promise<boolean> {
-  return paymentsConfigured(await appEnv());
+  return guestBookingOpen(await appEnv(), { BOOKING_OPEN: typeof process === "undefined" ? undefined : process.env.BOOKING_OPEN });
 }
 
 /** What the email and staff paths need: no payment gateway, so it works while PAYMENT_MODE is unset. */

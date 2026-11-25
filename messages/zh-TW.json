@@ -248,8 +248,8 @@
     "select": "選擇",
     "roomDetails": "房型介紹",
     "plansFor": "{room}的方案",
-    "disabledTitle": "線上訂房即將開放",
-    "disabledBody": "線上訂房即將開放。在這之前，請直接與我們聯絡，我們會親自為您安排住宿。",
+    "disabledTitle": "線上訂房系統建置中",
+    "disabledBody": "新的線上訂房系統正在建置中，即將開放。在這之前，歡迎透過電話或電子郵件與我們聯絡，我們會親自為您安排住宿。",
     "disabledPhone": "電話",
     "disabledEmail": "電子郵件"
   },

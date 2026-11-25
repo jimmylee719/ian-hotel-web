@@ -248,8 +248,8 @@
     "select": "Select",
     "roomDetails": "About this room",
     "plansFor": "Rates for the {room}",
-    "disabledTitle": "Online booking is coming soon",
-    "disabledBody": "We're getting online booking ready. Until it opens, please contact us and we'll arrange your stay directly.",
+    "disabledTitle": "Online booking is under construction",
+    "disabledBody": "Our new online booking system is under construction and will open soon. Until then, please contact us by phone or email and we'll arrange your stay personally.",
     "disabledPhone": "Phone",
     "disabledEmail": "Email"
   },

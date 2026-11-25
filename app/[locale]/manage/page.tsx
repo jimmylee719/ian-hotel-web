@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
+import { BookingDisabledNotice } from "@/components/booking/BookingDisabledNotice";
 import { ManageLookup } from "@/components/booking/ManageLookup";
 import { PageHead } from "@/components/site/PageHead";
 import type { Locale } from "@/lib/db/schema";
+import { bookingEnabled } from "@/lib/runtime/deps";
 import { buildMetadata } from "@/lib/seo";
 
 type Props = { params: Promise<{ locale: Locale }> };
@@ -17,6 +19,14 @@ export default async function ManagePage({ params }: Props) {
   const { locale } = await params;
   setRequestLocale(locale);
   const t = await getTranslations({ locale, namespace: "manage" });
+  if (!(await bookingEnabled())) {
+    return (
+      <main id="main" className="wrap book-page narrow">
+        <PageHead title={t("title")} />
+        <BookingDisabledNotice locale={locale} />
+      </main>
+    );
+  }
   return (
     <main id="main" className="wrap book-page narrow">
       <PageHead title={t("title")} lead={t("intro")} />
