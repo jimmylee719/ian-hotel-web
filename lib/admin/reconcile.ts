@@ -61,7 +61,7 @@ export type ReconcileResult =
   | {
       ok: false;
       error: "NOT_FOUND" | "FORBIDDEN" | "ALREADY_RESOLVED" | "NOT_FAILED" | "PROVIDER_REF_REQUIRED" | "DUPLICATE_PROVIDER_REF" | "REFUND_FAILED"
-        | "REFERENCE_REQUIRED" | "INVALID_REFERENCE" | "LOOKS_LIKE_CARD_NUMBER";
+        | "REFERENCE_REQUIRED" | "INVALID_REFERENCE" | "LOOKS_LIKE_CARD_NUMBER" | "PAYMENTS_UNAVAILABLE";
     };
 
 
@@ -87,6 +87,7 @@ export type ReconcileResult =
  */
 export async function reconcileRefund(
   deps: Deps, ctx: StaffContext, paymentId: string, action: ReconcileAction, now: Date,
+  opts: ReconcileOptions = {},
 ): Promise<ReconcileResult> {
   const { db } = deps;
   if (!can(ctx.staff, "payments.reconcile")) return { ok: false, error: "FORBIDDEN" };
@@ -95,6 +96,8 @@ export async function reconcileRefund(
     .where(and(eq(payments.id, paymentId), eq(payments.kind, "refund")));
   if (!found || !can(ctx.staff, "payments.reconcile", found.propertyId)) return { ok: false, error: "NOT_FOUND" };
   const row = found.p;
+  const gateway = !opts.paymentsUnavailable;
+  if (!gateway && action.kind !== "settle_offline") return { ok: false, error: "PAYMENTS_UNAVAILABLE" };
   const audit = (after: Record<string, unknown>): AuditEntry => ({
     action: "payment.reconcile", entity: "payment", entityId: row.id,
     before: { status: row.status, providerRef: row.providerRef }, after: { kind: action.kind, ...after },
@@ -125,7 +128,8 @@ export async function reconcileRefund(
     // A pending row's refund may still have been made by the gateway: ask first. If it was, the gateway's
     // result settles the row and the hotel's offline entry is not used (staff are told: the guest may now
     // have been paid twice, by the gateway and by the hotel).
-    const made = row.status === "pending" ? await gatewayMadeRefund(deps, row.idempotencyKey) : null;
+    // Without a gateway there is no one to ask: the dialog's warning covers it.
+    const made = gateway && row.status === "pending" ? await gatewayMadeRefund(deps, row.idempotencyKey) : null;
     if (made) {
       settledByGateway = true;
       providerRef = made.refundRef;
@@ -169,10 +173,18 @@ export async function reconcileRefund(
   if (!won) return { ok: false, error: "ALREADY_RESOLVED" };
   if (action.kind === "mark_failed") return { ok: true, status: "failed", completed: null, reservationStatus: await statusOf(db, row.reservationId) };
   return {
-    ok: true, status: "succeeded", ...await finishFlow(deps, row.idempotencyKey, row.reservationId, now),
+    ok: true, status: "succeeded", ...await finishFlow(deps, row.idempotencyKey, row.reservationId, now, { gatewayAvailable: gateway }),
     ...(settledByGateway ? { settledByGateway: true as const } : {}),
   };
 }
+
+export type ReconcileOptions = {
+  /**
+   * No payment gateway / channel is configured (deps are the offline ones): only `settle_offline` runs, without
+   * asking the gateway first; every other action is PAYMENTS_UNAVAILABLE.
+   */
+  paymentsUnavailable?: boolean;
+};
 
 /** The gateway's refund ref if it reports the refund under `key` as made; null if it says otherwise or cannot say. */
 async function gatewayMadeRefund(deps: Deps, key: string | null): Promise<{ refundRef: string | null } | null> {
@@ -195,11 +207,12 @@ async function statusOf(db: Db, reservationId: string): Promise<ReservationStatu
  *   original time; the intent fixes the amount and whether the guest is emailed; nights are released from today on (the staff rule).
  * - `fail:<id>:<charge>` of a failed booking (paid_pending_confirm, syncState failed) → refundAndFail's rest,
  *   with the booking's original failure reason so its emails and any new error keep it.
+ *   With `gatewayAvailable: false` this happens only if no other charge is still to be refunded.
  * A booking in any other state is left alone; the result reports its status.
  * Also run by the gateway reconcile job after it settles a pending refund the gateway reports made.
  */
 export async function finishFlow(
-  deps: Deps, key: string | null, reservationId: string, now: Date,
+  deps: Deps, key: string | null, reservationId: string, now: Date, o: { gatewayAvailable?: boolean } = {},
 ): Promise<{ completed: "cancellation" | "refund_and_fail" | null; reservationStatus: ReservationStatus }> {
   const { db } = deps;
   const [res] = await db.select().from(reservations).where(eq(reservations.id, reservationId));
@@ -215,7 +228,9 @@ export async function finishFlow(
     }
   } else if (key?.startsWith(`fail:${res.id}:`) && res.status === "paid_pending_confirm" && res.syncState === "failed") {
     const reason = originalFailReason(res.lastSyncError);
-    if (await finishRefundAndFail(deps, res, reason, now, failKinds(reason))) completed = "refund_and_fail";
+    // Without a gateway, finishing must not start refunds of other charges (they could only end up pending).
+    const blocked = o.gatewayAvailable === false && (await refundableCharges(db, res.id)).some((c) => c.remaining > 0);
+    if (!blocked && await finishRefundAndFail(deps, res, reason, now, failKinds(reason))) completed = "refund_and_fail";
   }
   return { completed, reservationStatus: await statusOf(db, reservationId) };
 }

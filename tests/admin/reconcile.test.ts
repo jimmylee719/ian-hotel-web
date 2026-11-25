@@ -7,6 +7,7 @@ import { staffCancel } from "@/lib/admin/staff-cancel";
 import { cancelReservation, findReservation } from "@/lib/booking/manage";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { auditLog, inventoryDaily, notifications, payments, reservations, staff } from "@/lib/db/schema";
+import { buildDepsOrOffline } from "@/lib/runtime/deps";
 import { fillAri } from "@/tests/helpers/ari";
 import { bookingSetup, minutes, PAY_NOW } from "@/tests/helpers/booking";
 import { AT, ONE_NIGHT, tenK } from "@/tests/helpers/money";
@@ -335,5 +336,57 @@ describe("settle_offline: a refund the gateway will not take, paid back by the h
     expect(await settle("ok", s.frontDesk)).toEqual({ ok: false, error: "FORBIDDEN" });
     expect(await s.refundRows(s.id)).toMatchObject([{ status: "failed" }]);
     expect((await s.reservation(s.code)).status).toBe("confirmed");
+  });
+});
+
+describe("reconciling while online payments are not configured (PAYMENT_MODE / CHANNEL_MODE unset, production today)", () => {
+  const OFFLINE = { kind: "settle_offline" as const, reference: "匯款 末五碼 55555", method: "transfer" as const };
+  const offline = (s: { db: Parameters<typeof buildDepsOrOffline>[1] }) => buildDepsOrOffline({}, s.db, "http://x");
+
+  test("without the modes set, the route gets email-only deps and is told payments are unavailable; with them, the full deps", async () => {
+    const s = await setup();
+    const o = offline(s);
+    expect(o.paymentsUnavailable).toBe(true);
+    await expect(o.deps.gateway.queryRefund("k")).rejects.toThrow();
+    const on = buildDepsOrOffline({ PAYMENT_MODE: "mock", CHANNEL_MODE: "mock", ENVIRONMENT: "local" }, s.db, "http://x");
+    expect(on.paymentsUnavailable).toBe(false);
+  });
+
+  test("settle_offline still works: the gateway query is skipped and the cancellation completes; the channel cancel waits for the retry job", async () => {
+    const s = await stuckCancellation();
+    const { deps, paymentsUnavailable } = offline(s);
+    const query = vi.spyOn(deps.gateway, "queryRefund");
+    expect(await reconcileRefund(deps, s.manager, s.row.id, OFFLINE, LATER, { paymentsUnavailable }))
+      .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
+    expect(query).not.toHaveBeenCalled();
+    expect(await s.refundRows(s.id)).toMatchObject([{ status: "succeeded", providerRef: expect.stringMatching(/^offline:/) }]);
+    expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, syncState: "pending" });
+    expect(await s.avail("2026-12-10")).toBe(3);
+  });
+
+  test("the other actions need the gateway: PAYMENTS_UNAVAILABLE, nothing changes", async () => {
+    const s = await stuckCancellation();
+    const { deps, paymentsUnavailable } = offline(s);
+    for (const action of [{ kind: "retry" as const }, { kind: "mark_failed" as const }, { kind: "mark_succeeded" as const, providerRef: "B" }])
+      expect(await reconcileRefund(deps, s.manager, s.row.id, action, LATER, { paymentsUnavailable })).toEqual({ ok: false, error: "PAYMENTS_UNAVAILABLE" });
+    expect(await s.refundRows(s.id)).toMatchObject([{ status: "pending" }]);
+  });
+
+  test("a failed booking with another charge still to refund is not finished offline: no refund is started against the missing gateway", async () => {
+    const { db, deps: online, gateway, manager, book, notice, reservation, refundRows } = await setup();
+    const code = await book();
+    const res0 = await reservation(code);
+    await db.insert(payments).values({
+      id: "extra-charge", reservationId: res0.id, kind: "charge", method: "sinopac_online", amount: 100, status: "succeeded",
+      providerRef: "REF-EXTRA", createdAt: minutes(1).getTime(),
+    });
+    vi.spyOn(gateway, "refund").mockRejectedValueOnce(new Error("timeout"));
+    vi.spyOn(gateway, "queryRefund").mockResolvedValueOnce({ status: "pending" });
+    await handlePaymentNotice(online, await notice(code, { amount: PAY_NOW - 1 }), minutes(2)); // AMOUNT_MISMATCH, first refund unknown
+    const [first] = await refundRows(res0.id);
+    const { deps, paymentsUnavailable } = buildDepsOrOffline({}, db, "http://x");
+    expect(await reconcileRefund(deps, manager, first.id, OFFLINE, minutes(60), { paymentsUnavailable }))
+      .toEqual({ ok: true, status: "succeeded", completed: null, reservationStatus: "paid_pending_confirm" });
+    expect(await refundRows(res0.id)).toHaveLength(1); // no pending row for the other charge
   });
 });

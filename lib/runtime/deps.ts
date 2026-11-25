@@ -91,8 +91,28 @@ export function buildDeps(env: AppEnv, db: Db, origin: string): Deps {
  * cancel refunding 0 — the channel cancel then waits in syncState pending for the retry job).
  */
 export async function getOfflineDeps(origin: string): Promise<Deps> {
-  const core = buildCoreDeps(await appEnv(), await getDb(), origin);
-  return { ...core, gateway: disabledGateway, channel: disabledChannel };
+  return buildOfflineDeps(await appEnv(), await getDb(), origin);
+}
+
+export function buildOfflineDeps(env: AppEnv, db: Db, origin: string): Deps {
+  return { ...buildCoreDeps(env, db, origin), gateway: disabledGateway, channel: disabledChannel };
+}
+
+/**
+ * The full deps when online payments are configured, else the offline ones (db and email only; the gateway and
+ * channel refuse) with `paymentsUnavailable: true`, for staff actions that can run without them.
+ */
+export async function getDepsOrOffline(origin: string): Promise<{ deps: Deps; paymentsUnavailable: boolean }> {
+  return buildDepsOrOffline(await appEnv(), await getDb(), origin);
+}
+
+export function buildDepsOrOffline(env: AppEnv, db: Db, origin: string): { deps: Deps; paymentsUnavailable: boolean } {
+  try {
+    return { deps: buildDeps(env, db, origin), paymentsUnavailable: false };
+  } catch (e) {
+    if (!(e instanceof BookingDisabledError)) throw e;
+    return { deps: buildOfflineDeps(env, db, origin), paymentsUnavailable: true };
+  }
 }
 
 export type ScheduledDeps = Deps & { syncSkipReason: string | null; emailSkipReason: string | null };
