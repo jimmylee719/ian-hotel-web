@@ -18,6 +18,13 @@ import type { Db } from "@/lib/db/types";
 export const MONEY_KINDS = ["charge", "front_desk", "refund"] as const;
 type MoneyKind = (typeof MONEY_KINDS)[number];
 
+/**
+ * SQL: when a payment's money moved, for dating it in reports and the dashboard. A refund moved when it
+ * succeeded (settledAt; createdAt only for a row that has none), everything else when it was recorded (createdAt).
+ */
+export const moneyMovedAt: SQL<number> =
+  sql<number>`(case when ${payments.kind} = 'refund' then coalesce(${payments.settledAt}, ${payments.createdAt}) else ${payments.createdAt} end)`;
+
 /** Effect of one succeeded payment on `received`: refunds subtract. */
 export const netDelta = (kind: string, amount: number): number => (kind === "refund" ? -amount : amount);
 

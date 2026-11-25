@@ -60,7 +60,7 @@ export async function runGatewayReconcile(deps: Deps, now: Date): Promise<Gatewa
         continue;
       }
       if (q.status === "succeeded") {
-        await settleRefundRow(deps.db, row, q.refundRef ?? null, countsAsBookingRefund(row.idempotencyKey));
+        await settleRefundRow(deps.db, row, q.refundRef ?? null, countsAsBookingRefund(row.idempotencyKey), now);
         await finishFlow(deps, row.idempotencyKey, row.reservationId, now);
         out.refundsSettled++;
       } else {

@@ -267,12 +267,12 @@ export async function refundOnce(
     if (q.status !== "succeeded") return markFailed(`${r.error}; query ${q.status}`);
     refundRef = q.refundRef ?? null;
   }
-  await settleRefundRow(db, row, refundRef, !!o.countsAsBookingRefund);
+  await settleRefundRow(db, row, refundRef, !!o.countsAsBookingRefund, now);
   return { ok: true, amount: row.amount };
 }
 
 /**
- * Mark a refund row the gateway confirmed as made `succeeded` (with its refund ref), and with
+ * Mark a refund row the gateway confirmed as made `succeeded` (with its refund ref, settledAt = now), and with
  * `countsAsBookingRefund` add its amount to the booking's refundedAmount, in one batch.
  * Only the first writer to settle the row counts it: staff may have marked it succeeded by hand
  * (refund reconciliation) while a call was in flight. The bump runs first, while the row is unsettled.
@@ -280,6 +280,7 @@ export async function refundOnce(
  */
 export async function settleRefundRow(
   db: Db, row: Pick<PaymentRow, "id" | "amount" | "reservationId">, refundRef: string | null, countsAsBookingRefund: boolean,
+  now: Date,
 ): Promise<void> {
   const unsettled = and(eq(payments.id, row.id), ne(payments.status, "succeeded"));
   await runAtomic(db, [
@@ -287,7 +288,7 @@ export async function settleRefundRow(
       ? [db.update(reservations).set({ refundedAmount: sql`${reservations.refundedAmount} + ${row.amount}` })
         .where(and(eq(reservations.id, row.reservationId), exists(db.select({ one: sql`1` }).from(payments).where(unsettled))))]
       : []),
-    db.update(payments).set({ status: "succeeded", providerRef: refundRef }).where(unsettled),
+    db.update(payments).set({ status: "succeeded", providerRef: refundRef, settledAt: now.getTime() }).where(unsettled),
   ]);
 }
 

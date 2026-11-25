@@ -213,12 +213,12 @@ export async function applyModification(
         syncState: "pending", syncAttempts: 0,
         nextSyncAt: sql`max(coalesce(${reservations.nextSyncAt}, ${at}), ${at})`, lastSyncError: null, updatedAt: at,
       }).where(and(eq(reservations.id, res.id), guard)),
-      // Positional (payments in schema order, id … merchantOrderNo, notifyGuest). The refund intent is recorded with the change, as `failed` (= not yet done; retrying is safe): refundOnce
+      // Positional (payments in schema order, id … merchantOrderNo, notifyGuest, settledAt). The refund intent is recorded with the change, as `failed` (= not yet done; retrying is safe): refundOnce
       // below takes it from there, and if this request dies first it waits on the reconciliation page. It goes
       // last (it would make `guard` false) and commits exactly when the audit row did.
       ...(pl.refundOnline > 0
         ? [db.insert(payments).select(sql`select ${refundId}, ${res.id}, 'refund', ${pl.chargeMethod!}, ${pl.refundOnline},
-            'failed', null, null, null, ${pl.chargeId!}, ${key}, ${at}, null, null, null
+            'failed', null, null, null, ${pl.chargeId!}, ${key}, ${at}, null, null, null, null
             where exists (select 1 from ${auditLog} where ${auditLog.id} = ${auditId})`)]
         : []),
     ]);

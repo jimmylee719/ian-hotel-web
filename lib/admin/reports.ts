@@ -3,7 +3,7 @@ import { bookingTerms } from "@/lib/booking/terms";
 import { addons, inventoryDaily, payments, reservationRooms, reservations, unitTypes } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 import { addDaysISO, daysBefore, todayInTaipei, type ISODate } from "@/lib/domain/dates";
-import { countsAsReceived, DESK_METHODS, moneyByReservation, summarizeMoney } from "./money-metrics";
+import { countsAsReceived, DESK_METHODS, moneyByReservation, moneyMovedAt, summarizeMoney } from "./money-metrics";
 import { listReservations, type ReservationListRow } from "./reservations";
 
 export const MAX_REPORT_DAYS = 366;
@@ -54,16 +54,16 @@ function figures(rows: MoneyRow[]): RevenueFigures {
 }
 
 /**
- * Money that moved in the range, by Taipei day or month of the PAYMENT (its createdAt). Same rows as the
+ * Money that moved in the range, by Taipei day or month it MOVED (moneyMovedAt: a refund's settledAt, else createdAt). Same rows as the
  * dashboard's revenue KPI: succeeded charges, desk payments and refunds of this property's direct bookings
  * (countsAsReceived), so a month's total here equals the dashboard's month figure.
  */
 export async function revenueReport(db: Db, propertyId: string, o: Range & { groupBy: "day" | "month" }): Promise<RevenueReport> {
   const [start, end] = inRangeMs(o);
-  const rows = await db.select({ kind: payments.kind, method: payments.method, amount: payments.amount, at: payments.createdAt })
+  const rows = await db.select({ kind: payments.kind, method: payments.method, amount: payments.amount, at: moneyMovedAt })
     .from(payments).innerJoin(reservations, eq(reservations.id, payments.reservationId))
     .where(and(eq(reservations.propertyId, propertyId), eq(reservations.channel, "direct"), countsAsReceived,
-      gte(payments.createdAt, start), lt(payments.createdAt, end)));
+      gte(moneyMovedAt, start), lt(moneyMovedAt, end)));
   const buckets = new Map<string, MoneyRow[]>();
   for (const r of rows) {
     const d = taipeiDate(r.at);

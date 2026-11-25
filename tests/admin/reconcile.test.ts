@@ -63,7 +63,7 @@ test("mark_succeeded on a stuck cancellation refund finishes the cancellation; a
     .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
 
   expect(await reservation(code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, cancelledAt: EARLY.getTime() });
-  expect(await refundRows(id)).toMatchObject([{ status: "succeeded", providerRef: "BANK-123", amount: PAID }]);
+  expect(await refundRows(id)).toMatchObject([{ status: "succeeded", providerRef: "BANK-123", amount: PAID, settledAt: LATER.getTime() }]);
   expect(await avail("2026-12-10")).toBe(3);
   expect(email.sent.filter((e) => e.to === GUEST && e.subject.includes("cancelled"))).toHaveLength(1);
   expect(await db.select().from(auditLog).where(eq(auditLog.entityId, row.id)))
@@ -105,6 +105,7 @@ test("mark_failed only marks it failed; retry then calls the gateway with the sa
   expect(await reconcileRefund(deps, manager, row.id, { kind: "retry" }, LATER)).toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
   expect(refund).toHaveBeenCalledTimes(1);
   expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: `cancel:${id}`, amount: PAID }));
+  expect(await refundRows(id)).toMatchObject([{ status: "succeeded", settledAt: LATER.getTime() }]); // when it succeeded, not row.createdAt
   expect(await reservation(code)).toMatchObject({ status: "cancelled", refundedAmount: PAID });
   expect(await reconcileRefund(deps, manager, row.id, { kind: "retry" }, LATER)).toEqual({ ok: false, error: "ALREADY_RESOLVED" });
   expect(refund).toHaveBeenCalledTimes(1);
@@ -257,7 +258,7 @@ describe("settle_offline: a refund the gateway will not take, paid back by the h
     expect(refund).not.toHaveBeenCalled(); // the money moved by bank transfer, not through the gateway
     expect(await s.refundRows(s.id)).toMatchObject([{
       status: "succeeded", amount: PAID, method: "sinopac_online", providerRef: `offline:${OFFLINE.reference}`,
-      note: expect.stringContaining("匯款"),
+      note: expect.stringContaining("匯款"), settledAt: LATER.getTime(),
     }]);
     expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, frontDeskRefundDue: 0, cancelledAt: s.row.createdAt });
     expect(await s.avail("2026-12-10")).toBe(3);

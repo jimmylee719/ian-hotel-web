@@ -40,7 +40,7 @@ test("a pending refund the gateway reports succeeded is settled and the cancella
   const r = await runGatewayReconcile(deps, minutes(15));
   expect(r).toMatchObject({ refundsChecked: 1, refundsSettled: 1, refundsFailed: 0, refundsUnresolved: 0 });
   expect(refund).not.toHaveBeenCalled(); // never refunds again: only asks
-  expect(await refundRows()).toMatchObject([{ status: "succeeded", providerRef: gateway.refunds[0].refundRef }]);
+  expect(await refundRows()).toMatchObject([{ status: "succeeded", providerRef: gateway.refunds[0].refundRef, settledAt: minutes(15).getTime() }]);
   const res = await reservation(code);
   expect(res).toMatchObject({ status: "cancelled", refundedAmount: amount, cancelledAt: minutes(2).getTime() });
   expect(channel.records).toMatchObject([{ code, state: "cancelled" }]);

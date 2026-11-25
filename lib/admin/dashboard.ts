@@ -4,7 +4,7 @@ import { formatTwd } from "@/lib/email/templates";
 import { guests, jobRuns, notifications, paymentEvents, payments, reservationRooms, reservations } from "@/lib/db/schema";
 import { CHANNEL_RECONCILE_JOB, type ChannelMismatch } from "@/lib/jobs/reconcile-channel";
 import type { Db } from "@/lib/db/types";
-import { MONEY_KINDS, netDelta } from "./money-metrics";
+import { MONEY_KINDS, moneyMovedAt, netDelta } from "./money-metrics";
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -170,10 +170,10 @@ async function loadKpis(db: Db, propertyId: string, today: ISODate, monthStart: 
   // Taipei is UTC+8 with no DST, so the month's first instant is its first midnight minus 8h.
   const monthStartMs = Date.parse(monthStart) - 8 * 60 * MIN;
 
-  const money = await db.select({ kind: payments.kind, amount: payments.amount, at: payments.createdAt })
+  const money = await db.select({ kind: payments.kind, amount: payments.amount, at: moneyMovedAt })
     .from(payments).innerJoin(reservations, eq(reservations.id, payments.reservationId))
     .where(and(own, eq(reservations.channel, "direct"), eq(payments.status, "succeeded"),
-      inArray(payments.kind, [...MONEY_KINDS]), gte(payments.createdAt, monthStartMs)));
+      inArray(payments.kind, [...MONEY_KINDS]), gte(moneyMovedAt, monthStartMs)));
 
   const stays = await db.select({ id: reservations.id, checkIn: reservations.checkIn, checkOut: reservations.checkOut })
     .from(reservations)

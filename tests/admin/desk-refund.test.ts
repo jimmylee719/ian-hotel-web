@@ -32,7 +32,7 @@ test("a desk payout is a succeeded refund row: desk-due and received go down, th
   expect(r).toMatchObject({ ok: true, frontDeskRefundDue: 2000 });
   if (!r.ok) throw new Error("payout failed");
   const [row] = await s.db.select().from(payments).where(eq(payments.id, r.paymentId));
-  expect(row).toMatchObject({ kind: "refund", method: "cash", amount: 1000, status: "succeeded", refundOf: null, note: "現金退還" });
+  expect(row).toMatchObject({ kind: "refund", method: "cash", amount: 1000, status: "succeeded", refundOf: null, note: "現金退還", settledAt: minutes(30).getTime() });
   expect(await s.row()).toMatchObject({ frontDeskRefundDue: 2000, updatedAt: minutes(30).getTime() });
   expect((await s.row()).updatedAt).not.toBe(before.updatedAt);
   expect(await moneyOf(s.db, s.id)).toEqual({ onlineNet: 0, frontDeskNet: 6000, received: 6000, grossReceived: 10000, refunded: 4000 });

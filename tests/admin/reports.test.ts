@@ -38,10 +38,10 @@ async function setup() {
     for (let i = 0; i < rooms; i++) await db.insert(reservationRooms).values({ id: `${id}-r${i}`, reservationId: id, unitTypeId: ut, ratePlanId, nightlyPrices: [2000] });
   };
   let p = 0;
-  const pay = (reservationId: string, kind: "charge" | "refund" | "front_desk", amount: number, createdAt: number, o: { method?: "sinopac_online" | "edc" | "cash" | "transfer"; status?: "succeeded" | "pending" | "failed" } = {}) =>
+  const pay = (reservationId: string, kind: "charge" | "refund" | "front_desk", amount: number, createdAt: number, o: { method?: "sinopac_online" | "edc" | "cash" | "transfer"; status?: "succeeded" | "pending" | "failed"; settledAt?: number } = {}) =>
     db.insert(payments).values({
       id: `p${++p}`, reservationId, kind, method: o.method ?? (kind === "charge" ? "sinopac_online" : kind === "refund" ? "sinopac_online" : "edc"),
-      amount, status: o.status ?? "succeeded", createdAt,
+      amount, status: o.status ?? "succeeded", createdAt, ...(o.settledAt !== undefined ? { settledAt: o.settledAt } : {}),
     });
   const inv = (ut: string, date: string, available: number) =>
     db.insert(inventoryDaily).values({ propertyId, unitTypeId: ut, date, available, source: "local", syncedAt: 0 });
@@ -87,6 +87,21 @@ describe("revenueReport", () => {
     const r = await revenueReport(db, propertyId, { from: "2026-11-01", to: "2026-11-30", groupBy: "month" });
     expect(r.rows).toEqual([{ period: "2026-11", onlineCharges: 5000, onlineRefunds: 1200, deskPayments: 800, deskRefunds: 300, net: 5000 - 1200 + 800 - 300 }]);
     expect(r.total).toEqual({ onlineCharges: 5000, onlineRefunds: 1200, deskPayments: 800, deskRefunds: 300, net: 4300 });
+  });
+
+  it("counts a refund on the date it succeeded (settledAt), not when it was asked for; the dashboard agrees (M-6)", async () => {
+    const { db, propertyId, res, pay } = await setup();
+    await res("a", "2026-12-10", "2026-12-12");
+    await pay("a", "charge", 5000, at("2026-10-20T04:00:00Z"));
+    // Asked for on 10-30, outcome unknown, settled by reconciliation on 11-02.
+    await pay("a", "refund", 1200, at("2026-10-30T04:00:00Z"), { settledAt: at("2026-11-02T04:00:00Z") });
+    // Asked for in November but settled after the range: not in November.
+    await pay("a", "refund", 300, at("2026-11-20T04:00:00Z"), { settledAt: at("2026-12-01T04:00:00Z") });
+    const r = await revenueReport(db, propertyId, { from: "2026-10-01", to: "2026-12-31", groupBy: "month" });
+    expect(r.rows.map((x) => [x.period, x.onlineRefunds, x.net])).toEqual([["2026-10", 0, 5000], ["2026-11", 1200, -1200], ["2026-12", 300, -300]]);
+    const nov = await revenueReport(db, propertyId, { from: "2026-11-01", to: "2026-11-30", groupBy: "day" });
+    expect(nov.rows.map((x) => [x.period, x.net])).toEqual([["2026-11-02", -1200]]);
+    expect((await getDashboard(db, propertyId, NOW)).kpis.month.revenue).toBe(-1200);
   });
 
   it("ignores other properties, OTA bookings and dates outside the range", async () => {

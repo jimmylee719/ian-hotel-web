@@ -138,7 +138,7 @@ export async function reconcileRefund(
         .where(and(eq(reservations.id, row.reservationId), unchanged))]
       : []),
     db.update(payments)
-      .set(settles ? { status: "succeeded", providerRef, ...(note ? { note } : {}) } : { status: "failed" })
+      .set(settles ? { status: "succeeded", providerRef, settledAt: now.getTime(), ...(note ? { note } : {}) } : { status: "failed" })
       .where(and(eq(payments.id, row.id), eq(payments.status, fromStatus))),
   ];
   try {

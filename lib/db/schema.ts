@@ -250,6 +250,12 @@ export const payments = sqliteTable(
      * reconciliation honours it. Null (every other row, and intents from before this column) means yes.
      */
     notifyGuest: integer("notify_guest", { mode: "boolean" }),
+    /**
+     * For a refund: when it became `succeeded` (epoch ms), which is when the money went back: reports count a
+     * refund on this date (a pending refund settled days later by reconciliation belongs to that later day).
+     * Set by every path that settles a refund; null while it is pending or failed, and for other kinds.
+     */
+    settledAt: integer("settled_at"),
   },
   (t) => [
     uniqueIndex("payments_provider_ref_unique").on(t.providerRef), // NULLs never collide
