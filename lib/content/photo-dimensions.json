@@ -1,0 +1,502 @@
+{
+  "amenities/amenities_109.jpg": {
+    "w": 930,
+    "h": 553
+  },
+  "amenities/amenities_31.jpg": {
+    "w": 960,
+    "h": 501
+  },
+  "amenities/amenities_32.jpg": {
+    "w": 960,
+    "h": 501
+  },
+  "amenities/amenities_33.jpg": {
+    "w": 960,
+    "h": 500
+  },
+  "amenities/amenities_34.jpg": {
+    "w": 960,
+    "h": 501
+  },
+  "amenities/amenities_35.jpg": {
+    "w": 932,
+    "h": 613
+  },
+  "amenities/amenities_36.jpg": {
+    "w": 944,
+    "h": 561
+  },
+  "attractions/attractions_103.jpg": {
+    "w": 1100,
+    "h": 530
+  },
+  "attractions/attractions_104.jpg": {
+    "w": 900,
+    "h": 530
+  },
+  "attractions/attractions_105.jpg": {
+    "w": 1100,
+    "h": 530
+  },
+  "attractions/attractions_106.jpg": {
+    "w": 945,
+    "h": 530
+  },
+  "attractions/attractions_120.png": {
+    "w": 69,
+    "h": 63
+  },
+  "attractions/attractions_19.png": {
+    "w": 55,
+    "h": 48
+  },
+  "attractions/attractions_20.jpg": {
+    "w": 1000,
+    "h": 530
+  },
+  "attractions/attractions_23.png": {
+    "w": 55,
+    "h": 68
+  },
+  "attractions/attractions_24.png": {
+    "w": 55,
+    "h": 66
+  },
+  "attractions/attractions_25.png": {
+    "w": 55,
+    "h": 52
+  },
+  "attractions/attractions_356.jpg": {
+    "w": 686,
+    "h": 345
+  },
+  "attractions/attractions_358.jpg": {
+    "w": 591,
+    "h": 425
+  },
+  "attractions/attractions_360.jpg": {
+    "w": 755,
+    "h": 438
+  },
+  "attractions/attractions_361.jpg": {
+    "w": 640,
+    "h": 430
+  },
+  "attractions/attractions_362.jpg": {
+    "w": 604,
+    "h": 400
+  },
+  "attractions/attractions_83.jpg": {
+    "w": 1100,
+    "h": 530
+  },
+  "location/location_113.jpg": {
+    "w": 490,
+    "h": 230
+  },
+  "location/location_116.jpg": {
+    "w": 490,
+    "h": 230
+  },
+  "location/location_117.jpg": {
+    "w": 490,
+    "h": 230
+  },
+  "location/location_119.jpg": {
+    "w": 490,
+    "h": 230
+  },
+  "location/location_333.jpg": {
+    "w": 490,
+    "h": 230
+  },
+  "location/location_334.jpg": {
+    "w": 490,
+    "h": 230
+  },
+  "meetingpic/meetingpic_261.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_282.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_283.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_284.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_285.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_286.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_287.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_288.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_289.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_290.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_291.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_292.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_294.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_295.jpg": {
+    "w": 960,
+    "h": 460
+  },
+  "meetingpic/meetingpic_296.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_297.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_298.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_299.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_300.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_301.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_302.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "meetingpic/meetingpic_303.jpg": {
+    "w": 980,
+    "h": 460
+  },
+  "news/news_346.jpg": {
+    "w": 900,
+    "h": 495
+  },
+  "news/news_348.jpg": {
+    "w": 539,
+    "h": 445
+  },
+  "news/news_349.jpg": {
+    "w": 640,
+    "h": 480
+  },
+  "news/news_350.jpg": {
+    "w": 400,
+    "h": 397
+  },
+  "news/news_405.jpg": {
+    "w": 716,
+    "h": 495
+  },
+  "review/review_110.jpg": {
+    "w": 820,
+    "h": 390
+  },
+  "review/review_111.jpg": {
+    "w": 820,
+    "h": 390
+  },
+  "review/review_112.jpg": {
+    "w": 820,
+    "h": 390
+  },
+  "review/review_259.jpg": {
+    "w": 820,
+    "h": 390
+  },
+  "review/review_260.jpg": {
+    "w": 820,
+    "h": 390
+  },
+  "review/review_304.jpg": {
+    "w": 820,
+    "h": 390
+  },
+  "review/review_374.jpg": {
+    "w": 820,
+    "h": 390
+  },
+  "review/review_87.jpg": {
+    "w": 820,
+    "h": 390
+  },
+  "rooms/rooms_131.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_137.jpg": {
+    "w": 500,
+    "h": 333
+  },
+  "rooms/rooms_138.jpg": {
+    "w": 500,
+    "h": 221
+  },
+  "rooms/rooms_139.jpg": {
+    "w": 500,
+    "h": 333
+  },
+  "rooms/rooms_143.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_144.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_145.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_146.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_150.jpg": {
+    "w": 500,
+    "h": 213
+  },
+  "rooms/rooms_155.jpg": {
+    "w": 500,
+    "h": 234
+  },
+  "rooms/rooms_156.jpg": {
+    "w": 500,
+    "h": 233
+  },
+  "rooms/rooms_158.jpg": {
+    "w": 500,
+    "h": 333
+  },
+  "rooms/rooms_160.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_161.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_174.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_184.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_185.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_186.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_191.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_192.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_213.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_216.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_230.jpg": {
+    "w": 1100,
+    "h": 440
+  },
+  "rooms/rooms_231.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_233.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_234.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_242.jpg": {
+    "w": 1100,
+    "h": 440
+  },
+  "rooms/rooms_309.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_312.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_313.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_316.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_318.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_325.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_326.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_329.jpg": {
+    "w": 533,
+    "h": 380
+  },
+  "rooms/rooms_330.jpg": {
+    "w": 532,
+    "h": 380
+  },
+  "rooms/rooms_331.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_336.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_380.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_381.jpg": {
+    "w": 1100,
+    "h": 440
+  },
+  "rooms/rooms_385.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_386.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_387.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_388.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_389.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_390.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_391.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_395.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_396.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_398.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_399.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_4.jpg": {
+    "w": 1100,
+    "h": 440
+  },
+  "rooms/rooms_407.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_408.jpg": {
+    "w": 1100,
+    "h": 440
+  },
+  "rooms/rooms_409.jpg": {
+    "w": 703,
+    "h": 915
+  },
+  "rooms/rooms_410.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_411.jpg": {
+    "w": 790,
+    "h": 380
+  },
+  "rooms/rooms_54.jpg": {
+    "w": 1100,
+    "h": 440
+  },
+  "rooms/rooms_67.jpg": {
+    "w": 1100,
+    "h": 440
+  },
+  "rooms/rooms_76.jpg": {
+    "w": 1100,
+    "h": 440
+  },
+  "rooms/rooms_78.jpg": {
+    "w": 790,
+    "h": 380
+  }
+}

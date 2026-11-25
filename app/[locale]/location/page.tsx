@@ -20,7 +20,7 @@ export default async function LocationPage({ params }: Props) {
   const h = await getTranslations({ locale, namespace: "home" });
   const aside = (
     <div className="address-card">
-      <h2>{t("addressTitle")}</h2>
+      <h3>{t("addressTitle")}</h3>
       <address>
         {f("address")}
         <small>{f("nearMrt")}</small>
@@ -30,5 +30,5 @@ export default async function LocationPage({ params }: Props) {
       </a>
     </div>
   );
-  return <ContentPage locale={locale} slug="access" aside={aside} maxPhotos={3} />;
+  return <ContentPage locale={locale} slug="access" aside={aside} />;
 }

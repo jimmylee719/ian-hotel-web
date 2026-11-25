@@ -17,6 +17,12 @@ export type AppEnv = {
   /** Comma-separated: who gets the ops alerts (lib/ops/alerts.ts). Unset = alerts are only logged. */
   OPS_EMAILS?: string;
   BASE_URL?: string;
+  /**
+   * "false" closes new guest bookings (the booking pages show the 建置中 notice and POST /api/bookings answers 503)
+   * even when payments are configured: a public preview of the site. Payment notices, cancels, staff paths and the
+   * reconcile jobs keep working. Unset = open whenever payments are configured.
+   */
+  BOOKING_OPEN?: string;
   /** Cloudflare Access team domain, e.g. "nkhostel.cloudflareaccess.com" (scheme optional). Unset = admin locked. */
   CF_ACCESS_TEAM_DOMAIN?: string;
   /** The Access application's AUD tag. Unset = admin locked. */

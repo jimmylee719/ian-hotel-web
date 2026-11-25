@@ -42,13 +42,13 @@ export default async function LocaleLayout({
           <a className="skip-link" href="#main">
             {t("skipToContent")}
           </a>
-          <div className="wrap">
-            <Header />
-          </div>
+          <Header />
           {children}
           <BookingDock />
-          <div className="wrap">
-            <Footer locale={locale} />
+          <div className="foot-band band-ink">
+            <div className="wrap">
+              <Footer locale={locale} />
+            </div>
           </div>
         </NextIntlClientProvider>
       </body>

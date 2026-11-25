@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import { getFormatter, getTranslations, setRequestLocale } from "next-intl/server";
 import { loadNewsList } from "@/components/site/data";
 import { PageHead } from "@/components/site/PageHead";
-import { Photo } from "@/components/site/Photo";
+import { Frame } from "@/components/site/sections/Frame";
 import { Link } from "@/i18n/navigation";
+import { NEWS_THUMB } from "@/lib/content/sections";
 import type { Locale } from "@/lib/db/schema";
+import { pickFitting } from "@/lib/design/photo-fit";
 import { buildMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -23,28 +25,41 @@ export default async function NewsPage({ params }: Props) {
   const [t, format, items] = await Promise.all([getTranslations({ locale, namespace: "news" }), getFormatter({ locale }), loadNewsList(locale)]);
 
   return (
-    <main id="main" className="wrap">
+    <main id="main" className="wrap content-page">
       <PageHead title={t("title")} />
       {items.length === 0 ? (
         <p>{t("empty")}</p>
       ) : (
         <ol className="news-list">
-          {items.map((n) => (
-            <li key={n.slug}>
-              <article>
-                {n.images[0] && <Photo src={n.images[0]} alt="" width={600} height={400} />}
-                <div>
-                  {n.publishedAt && (
-                    <time dateTime={new Date(n.publishedAt).toISOString().slice(0, 10)}>{format.dateTime(n.publishedAt, { dateStyle: "long" })}</time>
+          {items.map((n, i) => {
+            const thumb = pickFitting(n.images, NEWS_THUMB);
+            return (
+              <li key={n.slug}>
+                <article className={thumb ? undefined : "no-photo"}>
+                  {thumb && (
+                    <Frame
+                      className="news-thumb"
+                      src={thumb}
+                      alt=""
+                      slotWidth={NEWS_THUMB.w}
+                      cap={NEWS_THUMB.h}
+                      sizes="(max-width: 700px) calc(100vw - 40px), 280px"
+                      priority={i === 0}
+                    />
                   )}
-                  <h2>
-                    <Link href={`/news/${n.slug}`}>{n.title}</Link>
-                  </h2>
-                  <p>{n.body.split("\n").find((l) => l.trim() && !l.startsWith("## "))}</p>
-                </div>
-              </article>
-            </li>
-          ))}
+                  <div>
+                    {n.publishedAt && (
+                      <time dateTime={new Date(n.publishedAt).toISOString().slice(0, 10)}>{format.dateTime(n.publishedAt, { dateStyle: "long" })}</time>
+                    )}
+                    <h2>
+                      <Link href={`/news/${n.slug}`}>{n.title}</Link>
+                    </h2>
+                    <p>{n.body.split("\n").find((l) => l.trim() && !l.startsWith("## "))}</p>
+                  </div>
+                </article>
+              </li>
+            );
+          })}
         </ol>
       )}
     </main>

@@ -33,7 +33,7 @@ export default async function DetailsPage({ params, searchParams }: Props) {
   if (!(await bookingEnabled())) {
     return (
       <main id="main" className="wrap book-page">
-        <PageHead title={t("title")} />
+        <PageHead title={t("title")} theme="paper" />
         <BookingDisabledNotice locale={locale} />
       </main>
     );
@@ -52,7 +52,7 @@ export default async function DetailsPage({ params, searchParams }: Props) {
   if (!priced?.ok) {
     return (
       <main id="main" className="wrap book-page">
-        <PageHead title={t("title")} />
+        <PageHead title={t("title")} theme="paper" />
         <div className="book-message" role="alert">
           <p>{t("gone")}</p>
           <Link className="text-link" href={{ pathname: "/book", query: backQuery }}>
@@ -67,7 +67,7 @@ export default async function DetailsPage({ params, searchParams }: Props) {
 
   return (
     <main id="main" className="wrap book-page">
-      <PageHead title={t("title")}>
+      <PageHead title={t("title")} theme="paper">
         <Link className="crumb-back" href={{ pathname: "/book", query: backQuery }}>
           {t("back")}
         </Link>

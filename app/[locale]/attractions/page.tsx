@@ -12,5 +12,5 @@ export async function generateMetadata({ params }: Props) {
 
 export default async function AttractionsPage({ params }: Props) {
   const { locale } = await params;
-  return <ContentPage locale={locale} slug="attractions" maxPhotos={5} />;
+  return <ContentPage locale={locale} slug="attractions" />;
 }

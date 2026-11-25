@@ -51,10 +51,6 @@ html:lang(ko) body {
 .crumbs a::before {
   content: "← ";
 }
-.crumbs + .page-head,
-.crumbs + article .page-head {
-  padding-top: var(--space-4);
-}
 
 /* ---------- running text ---------- */
 .prose {
@@ -96,28 +92,6 @@ html:lang(ko) body {
 .prose ul ul {
   margin: 6px 0 0;
 }
-.content-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: var(--space-8);
-  align-items: start;
-}
-.content-plain .prose {
-  max-width: 40em;
-}
-.content-aside {
-  display: grid;
-  gap: var(--space-5);
-}
-.content-aside figure {
-  margin: 0;
-}
-.content-aside img {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 8 / 5;
-  object-fit: cover;
-}
 figcaption {
   font-size: 14px;
   color: var(--color-muted-text);
@@ -130,7 +104,7 @@ figcaption {
   padding-top: var(--space-3);
   font-family: var(--font-cjk);
 }
-.address-card h2 {
+.address-card h3 {
   font-weight: 500;
   font-size: 15px;
   letter-spacing: 0.1em;
@@ -199,76 +173,6 @@ figcaption {
   max-width: 38em;
   margin: 0 0 var(--space-5);
 }
-.room-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-8) var(--space-6);
-}
-.room-card {
-  display: flex;
-  flex-direction: column;
-}
-.room-card img {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-}
-.room-card h2,
-.room-card h3 {
-  font-family: var(--font-cjk);
-  font-weight: 600;
-  font-size: 21px;
-  letter-spacing: 0.1em;
-  margin: 22px 0 0;
-  line-height: 1.5;
-}
-.room-card h2 a,
-.room-card h3 a {
-  text-decoration: none;
-}
-.room-card h2 a:hover,
-.room-card h3 a:hover {
-  color: var(--color-accent);
-}
-.room-card .en {
-  font-style: italic;
-  color: var(--color-muted-text);
-  font-size: 16px;
-}
-.room-card p {
-  font-family: var(--font-cjk);
-  font-size: 15px;
-  line-height: 1.9;
-  margin: 12px 0 0;
-}
-.room-card p:not(.room-facts) {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  overflow: hidden;
-}
-.room-card .room-facts {
-  color: var(--color-muted-text);
-  font-size: 14px;
-  margin: 8px 0 20px;
-}
-.room-card .room-facts span + span {
-  border-left: 1px solid var(--color-line);
-  margin-left: 0.6em;
-  padding-left: 0.6em;
-}
-.room-card .meta {
-  margin-top: auto;
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding-top: 20px;
-  border-top: 1px solid var(--color-line);
-  font-size: 15px;
-}
 .price {
   font-size: 20px;
 }
@@ -277,95 +181,7 @@ figcaption {
   font-size: 13px;
   color: var(--color-muted-text);
 }
-.room-card .book {
-  font-family: var(--font-cjk);
-  color: var(--color-accent);
-  font-size: 15px;
-  letter-spacing: 0.1em;
-  text-decoration: none;
-}
-.room-card .book:hover {
-  color: var(--color-accent-hover);
-}
 
-/* ---------- home ---------- */
-.story {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--space-8);
-  align-items: center;
-}
-.story h2 {
-  font-family: var(--font-cjk);
-  font-weight: 500;
-  font-size: 30px;
-  letter-spacing: 0.16em;
-  margin: 0 0 var(--space-4);
-}
-.story-text p {
-  font-family: var(--font-cjk);
-  font-size: 16px;
-  max-width: 30em;
-  margin: 0 0 var(--space-3);
-}
-.story-text .story-lead {
-  font-size: 22px;
-  line-height: 1.6;
-  letter-spacing: 0.06em;
-  margin-bottom: var(--space-4);
-}
-.story img {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-}
-.photo-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-6);
-}
-.photo-row figure {
-  margin: 0;
-}
-.photo-row img {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-}
-.home-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--space-8);
-}
-.score-list {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-.score-list div {
-  border-top: 1px solid var(--color-ink);
-  padding-top: var(--space-2);
-}
-.score-list dt {
-  font-size: 15px;
-  color: var(--color-muted-text);
-}
-.score-list dd {
-  margin: 0;
-}
-.score-list strong {
-  font-weight: 400;
-  font-size: 40px;
-  line-height: 1.2;
-}
-.score-list small {
-  font-size: 15px;
-  color: var(--color-muted-text);
-}
 .home-address {
   font-style: normal;
   font-family: var(--font-cjk);
@@ -377,159 +193,11 @@ figcaption {
   gap: var(--space-4);
 }
 
-/* ---------- room page ---------- */
-.room-head {
-  margin-bottom: var(--space-5);
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-.gallery ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-2);
-}
-.gallery li:first-child {
-  grid-column: 1 / -1;
-}
-.gallery li button {
-  display: block;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: zoom-in;
-}
-.gallery img {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-}
-.gallery li:first-child img {
-  aspect-ratio: 25 / 12;
-}
-.lightbox {
-  margin: auto;
-  width: min(1100px, 100vw - 32px);
-  max-width: none;
-  max-height: calc(100vh - 32px);
-  padding: var(--space-3);
-  border: 1px solid var(--color-ink);
-  background: var(--color-paper);
-  color: var(--color-ink);
-}
-.lightbox::backdrop {
-  background: rgb(43 36 31 / 0.85);
-}
-.lightbox figure {
-  margin: 0;
-}
-.lightbox img {
-  display: block;
-  width: 100%;
-  max-height: calc(100vh - 160px);
-  object-fit: contain;
-  border-radius: var(--radius);
-}
-.lightbox-controls {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-.lightbox-controls button {
-  min-width: 44px;
-  min-height: 44px;
-  border: 1px solid var(--color-ink);
-  background: none;
-  font: inherit;
-  font-size: 18px;
-  cursor: pointer;
-}
-.lightbox-controls .lightbox-close {
-  margin-left: auto;
-  padding: 0 var(--space-4);
-  font-family: var(--font-cjk);
-  font-size: 15px;
-  letter-spacing: 0.1em;
-}
-.lightbox-controls button:hover {
-  color: var(--color-accent);
-  border-color: var(--color-accent);
-}
-.room-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: var(--space-8);
-  align-items: start;
-  margin-top: var(--space-7);
-}
-.room-body > section > h2,
-.amenities h2 {
-  font-family: var(--font-cjk);
-  font-weight: 500;
-  font-size: 22px;
-  letter-spacing: 0.14em;
-  margin: 0 0 var(--space-4);
-}
-.room-spec {
-  position: sticky;
-  top: var(--space-4);
-  border-top: 1px solid var(--color-ink);
-  background: var(--color-surface);
-  padding: var(--space-4);
-}
-.room-spec dl {
-  margin: 0 0 var(--space-4);
-}
-.room-spec dl div {
-  display: grid;
-  grid-template-columns: 7.5em 1fr;
-  gap: var(--space-2);
-  padding: 10px 0;
-  border-bottom: 1px solid var(--color-line);
-  font-family: var(--font-cjk);
-  font-size: 15px;
-}
-.room-spec dt {
-  color: var(--color-muted-text);
-}
-.room-spec dd {
-  margin: 0;
-}
 .cta-block {
   display: block;
   text-align: center;
   text-decoration: none;
   padding: 16px;
-}
-.spec-note {
-  font-size: 13px;
-  color: var(--color-muted-text);
-  font-family: var(--font-cjk);
-  margin: 10px 0 0;
-}
-.amenities {
-  margin-top: var(--space-8);
-  padding-top: var(--space-6);
-  border-top: 1px solid var(--color-ink);
-}
-.amenities ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0 var(--space-5);
-  font-family: var(--font-cjk);
-  font-size: 15px;
-}
-.amenities li {
-  padding: 10px 0;
-  border-bottom: 1px solid var(--color-line);
 }
 
 /* ---------- news ---------- */
@@ -547,12 +215,6 @@ figcaption {
 }
 .news-list li:first-child article {
   padding-top: 0;
-}
-.news-list img {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 3 / 2;
-  object-fit: cover;
 }
 .news-list h2 {
   font-family: var(--font-cjk);
@@ -572,14 +234,6 @@ figcaption {
   font-family: var(--font-cjk);
   font-size: 15px;
   margin: 0;
-}
-.news-photo {
-  margin: 0 0 var(--space-6);
-  max-width: 900px;
-}
-.news-photo img {
-  width: 100%;
-  height: auto;
 }
 
 /* ---------- FAQ ---------- */
@@ -654,10 +308,6 @@ figcaption {
   font-weight: 400;
   font-size: 22px;
   margin: 0;
-}
-.award-score {
-  font-size: 18px;
-  margin: 2px 0 0;
 }
 .award-name {
   font-family: var(--font-cjk);
@@ -763,14 +413,21 @@ figcaption {
 }
 
 /* ---------- booking dock: fixed to the bottom of the viewport ---------- */
+/* Restyled to match the home page's floating bar (spec §5.2): the bar itself is a paper card with the one shadow;
+   the dock around it is transparent and lets clicks through to the page. */
 .booking-dock {
   position: sticky;
   bottom: 0;
   z-index: 20;
   margin-top: var(--space-8);
-  background: var(--color-paper);
-  border-top: 1px solid var(--color-ink);
+  pointer-events: none;
   transition: transform 0.2s var(--ease), visibility 0.2s;
+}
+.booking-dock .wrap {
+  padding-bottom: var(--space-2);
+}
+.booking-dock .wrap > * {
+  pointer-events: auto;
 }
 .booking-dock[data-hidden="true"] {
   transform: translateY(100%);
@@ -784,6 +441,11 @@ body:not(:has(#inline-booking)) .booking-dock[data-hidden="true"] {
   margin-top: 0;
   border-top: 0;
   border-bottom: 0;
+  background: var(--color-paper);
+  box-shadow: var(--shadow-float);
+}
+.booking-dock .field-in {
+  padding-left: 24px;
 }
 .booking-dock .field {
   padding-top: 10px;
@@ -801,7 +463,7 @@ body:not(:has(#inline-booking)) .booking-dock[data-hidden="true"] {
   display: none;
 }
 /* The page footer follows the dock; keep the two apart. */
-.booking-dock + .wrap .site-foot {
+.booking-dock + .foot-band {
   margin-top: var(--space-7);
 }
 main + .booking-dock {
@@ -810,31 +472,8 @@ main + .booking-dock {
 
 /* ---------- breakpoints ---------- */
 @media (max-width: 1100px) {
-  .room-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .room-body {
-    grid-template-columns: minmax(0, 1fr) 300px;
-    gap: var(--space-6);
-  }
-  .amenities ul {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
   .award-list {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 900px) {
-  .content-layout,
-  .story,
-  .home-split,
-  .room-body {
-    grid-template-columns: 1fr;
-    gap: var(--space-6);
-  }
-  .room-spec {
-    position: static;
   }
 }
 
@@ -853,34 +492,8 @@ main + .booking-dock {
   .section-head {
     flex-wrap: wrap;
   }
-  .section-head h2,
-  .story h2 {
+  .section-head h2 {
     font-size: 24px;
-  }
-  .room-grid {
-    grid-template-columns: 1fr;
-    gap: var(--space-7);
-  }
-  .photo-row {
-    grid-template-columns: 1fr;
-    gap: var(--space-4);
-  }
-  .score-list strong {
-    font-size: 32px;
-  }
-  .gallery ul {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--space-1);
-  }
-  .gallery li:nth-child(n + 7) {
-    display: none;
-  }
-  .gallery li:first-child img {
-    aspect-ratio: 4 / 3;
-  }
-  .amenities ul {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0 var(--space-3);
   }
   .news-list article {
     grid-template-columns: 1fr;
@@ -916,6 +529,12 @@ main + .booking-dock {
   }
   .dock-sheet {
     display: none;
+  }
+  .booking-dock .booking {
+    box-shadow: none;
+  }
+  .booking-dock .field-in {
+    padding-left: 0;
   }
   .booking-dock[data-open="true"] .dock-sheet {
     display: block;
@@ -958,5 +577,1050 @@ main + .booking-dock {
 @media (prefers-reduced-motion: reduce) {
   .booking-dock {
     transition: none;
+  }
+}
+
+/* ==========================================================================
+   Shared section pieces (2026-11-25 redesign, spec §5.2): components/site/sections/*, PageHead.
+   ========================================================================== */
+
+/* ---------- band: full-bleed even inside main.wrap ---------- */
+/* The background bleeds sideways with a border-image outset: that is ink overflow, so it never widens the page or
+   adds a scrollbar, and unlike 100vw it does not depend on the scrollbar width. Nothing is clipped, so children may
+   overlap the band's top/bottom edge. Inside a .wrap the band's own .wrap adds no second gutter. */
+.band {
+  border-image: conic-gradient(var(--band-bg) 0 0) fill 0 / / 0 100vmax;
+}
+.band.band-ink {
+  --band-bg: var(--color-ink);
+}
+.band.band-paper {
+  --band-bg: var(--color-paper);
+}
+.wrap .band > .wrap {
+  max-width: none;
+  padding-inline: 0;
+}
+
+/* ---------- small-caps English labels ---------- */
+.chapter-en,
+.page-en,
+.ratings-platform {
+  font-family: var(--font-en-stack);
+  font-size: 12px;
+  line-height: 1.6;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--color-muted-text);
+  margin: 0;
+}
+.band-ink .chapter-en,
+.band-ink .page-en,
+.band-ink .ratings-platform {
+  color: var(--color-on-ink-faint);
+}
+
+/* ---------- page head: ink (default) and compact paper ---------- */
+.page-head-ink {
+  margin-bottom: var(--space-7);
+}
+.page-head-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: var(--space-6);
+  row-gap: var(--space-4);
+  align-items: center;
+  padding-top: var(--space-6);
+  padding-bottom: var(--space-7);
+}
+.page-head-ink.has-photo .page-head-inner {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 560px);
+}
+.page-head-ink h1 {
+  font-family: var(--font-cjk);
+  font-weight: 500;
+  font-size: 30px;
+  line-height: 1.4;
+  letter-spacing: 0.16em;
+  margin: 0;
+}
+.page-head-ink .page-en {
+  margin-top: var(--space-1);
+}
+.page-head-ink .page-sub {
+  color: var(--color-gold);
+}
+.page-head-ink .page-lead {
+  color: var(--color-on-ink-muted);
+}
+.page-head-photo {
+  width: 100%;
+  max-width: min(560px, var(--frame-max-w, 560px));
+  margin-inline: 0; /* aligned to its column edge (justify-self), not centred */
+  justify-self: end;
+}
+.page-head-paper {
+  padding-top: var(--space-6);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.page-head-paper h1 {
+  font-size: 28px;
+}
+
+/* ---------- chapter ---------- */
+.chapter {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--space-6);
+  padding: 72px 0;
+}
+.chapter + .chapter {
+  border-top: 1px solid var(--color-line);
+}
+.chapter-num {
+  display: block;
+  font-family: var(--font-en-stack);
+  font-weight: 400;
+  font-size: 52px;
+  line-height: 1;
+  color: var(--color-accent);
+}
+.band-ink .chapter-num {
+  color: var(--color-gold);
+}
+.chapter-title {
+  font-family: var(--font-cjk);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.2em;
+  margin: var(--space-2) 0 4px;
+}
+.chapter-title:first-child {
+  margin-top: 0;
+}
+
+/* ---------- photo frames (cover-fit; height from the sharpness rule, see components/site/sections/Frame.tsx) ---------- */
+.frame {
+  /* --frame-max-w = source width / 1.5 (1.4 for the arch): a frame never displays wider than its source allows;
+     a narrower frame sits centred in its slot. */
+  width: 100%;
+  max-width: var(--frame-max-w, 100%);
+  margin-inline: auto;
+  height: var(--frame-h, 240px);
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+.band-ink .frame {
+  background: var(--color-ink-surface);
+}
+.frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.arch-photo {
+  width: 440px;
+  max-width: min(100%, var(--frame-max-w, 100%));
+  height: var(--frame-h, 340px);
+  /* Oversized radii are scaled down proportionally, so the top stays a half-circle of the frame's width. */
+  border-radius: 999px 999px 4px 4px;
+}
+.photo-cap {
+  font-family: var(--font-cjk);
+  font-size: 14px;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+  margin-top: 10px;
+}
+.photo-cap small {
+  display: block;
+  font-family: var(--font-en-stack);
+  font-style: italic;
+  font-size: 13px;
+  letter-spacing: 0;
+  color: var(--color-muted-text);
+}
+
+/* grid3: row 1 = wide lead (2 columns) + item; row 2 = item + text (2 columns). Capped at the chapter body width
+   (904px) so the slot widths assumed by PhotoGrid3 hold. */
+.photo-grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5) 20px;
+  align-items: start;
+  max-width: 904px;
+}
+.grid3-lead {
+  grid-column: span 2;
+  height: var(--frame-h, 290px);
+}
+.grid3-item {
+  margin: 0;
+}
+.grid3-photo {
+  height: var(--frame-h, 210px);
+}
+.grid3-text {
+  grid-column: span 2;
+}
+
+/* split: large photo | small photo over text, bottoms aligned. */
+.photo-split {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 28px;
+  align-items: end;
+  max-width: 904px;
+}
+.split-large {
+  height: var(--frame-h, 330px);
+}
+.split-small {
+  height: var(--frame-h, 240px);
+}
+.split-small + .split-text {
+  margin-top: 20px;
+}
+
+/* ---------- ratings strip ---------- */
+.ratings {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-7) 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-4);
+  text-align: center;
+}
+.ratings-score {
+  display: block;
+  font-family: var(--font-en-stack);
+  font-size: 56px;
+  line-height: 1;
+  color: var(--color-accent);
+}
+.band-ink .ratings-score {
+  color: var(--color-gold);
+}
+.ratings-score small {
+  font-size: 18px;
+  color: var(--color-muted-text);
+}
+.ratings-platform {
+  display: block;
+  margin-top: var(--space-2);
+}
+
+/* ---------- reveal: fade-up once on first scroll into view (components/site/sections/Reveal.tsx) ---------- */
+/* Arming hides instantly (the element is off screen); only the reveal itself animates. */
+.reveal.is-armed {
+  opacity: 0;
+  transform: translateY(16px);
+}
+.reveal.is-armed.is-visible {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 600ms var(--ease),
+    transform 600ms var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal.is-armed {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .page-head-ink.has-photo .page-head-inner {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .page-head-photo {
+    justify-self: start;
+  }
+  .chapter {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+    padding: var(--space-7) 0;
+  }
+  .chapter-rail {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: var(--space-3);
+  }
+  .chapter-num {
+    font-size: 40px;
+  }
+  .chapter-title {
+    margin: 0;
+  }
+  .chapter-en {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 700px) {
+  .page-head-ink h1 {
+    font-size: 24px;
+    letter-spacing: 0.12em;
+  }
+  .page-head-inner {
+    padding-top: var(--space-5);
+    padding-bottom: var(--space-6);
+  }
+  .page-head-paper h1 {
+    font-size: 24px;
+  }
+  .arch-photo {
+    width: 100%;
+    height: min(var(--frame-h, 340px), 300px);
+  }
+  /* Stacked: one column, frames no wider than 640px (a 960px source at 1.5x) and no taller than ~62% of their width. */
+  .photo-grid3,
+  .photo-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .grid3-lead,
+  .grid3-text {
+    grid-column: auto;
+  }
+  .photo-grid3 .frame,
+  .photo-split .frame {
+    max-width: min(640px, var(--frame-max-w, 640px));
+    height: min(var(--frame-h, 240px), 62vw);
+  }
+  .page-head-photo {
+    height: min(var(--frame-h, 330px), 62vw);
+  }
+  .ratings {
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    gap: var(--space-3);
+    padding: var(--space-6) 0;
+  }
+  .ratings-score {
+    font-size: 42px;
+  }
+  .ratings-platform {
+    letter-spacing: 0.16em;
+  }
+}
+
+/* ==========================================================================
+   Home (spec §5.3): ink hero → floating booking bar → paper statement → chapters 01–03 → ratings → footer.
+   ========================================================================== */
+
+/* Every home section is a band, so the canvas behind them can be ink: the ratings strip, the dock's slot and the
+   footer then read as one dark block with no paper gap. */
+body:has(> main.home) {
+  background: var(--color-ink);
+}
+main.home + .booking-dock {
+  margin-top: 0;
+}
+main.home ~ .foot-band {
+  margin-top: 0;
+}
+
+/* ---------- hero: copy | arch | vertical tagline ---------- */
+.home-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 440px minmax(0, 1fr);
+  grid-template-areas: "copy arch title";
+  gap: 44px;
+  align-items: center;
+  /* The bottom padding leaves room for the upper half of the floating booking bar. */
+  padding: var(--space-5) 0 calc(var(--space-7) + 48px);
+}
+.home-hero .tagline {
+  grid-area: title;
+  font-size: 38px;
+  letter-spacing: 0.24em;
+  height: 470px;
+  color: var(--color-on-ink);
+}
+.home-hero .tagline span + span {
+  padding-top: 1.2em;
+}
+.home-hero .arch-photo {
+  grid-area: arch;
+}
+.home-hero-copy {
+  grid-area: copy;
+  font-family: var(--font-cjk);
+  font-size: 15px;
+  line-height: 2.1;
+  color: var(--color-on-ink-muted);
+}
+.home-hero-copy p {
+  margin: 0;
+  max-width: 22em;
+}
+.home-hero-copy .home-hero-en {
+  font-family: var(--font-en-stack);
+  font-style: italic;
+  font-size: 26px;
+  line-height: 1.35;
+  color: var(--color-gold);
+  margin-bottom: var(--space-3);
+}
+
+/* ---------- floating booking bar: paper card overlapping the ink/paper edge by half its height ---------- */
+.home-booking {
+  position: relative;
+  z-index: 3;
+  transform: translateY(-50%);
+}
+.home-booking .booking {
+  margin-top: 0;
+  border: 0;
+  background: var(--color-paper);
+  box-shadow: var(--shadow-float);
+}
+.home-booking .field-in {
+  padding-left: 24px;
+}
+
+/* ---------- intro statement ---------- */
+.home-statement {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--space-6);
+  padding: var(--space-4) 0 var(--space-8);
+  border-bottom: 1px solid var(--color-line);
+}
+.home-statement .chapter-title {
+  margin: 12px 0 0;
+}
+.home-statement-text {
+  font-size: 24px;
+  line-height: 1.9;
+  letter-spacing: 0.06em;
+  max-width: 24em;
+  margin: 0;
+}
+html:lang(en) .home-statement-text {
+  letter-spacing: 0;
+}
+
+/* ---------- chapters ---------- */
+.chapter-body-text {
+  font-size: 16px;
+  line-height: 2;
+  color: var(--color-muted-text);
+  margin: 0;
+}
+.chapter-body-text + .text-link,
+.chapter-body-text + .link-row {
+  margin-top: var(--space-2);
+}
+.grid3-text .text-link {
+  margin-top: 0;
+}
+.home .home-address {
+  font-size: 17px;
+  line-height: 1.8;
+  margin-bottom: var(--space-3);
+}
+
+/* ---------- ratings ---------- */
+.home-ratings-band .ratings {
+  padding-bottom: var(--space-4);
+}
+.home-ratings-more {
+  margin: 0;
+  padding-bottom: var(--space-7);
+  text-align: center;
+}
+
+@media (max-width: 1100px) {
+  .home-hero {
+    gap: var(--space-5);
+  }
+  .home-hero .tagline {
+    font-size: 32px;
+    height: 400px;
+  }
+}
+
+/* Stacked: tagline (horizontal) above the arch, copy below it. */
+@media (max-width: 900px) {
+  .home-hero {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "title" "arch" "copy";
+    gap: var(--space-4);
+    padding-top: var(--space-3);
+  }
+  .home-hero .tagline {
+    writing-mode: horizontal-tb;
+    height: auto;
+    justify-self: start;
+    font-size: 28px;
+    letter-spacing: 0.16em;
+    line-height: 1.5;
+  }
+  .home-hero .tagline span + span {
+    margin: 0;
+    padding: 0;
+  }
+  .home-hero-copy p {
+    max-width: 34em;
+  }
+  .home-statement {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+  .home-statement .chapter-title {
+    margin: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  /* The stacked bar is tall and its height varies by locale, so it overlaps the hero by a fixed amount instead of
+     half its height. */
+  .home-hero {
+    padding-bottom: calc(var(--space-6) + 72px);
+  }
+  .home-booking {
+    transform: translateY(-72px);
+  }
+  .home-hero .tagline {
+    font-size: 24px;
+    letter-spacing: 0.12em;
+  }
+  .home-hero-copy .home-hero-en {
+    font-size: 21px;
+  }
+  .home-booking .booking {
+    margin-top: 0;
+  }
+  .home-booking .field-in,
+  .home-booking .field-guests {
+    padding-left: 14px;
+  }
+  .home-statement {
+    padding-bottom: var(--space-7);
+  }
+  .home-statement-text {
+    font-size: 20px;
+    line-height: 1.85;
+  }
+}
+
+/* ---------- rooms list: editorial rows (components/site/RoomCard.tsx) ---------- */
+/* Photo | text, the photo side alternating (.is-flipped). The photo frame is 520px wide at most and its height comes
+   from the sharpness rule (Frame); a row with no photo is text only. */
+.room-rows {
+  display: grid;
+}
+.room-row {
+  display: grid;
+  grid-template-columns: minmax(0, 520px) minmax(0, 1fr);
+  grid-template-areas: "media text";
+  gap: var(--space-7);
+  align-items: center;
+  padding: var(--space-7) 0;
+}
+.room-row:first-child {
+  padding-top: 0;
+}
+.room-row + .room-row {
+  border-top: 1px solid var(--color-line);
+}
+.room-row.is-flipped {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
+  grid-template-areas: "text media";
+}
+.room-row.no-photo {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "text";
+}
+.room-row-media {
+  grid-area: media;
+  display: block;
+}
+.room-row-text {
+  grid-area: text;
+  max-width: 34em;
+}
+.room-row-name {
+  font-family: var(--font-cjk);
+  font-weight: 500;
+  font-size: 24px;
+  line-height: 1.5;
+  letter-spacing: 0.14em;
+  margin: 0;
+}
+.room-row-name a {
+  text-decoration: none;
+}
+.room-row-name a:hover {
+  color: var(--color-accent);
+}
+.room-row-en {
+  font-family: var(--font-en-stack);
+  font-style: italic;
+  font-size: 16px;
+  color: var(--color-muted-text);
+  margin: 2px 0 0;
+}
+.room-row-summary {
+  font-family: var(--font-cjk);
+  font-size: 15px;
+  line-height: 1.95;
+  margin: var(--space-3) 0 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+}
+.room-facts {
+  font-family: var(--font-cjk);
+  color: var(--color-muted-text);
+  font-size: 14px;
+  line-height: 1.8;
+  margin: var(--space-2) 0 0;
+}
+.room-facts span + span {
+  border-left: 1px solid var(--color-line);
+  margin-left: 0.6em;
+  padding-left: 0.6em;
+}
+.room-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-line);
+}
+.room-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-left: auto;
+}
+.room-row-actions .text-link {
+  margin-top: 0;
+}
+.room-row-book,
+.room-cta .cta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  text-decoration: none;
+}
+.room-row-book {
+  font-size: 15px;
+  letter-spacing: 0.16em;
+  padding: 0 var(--space-5);
+}
+
+/* ---------- room page ---------- */
+.page-back {
+  margin-top: var(--space-3);
+  font-family: var(--font-cjk);
+  font-size: 15px;
+}
+.page-back a {
+  text-decoration: none;
+}
+.page-back a::before {
+  content: "← ";
+}
+.room-page .page-head-ink {
+  margin-bottom: 0;
+}
+.room-about {
+  font-family: var(--font-cjk);
+  font-size: 15px;
+  line-height: 1.95;
+}
+.room-about > :first-child {
+  margin-top: 0;
+}
+.room-about h3 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  margin: var(--space-4) 0 var(--space-1);
+}
+/* The room's other photos: three 288px item frames per row, under the grid3 / split (same 904px cap). */
+.room-gallery-more {
+  list-style: none;
+  margin: var(--space-5) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5) 20px;
+  max-width: 904px;
+}
+.room-gallery-photo {
+  height: var(--frame-h, 210px);
+}
+/* A gallery photo is a button opening the full-size viewer (components/site/PhotoViewer.tsx). */
+.frame-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+/* The frame clips its content (overflow: hidden), so the global 3px-outside focus ring would be cut off: draw it
+   inside the button as a fallback, and on the frame itself where :has() is supported (accent on paper, gold on ink). */
+.frame-open:focus-visible {
+  outline-offset: -4px;
+}
+@supports selector(:has(*)) {
+  .frame-open:focus-visible {
+    outline: none;
+  }
+  .frame:has(> .frame-open:focus-visible) {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+  }
+  .band-ink .frame:has(> .frame-open:focus-visible) {
+    outline-color: var(--color-gold);
+  }
+}
+/* Full-size viewer: a <dialog> showing the photo at its source size (up to 1100px). */
+.lightbox {
+  margin: auto;
+  width: min(1100px, 100vw - 32px);
+  max-width: none;
+  max-height: calc(100vh - 32px);
+  padding: var(--space-3);
+  border: 1px solid var(--color-ink);
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+.lightbox::backdrop {
+  background: rgb(43 36 31 / 0.85);
+}
+.lightbox figure {
+  margin: 0;
+}
+.lightbox img {
+  display: block;
+  /* At its source size at most (never upscaled), shrunk to fit the dialog. */
+  width: auto;
+  max-width: 100%;
+  margin-inline: auto;
+  max-height: calc(100vh - 160px);
+  object-fit: contain;
+  border-radius: var(--radius);
+}
+.lightbox-controls {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.lightbox-controls button {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--color-ink);
+  background: none;
+  font: inherit;
+  font-size: 18px;
+  cursor: pointer;
+}
+.lightbox-controls .lightbox-close {
+  margin-left: auto;
+  padding: 0 var(--space-4);
+  font-family: var(--font-cjk);
+  font-size: 15px;
+  letter-spacing: 0.1em;
+}
+.lightbox-controls button:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.room-spec {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+  max-width: 904px;
+}
+.room-spec dl {
+  margin: 0;
+  border-top: 1px solid var(--color-ink);
+}
+.room-spec dl div {
+  display: grid;
+  grid-template-columns: 7.5em minmax(0, 1fr);
+  gap: var(--space-2);
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-line);
+  font-family: var(--font-cjk);
+  font-size: 15px;
+}
+.room-spec dt {
+  color: var(--color-muted-text);
+}
+.room-spec dd {
+  margin: 0;
+}
+.room-amenities {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-ink);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--space-4);
+  font-family: var(--font-cjk);
+  font-size: 15px;
+}
+.room-amenities li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-line);
+}
+/* Booking call to action on ink: the "from" price and note | the button to /book?room=<slug>. */
+.room-cta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4) var(--space-6);
+  padding: var(--space-8) 0;
+}
+.room-cta p {
+  margin: 0;
+}
+.room-cta-price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+.room-cta-label {
+  font-family: var(--font-cjk);
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  color: var(--color-on-ink-muted);
+}
+.room-cta .price {
+  font-size: 32px;
+  color: var(--color-gold);
+}
+.room-cta .price small,
+.room-cta-note {
+  color: var(--color-on-ink-muted);
+}
+.room-cta-note {
+  font-family: var(--font-cjk);
+  font-size: 14px;
+  margin-top: var(--space-1);
+}
+.room-others {
+  padding-top: var(--space-8);
+}
+
+@media (max-width: 900px) {
+  .room-row,
+  .room-row.is-flipped {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "media" "text";
+    gap: var(--space-4);
+    padding: var(--space-6) 0;
+  }
+  .room-row:first-child {
+    padding-top: 0;
+  }
+  .room-row-media .frame {
+    max-width: min(640px, var(--frame-max-w, 640px));
+    margin-inline: 0;
+    height: min(var(--frame-h, 290px), 62vw);
+  }
+  .room-row-text {
+    max-width: none;
+  }
+  .room-spec {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .room-row-name {
+    font-size: 21px;
+    letter-spacing: 0.1em;
+  }
+  .room-row-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+  .room-gallery-more {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .room-gallery-more .frame {
+    max-width: min(640px, var(--frame-max-w, 640px));
+    height: min(var(--frame-h, 210px), 62vw);
+  }
+  .room-cta {
+    padding: var(--space-7) 0;
+  }
+  .room-cta .cta {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ==========================================================================
+   Content pages (spec §5.3): ink head → chapters (facilities) or one list chapter (location, attractions, groups);
+   FAQ, privacy, terms and news articles in a paper reading column. components/site/ContentPage.tsx.
+   ========================================================================== */
+
+/* The first band's chapter starts right under the ink head's own bottom margin. */
+.page-head-ink + .band > .wrap > .chapter:first-child {
+  padding-top: 0;
+}
+.content-intro {
+  max-width: 904px;
+  margin-bottom: var(--space-6);
+}
+.page-head-ink + .band > .wrap > .content-intro {
+  margin-bottom: 0;
+}
+.band-ink .prose li::marker {
+  color: var(--color-gold);
+}
+.split-text .prose,
+.grid3-text .prose {
+  font-size: 15px;
+}
+/* A section's text is longer than the home page's one paragraph: photos stay at the top beside it. */
+.content-page .photo-split {
+  align-items: start;
+}
+
+/* ---------- list chapter: sections as heading | text rows with hairlines ---------- */
+.content-page .photo-grid3 + .section-list,
+.content-page .reveal + .section-list,
+.content-page .address-card + .section-list {
+  margin-top: var(--space-7);
+}
+.section-list {
+  max-width: 904px;
+  border-bottom: 1px solid var(--color-line);
+}
+.section-item {
+  display: grid;
+  grid-template-columns: minmax(0, 12em) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-6);
+  padding: var(--space-5) 0;
+  border-top: 1px solid var(--color-line);
+}
+.section-item h3 {
+  font-family: var(--font-cjk);
+  font-weight: 500;
+  font-size: 18px;
+  line-height: 1.6;
+  letter-spacing: 0.1em;
+  margin: 0;
+}
+.section-item-head .chapter-en {
+  margin-top: 4px;
+}
+.section-item .prose {
+  font-size: 15px;
+  line-height: 1.9;
+}
+.section-item .prose > :last-child,
+.split-text .prose > :last-child,
+.grid3-text .prose > :last-child {
+  margin-bottom: 0;
+}
+.grid3-text .address-card {
+  margin: 0;
+}
+
+/* ---------- reading column: FAQ, privacy, terms, news article ---------- */
+/* Aligned with the chapter bodies (200px rail + gap) on wide screens. */
+.reading {
+  max-width: 680px;
+  margin-left: calc(200px + var(--space-6));
+  padding-bottom: var(--space-8);
+}
+.reading .prose {
+  font-size: 17px;
+  line-height: 1.85;
+  max-width: none;
+}
+.reading .faq-list {
+  max-width: none;
+}
+.reading .crumbs {
+  padding-top: 0;
+  margin-bottom: var(--space-5);
+}
+.reading-photo {
+  max-width: min(420px, var(--frame-max-w, 420px));
+  height: var(--frame-h, 300px);
+  margin: 0 0 var(--space-6);
+}
+.page-head-ink time {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: 14px;
+  color: var(--color-on-ink-muted);
+}
+
+/* ---------- news list ---------- */
+.news-thumb {
+  height: var(--frame-h, 186px);
+  margin: 0;
+}
+.news-list article.no-photo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* ---------- reviews: the ratings strip (six scores: one row, or two rows of three) above the certificates ---------- */
+.reviews-page .ratings {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  padding-top: 0;
+}
+
+@media (max-width: 900px) {
+  .reading {
+    margin-left: 0;
+  }
+  .reviews-page .ratings {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .section-item {
+    grid-template-columns: minmax(0, 1fr);
+    padding: var(--space-4) 0;
+  }
+  .news-thumb {
+    max-width: min(640px, var(--frame-max-w, 640px));
+    height: min(var(--frame-h, 186px), 62vw);
+  }
+  .reading-photo {
+    height: min(var(--frame-h, 300px), 62vw);
+  }
+  /* Three platforms a row: "HOSTELWORLD" must fit a third of 335px without breaking. */
+  .reviews-page .ratings {
+    column-gap: var(--space-2);
+  }
+  .reviews-page .ratings-platform {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    overflow-wrap: normal;
   }
 }

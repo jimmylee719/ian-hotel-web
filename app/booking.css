@@ -1,6 +1,6 @@
 /* Booking flow: /book, /book/details, /book/return, /manage. Tokens: design/tokens.md (direction A). */
 
-.book-page .page-head {
+.book-page .page-head-paper {
   margin-bottom: var(--space-4);
 }
 .book-page.narrow {
@@ -21,6 +21,33 @@
   font-size: 17px;
   margin-top: var(--space-6);
   max-width: 40em;
+}
+/* Booking switched off (建置中): one centred paper panel. */
+.book-message.book-disabled {
+  max-width: 34em;
+  margin: var(--space-6) auto var(--space-9);
+  padding: var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  text-align: center;
+  font-size: 16px;
+  line-height: 1.9;
+}
+.book-disabled h2 {
+  font-family: var(--font-cjk);
+  font-weight: 500;
+  font-size: 22px;
+  letter-spacing: 0.12em;
+  margin: 0 0 var(--space-3);
+}
+.book-disabled p {
+  margin: 0 0 var(--space-3);
+}
+.book-disabled p:last-child {
+  margin-bottom: 0;
+}
+.book-disabled a {
+  color: var(--color-accent);
 }
 .book-message .text-link {
   display: inline-block;

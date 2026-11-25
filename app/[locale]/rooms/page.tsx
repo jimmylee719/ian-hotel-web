@@ -25,9 +25,9 @@ export default async function RoomsPage({ params }: Props) {
   return (
     <main id="main" className="wrap">
       <PageHead title={t("title")} lead={t("intro")} />
-      <div className="room-grid">
-        {rooms.map((room) => (
-          <RoomCard key={room.slug} room={room} locale={locale} headingLevel={2} />
+      <div className="room-rows">
+        {rooms.map((room, i) => (
+          <RoomCard key={room.slug} room={room} locale={locale} headingLevel={2} flip={i % 2 === 1} priority={i === 0} />
         ))}
       </div>
     </main>

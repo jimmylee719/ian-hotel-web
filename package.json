@@ -10,6 +10,7 @@
     "preview": "tsx scripts/fetch-fonts.ts && opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "typecheck": "tsc --noEmit",
     "deploy": "vitest run && tsc --noEmit && tsx scripts/fetch-fonts.ts && opennextjs-cloudflare build --env production && opennextjs-cloudflare deploy --env production",
+    "deploy:preview": "tsx scripts/fetch-fonts.ts && opennextjs-cloudflare build --env preview && tsx scripts/preview-media.ts && opennextjs-cloudflare deploy --env preview",
     "deploy:staging": "vitest run && tsc --noEmit && tsx scripts/fetch-fonts.ts && opennextjs-cloudflare build --env staging && opennextjs-cloudflare deploy --env staging",
     "lint": "eslint",
     "test": "vitest run",
