@@ -61,7 +61,10 @@
     "locationTitle": "ロケーション",
     "locationBody": "MRT 南京三民駅 4 番出口から徒歩約 8 分、建物の前にバス停があります。饒河街夜市と松山駅は徒歩圏内、松山空港へはタクシーで約 10 分です。",
     "directions": "詳しいアクセス",
-    "openMap": "Google マップで開く"
+    "openMap": "Google マップで開く",
+    "chapterRoomsEn": "Rooms",
+    "chapterSpacesEn": "Shared spaces",
+    "chapterAccessEn": "Getting here"
   },
   "booking": {
     "title": "空室を検索",

@@ -288,84 +288,6 @@ figcaption {
   color: var(--color-accent-hover);
 }
 
-/* ---------- home ---------- */
-.story {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--space-8);
-  align-items: center;
-}
-.story h2 {
-  font-family: var(--font-cjk);
-  font-weight: 500;
-  font-size: 30px;
-  letter-spacing: 0.16em;
-  margin: 0 0 var(--space-4);
-}
-.story-text p {
-  font-family: var(--font-cjk);
-  font-size: 16px;
-  max-width: 30em;
-  margin: 0 0 var(--space-3);
-}
-.story-text .story-lead {
-  font-size: 22px;
-  line-height: 1.6;
-  letter-spacing: 0.06em;
-  margin-bottom: var(--space-4);
-}
-.story img {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-}
-.photo-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-6);
-}
-.photo-row figure {
-  margin: 0;
-}
-.photo-row img {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-}
-.home-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--space-8);
-}
-.score-list {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-.score-list div {
-  border-top: 1px solid var(--color-ink);
-  padding-top: var(--space-2);
-}
-.score-list dt {
-  font-size: 15px;
-  color: var(--color-muted-text);
-}
-.score-list dd {
-  margin: 0;
-}
-.score-list strong {
-  font-weight: 400;
-  font-size: 40px;
-  line-height: 1.2;
-}
-.score-list small {
-  font-size: 15px;
-  color: var(--color-muted-text);
-}
 .home-address {
   font-style: normal;
   font-family: var(--font-cjk);
@@ -763,14 +685,21 @@ figcaption {
 }
 
 /* ---------- booking dock: fixed to the bottom of the viewport ---------- */
+/* Restyled to match the home page's floating bar (spec §5.2): the bar itself is a paper card with the one shadow;
+   the dock around it is transparent and lets clicks through to the page. */
 .booking-dock {
   position: sticky;
   bottom: 0;
   z-index: 20;
   margin-top: var(--space-8);
-  background: var(--color-paper);
-  border-top: 1px solid var(--color-ink);
+  pointer-events: none;
   transition: transform 0.2s var(--ease), visibility 0.2s;
+}
+.booking-dock .wrap {
+  padding-bottom: var(--space-2);
+}
+.booking-dock .wrap > * {
+  pointer-events: auto;
 }
 .booking-dock[data-hidden="true"] {
   transform: translateY(100%);
@@ -784,6 +713,11 @@ body:not(:has(#inline-booking)) .booking-dock[data-hidden="true"] {
   margin-top: 0;
   border-top: 0;
   border-bottom: 0;
+  background: var(--color-paper);
+  box-shadow: var(--shadow-float);
+}
+.booking-dock .field-in {
+  padding-left: 24px;
 }
 .booking-dock .field {
   padding-top: 10px;
@@ -827,8 +761,6 @@ main + .booking-dock {
 
 @media (max-width: 900px) {
   .content-layout,
-  .story,
-  .home-split,
   .room-body {
     grid-template-columns: 1fr;
     gap: var(--space-6);
@@ -853,20 +785,12 @@ main + .booking-dock {
   .section-head {
     flex-wrap: wrap;
   }
-  .section-head h2,
-  .story h2 {
+  .section-head h2 {
     font-size: 24px;
   }
   .room-grid {
     grid-template-columns: 1fr;
     gap: var(--space-7);
-  }
-  .photo-row {
-    grid-template-columns: 1fr;
-    gap: var(--space-4);
-  }
-  .score-list strong {
-    font-size: 32px;
   }
   .gallery ul {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -916,6 +840,12 @@ main + .booking-dock {
   }
   .dock-sheet {
     display: none;
+  }
+  .booking-dock .booking {
+    box-shadow: none;
+  }
+  .booking-dock .field-in {
+    padding-left: 0;
   }
   .booking-dock[data-open="true"] .dock-sheet {
     display: block;
@@ -1197,16 +1127,17 @@ main + .booking-dock {
 }
 
 /* ---------- reveal: fade-up once on first scroll into view (components/site/sections/Reveal.tsx) ---------- */
+/* Arming hides instantly (the element is off screen); only the reveal itself animates. */
 .reveal.is-armed {
   opacity: 0;
   transform: translateY(16px);
-  transition:
-    opacity 600ms var(--ease),
-    transform 600ms var(--ease);
 }
 .reveal.is-armed.is-visible {
   opacity: 1;
   transform: none;
+  transition:
+    opacity 600ms var(--ease),
+    transform 600ms var(--ease);
 }
 @media (prefers-reduced-motion: reduce) {
   .reveal.is-armed {
@@ -1288,5 +1219,206 @@ main + .booking-dock {
   }
   .ratings-platform {
     letter-spacing: 0.16em;
+  }
+}
+
+/* ==========================================================================
+   Home (spec §5.3): ink hero → floating booking bar → paper statement → chapters 01–03 → ratings → footer.
+   ========================================================================== */
+
+/* Every home section is a band, so the canvas behind them can be ink: the ratings strip, the dock's slot and the
+   footer then read as one dark block with no paper gap. */
+body:has(> main.home) {
+  background: var(--color-ink);
+}
+main.home + .booking-dock {
+  margin-top: 0;
+}
+main.home ~ .foot-band {
+  margin-top: 0;
+}
+
+/* ---------- hero: copy | arch | vertical tagline ---------- */
+.home-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 440px minmax(0, 1fr);
+  grid-template-areas: "copy arch title";
+  gap: 44px;
+  align-items: center;
+  /* The bottom padding leaves room for the upper half of the floating booking bar. */
+  padding: var(--space-5) 0 calc(var(--space-7) + 48px);
+}
+.home-hero .tagline {
+  grid-area: title;
+  font-size: 38px;
+  letter-spacing: 0.24em;
+  height: 470px;
+  color: var(--color-on-ink);
+}
+.home-hero .tagline span + span {
+  padding-top: 1.2em;
+}
+.home-hero .arch-photo {
+  grid-area: arch;
+}
+.home-hero-copy {
+  grid-area: copy;
+  font-family: var(--font-cjk);
+  font-size: 15px;
+  line-height: 2.1;
+  color: var(--color-on-ink-muted);
+}
+.home-hero-copy p {
+  margin: 0;
+  max-width: 22em;
+}
+.home-hero-copy .home-hero-en {
+  font-family: var(--font-en-stack);
+  font-style: italic;
+  font-size: 26px;
+  line-height: 1.35;
+  color: var(--color-gold);
+  margin-bottom: var(--space-3);
+}
+
+/* ---------- floating booking bar: paper card overlapping the ink/paper edge by half its height ---------- */
+.home-booking {
+  position: relative;
+  z-index: 3;
+  transform: translateY(-50%);
+}
+.home-booking .booking {
+  margin-top: 0;
+  border: 0;
+  background: var(--color-paper);
+  box-shadow: var(--shadow-float);
+}
+.home-booking .field-in {
+  padding-left: 24px;
+}
+
+/* ---------- intro statement ---------- */
+.home-statement {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--space-6);
+  padding: var(--space-4) 0 var(--space-8);
+  border-bottom: 1px solid var(--color-line);
+}
+.home-statement .chapter-title {
+  margin: 12px 0 0;
+}
+.home-statement-text {
+  font-size: 24px;
+  line-height: 1.9;
+  letter-spacing: 0.06em;
+  max-width: 24em;
+  margin: 0;
+}
+html:lang(en) .home-statement-text {
+  letter-spacing: 0;
+}
+
+/* ---------- chapters ---------- */
+.chapter-body-text {
+  font-size: 16px;
+  line-height: 2;
+  color: var(--color-muted-text);
+  margin: 0;
+}
+.chapter-body-text + .text-link,
+.chapter-body-text + .link-row {
+  margin-top: var(--space-2);
+}
+.grid3-text .text-link {
+  margin-top: 0;
+}
+.home .home-address {
+  font-size: 17px;
+  line-height: 1.8;
+  margin-bottom: var(--space-3);
+}
+
+/* ---------- ratings ---------- */
+.home-ratings-band .ratings {
+  padding-bottom: var(--space-4);
+}
+.home-ratings-more {
+  margin: 0;
+  padding-bottom: var(--space-7);
+  text-align: center;
+}
+
+@media (max-width: 1100px) {
+  .home-hero {
+    gap: var(--space-5);
+  }
+  .home-hero .tagline {
+    font-size: 32px;
+    height: 400px;
+  }
+}
+
+/* Stacked: tagline (horizontal) above the arch, copy below it. */
+@media (max-width: 900px) {
+  .home-hero {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "title" "arch" "copy";
+    gap: var(--space-4);
+    padding-top: var(--space-3);
+  }
+  .home-hero .tagline {
+    writing-mode: horizontal-tb;
+    height: auto;
+    justify-self: start;
+    font-size: 28px;
+    letter-spacing: 0.16em;
+    line-height: 1.5;
+  }
+  .home-hero .tagline span + span {
+    margin: 0;
+    padding: 0;
+  }
+  .home-hero-copy p {
+    max-width: 34em;
+  }
+  .home-statement {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+  .home-statement .chapter-title {
+    margin: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  /* The stacked bar is tall and its height varies by locale, so it overlaps the hero by a fixed amount instead of
+     half its height. */
+  .home-hero {
+    padding-bottom: calc(var(--space-6) + 72px);
+  }
+  .home-booking {
+    transform: translateY(-72px);
+  }
+  .home-hero .tagline {
+    font-size: 24px;
+    letter-spacing: 0.12em;
+  }
+  .home-hero-copy .home-hero-en {
+    font-size: 21px;
+  }
+  .home-booking .booking {
+    margin-top: 0;
+  }
+  .home-booking .field-in,
+  .home-booking .field-guests {
+    padding-left: 14px;
+  }
+  .home-statement {
+    padding-bottom: var(--space-7);
+  }
+  .home-statement-text {
+    font-size: 20px;
+    line-height: 1.85;
   }
 }

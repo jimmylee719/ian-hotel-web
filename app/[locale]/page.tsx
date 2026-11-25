@@ -4,29 +4,36 @@ import { BookingBar } from "@/components/layout/BookingBar";
 import { INLINE_BOOKING_ID } from "@/components/site/BookingDock";
 import { loadProperty, loadRooms } from "@/components/site/data";
 import { JsonLd } from "@/components/site/JsonLd";
-import { Photo } from "@/components/site/Photo";
-import { RoomCard } from "@/components/site/RoomCard";
+import { ArchPhoto } from "@/components/site/sections/ArchPhoto";
+import { Band } from "@/components/site/sections/Band";
+import { Chapter } from "@/components/site/sections/Chapter";
+import { PhotoGrid3 } from "@/components/site/sections/PhotoGrid3";
+import { PhotoSplit } from "@/components/site/sections/PhotoSplit";
+import { RatingsStrip } from "@/components/site/sections/RatingsStrip";
+import { Reveal } from "@/components/site/sections/Reveal";
 import { Link } from "@/i18n/navigation";
 import { FACILITY_PHOTOS } from "@/lib/content/facility-photos";
+import { FEATURED_ROOMS, HOME_PHOTOS } from "@/lib/content/home-photos";
 import { HOME_AWARDS } from "@/lib/content/reviews";
 import type { Locale } from "@/lib/db/schema";
 import { hotelJsonLd, MAP_URL } from "@/lib/jsonld";
-import { mediaSrcSet, mediaUrl } from "@/lib/media";
 import { buildMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
-const HERO_IMAGE = "rooms/rooms_76.jpg"; // 景緻雙人套房, 1100 × 440 source
-const FEATURED_ROOMS = ["deluxe-room", "classic-room", "mixed-cube"];
-const HOME_FACILITY_PHOTOS = ["amenities/amenities_109.jpg", "amenities/amenities_33.jpg", "amenities/amenities_36.jpg"];
-const STORY_PHOTO = "amenities/amenities_32.jpg";
+const SHARE_IMAGE = "rooms/rooms_76.jpg"; // 景緻雙人套房, 1100 × 440 source
 
 type Props = { params: Promise<{ locale: Locale }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "meta" });
-  return buildMetadata({ locale, path: "/", title: t("title"), description: t("description"), image: HERO_IMAGE });
+  return buildMetadata({ locale, path: "/", title: t("title"), description: t("description"), image: SHARE_IMAGE });
+}
+
+/** The chapter's English label, unless it would only repeat the (English) title. */
+function enLabel(title: string, en: string): string | undefined {
+  return title.toLowerCase() === en.toLowerCase() ? undefined : en;
 }
 
 export default async function Home({ params }: Props) {
@@ -39,119 +46,123 @@ export default async function Home({ params }: Props) {
     loadProperty(),
     loadRooms(locale),
   ]);
-  const featured = FEATURED_ROOMS.map((s) => rooms.find((room) => room.slug === s)).filter((room) => room !== undefined);
+  // Featured rooms with a cover photo, in FEATURED_ROOMS order (the first one is the grid's wide lead).
+  const featured = FEATURED_ROOMS.flatMap((slug) => {
+    const room = rooms.find((r) => r.slug === slug);
+    return room?.image ? [{ ...room, image: room.image }] : [];
+  });
+  const [lead, ...items] = featured;
   // The vertical tagline is Chinese on the zh-TW and en sites, native on ja and ko.
   const taglineLang = locale === "en" ? "zh-TW" : undefined;
+  // storyLead + storyBody1 read as one statement; spaced scripts need a space between the sentences.
+  const statement = [t("storyLead"), t("storyBody1")].join(locale === "en" || locale === "ko" ? " " : "");
+  const photoAlt = (key: string) => fp(FACILITY_PHOTOS[key]);
+  const ratings = HOME_AWARDS.flatMap((a) => (a.score !== null && a.scale !== null ? [{ platform: a.platform, score: String(a.score), scale: String(a.scale) }] : []));
 
   return (
-    <main id="main" className="wrap">
+    <main id="main" className="wrap home">
       {property && <JsonLd data={hotelJsonLd(property, locale)} />}
-      <section className="hero">
-        <h1 className="tagline" lang={taglineLang}>
-          <span>{t("taglineFirst")}</span>
-          <span>{t("taglineSecond")}</span>
-        </h1>
-        <figure className="hero-photo">
-          {/* eslint-disable-next-line @next/next/no-img-element -- served from R2 via /media; source is only 1100px wide */}
-          <img className="photo-warm" src={mediaUrl(HERO_IMAGE, 1100)}
-            srcSet={mediaSrcSet(HERO_IMAGE, 1100)}
-            sizes="(max-width: 700px) calc(100vw - 120px), (max-width: 1100px) calc(100vw - 238px), 640px"
-            alt={t("heroAlt")} width={1100} height={880} fetchPriority="high" />
-          <figcaption>{t("heroCaption")}</figcaption>
-        </figure>
-        <div className="intro">
-          <p className="en" lang="en">
-            {t("taglineEn")}
-          </p>
-          <p>{t("intro")}</p>
-          <address>
-            {f("address")}
-            <br />
-            {t("nearMrt")}
-          </address>
-        </div>
-      </section>
-      <div id={INLINE_BOOKING_ID}>
-        <BookingBar />
-      </div>
 
-      <section className="section story" aria-labelledby="story-title">
-        <div className="story-text">
-          <h2 id="story-title">{t("storyTitle")}</h2>
-          <p className="story-lead">{t("storyLead")}</p>
-          <p>{t("storyBody1")}</p>
-          <p>{t("storyBody2")}</p>
-          <p>{t("storyBody3")}</p>
-        </div>
-        <Photo src={STORY_PHOTO} alt={t("storyPhotoAlt")} width={960} height={720} />
-      </section>
-
-      <section className="section" aria-labelledby="rooms-title">
-        <div className="section-head">
-          <h2 id="rooms-title">{t("roomsTitle")}</h2>
-          <Link href="/rooms">{t("allRooms", { count: rooms.length })}</Link>
-        </div>
-        <div className="room-grid">
-          {featured.map((room) => (
-            <RoomCard key={room.slug} room={room} locale={locale} />
-          ))}
-        </div>
-      </section>
-
-      <section className="section" aria-labelledby="facilities-title">
-        <div className="section-head">
-          <h2 id="facilities-title">{t("facilitiesTitle")}</h2>
-          <Link href="/facilities">{t("facilitiesMore")}</Link>
-        </div>
-        <p className="section-lead">{t("facilitiesBody")}</p>
-        <div className="photo-row">
-          {HOME_FACILITY_PHOTOS.map((key) => (
-            <figure key={key}>
-              <Photo src={key} alt="" width={800} height={600} />
-              <figcaption>{fp(FACILITY_PHOTOS[key])}</figcaption>
-            </figure>
-          ))}
-        </div>
-      </section>
-
-      <div className="section home-split">
-        <section aria-labelledby="reviews-title">
-          <div className="section-head">
-            <h2 id="reviews-title">{t("reviewsTitle")}</h2>
+      <Band theme="ink" className="home-hero-band">
+        <section className="home-hero">
+          <h1 className="tagline" lang={taglineLang}>
+            <span>{t("taglineFirst")}</span>
+            <span>{t("taglineSecond")}</span>
+          </h1>
+          <ArchPhoto src={HOME_PHOTOS.arch} alt={t("storyPhotoAlt")} priority />
+          <div className="home-hero-copy">
+            <p className="home-hero-en" lang="en">
+              {t("taglineEn")}
+            </p>
+            <p>{t("intro")}</p>
           </div>
-          <p className="section-lead">{t("reviewsBody")}</p>
-          <dl className="score-list">
-            {HOME_AWARDS.map((a) => (
-              <div key={a.platform}>
-                <dt lang="en">{a.platform}</dt>
-                <dd>
-                  <strong>{a.score}</strong> <small>/ {a.scale}</small>
-                </dd>
-              </div>
-            ))}
-          </dl>
-          <p>
+        </section>
+      </Band>
+
+      <Band theme="paper" className="home-booking-band">
+        <div id={INLINE_BOOKING_ID} className="home-booking">
+          <BookingBar />
+        </div>
+      </Band>
+
+      <Band theme="paper">
+        <section className="home-statement" aria-labelledby="story-title">
+          <h2 id="story-title" className="chapter-title">
+            {t("storyTitle")}
+          </h2>
+          <p className="home-statement-text">{statement}</p>
+        </section>
+      </Band>
+
+      <Band theme="paper">
+        <Chapter num={1} title={t("roomsTitle")} en={enLabel(t("roomsTitle"), t("chapterRoomsEn"))}>
+          {lead && (
+            <Reveal>
+              <PhotoGrid3
+                lead={{ src: lead.image, alt: lead.name }}
+                items={items.map((room) => ({ src: room.image, alt: "", caption: room.name, captionEn: room.name !== room.nameEn ? room.nameEn : undefined }))}
+              >
+                <Link className="text-link" href="/rooms">
+                  {t("allRooms", { count: rooms.length })}
+                </Link>
+              </PhotoGrid3>
+            </Reveal>
+          )}
+        </Chapter>
+      </Band>
+
+      <Band theme="ink">
+        <Chapter num={2} title={t("facilitiesTitle")} en={enLabel(t("facilitiesTitle"), t("chapterSpacesEn"))}>
+          <Reveal>
+            <PhotoSplit
+              large={{ src: HOME_PHOTOS.spacesLarge, alt: photoAlt(HOME_PHOTOS.spacesLarge) }}
+              small={{ src: HOME_PHOTOS.spacesSmall, alt: photoAlt(HOME_PHOTOS.spacesSmall) }}
+            >
+              <p className="chapter-body-text">{t("facilitiesBody")}</p>
+              <Link className="text-link" href="/facilities">
+                {t("facilitiesMore")}
+              </Link>
+            </PhotoSplit>
+          </Reveal>
+        </Chapter>
+      </Band>
+
+      <Band theme="paper">
+        <Chapter num={3} title={t("locationTitle")} en={enLabel(t("locationTitle"), t("chapterAccessEn"))}>
+          <Reveal>
+            <PhotoSplit large={{ src: HOME_PHOTOS.access, alt: photoAlt(HOME_PHOTOS.access) }}>
+              <address className="home-address">
+                {f("address")}
+                <br />
+                {t("nearMrt")}
+              </address>
+              <p className="chapter-body-text">{t("locationBody")}</p>
+              <p className="link-row">
+                <Link className="text-link" href="/location">
+                  {t("directions")}
+                </Link>
+                <a className="text-link" href={MAP_URL} target="_blank" rel="noopener noreferrer">
+                  {t("openMap")}
+                </a>
+              </p>
+            </PhotoSplit>
+          </Reveal>
+        </Chapter>
+      </Band>
+
+      <Band theme="ink" className="home-ratings-band">
+        <section aria-labelledby="reviews-title">
+          <h2 id="reviews-title" className="visually-hidden">
+            {t("reviewsTitle")}
+          </h2>
+          <RatingsStrip awards={ratings} />
+          <p className="home-ratings-more">
             <Link className="text-link" href="/reviews">
               {t("reviewsMore")}
             </Link>
           </p>
         </section>
-        <section aria-labelledby="location-title">
-          <div className="section-head">
-            <h2 id="location-title">{t("locationTitle")}</h2>
-          </div>
-          <p className="section-lead">{t("locationBody")}</p>
-          <address className="home-address">{f("address")}</address>
-          <p className="link-row">
-            <Link className="text-link" href="/location">
-              {t("directions")}
-            </Link>
-            <a className="text-link" href={MAP_URL} target="_blank" rel="noopener noreferrer">
-              {t("openMap")}
-            </a>
-          </p>
-        </section>
-      </div>
+      </Band>
     </main>
   );
 }

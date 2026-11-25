@@ -61,7 +61,10 @@
     "locationTitle": "위치",
     "locationBody": "MRT 난징싼민역 4번 출구에서 걸어서 약 8분, 건물 앞에 버스 정류장이 있습니다. 라오허제 야시장과 쑹산역은 걸어서 갈 수 있고, 쑹산공항까지는 택시로 약 10분입니다.",
     "directions": "자세한 교통 안내",
-    "openMap": "Google 지도에서 열기"
+    "openMap": "Google 지도에서 열기",
+    "chapterRoomsEn": "Rooms",
+    "chapterSpacesEn": "Shared spaces",
+    "chapterAccessEn": "Getting here"
   },
   "booking": {
     "title": "빈 객실 검색",

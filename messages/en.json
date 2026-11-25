@@ -61,7 +61,10 @@
     "locationTitle": "Location",
     "locationBody": "About 8 minutes' walk from exit 4 of Nanjing Sanmin MRT station, with a bus stop right outside. Raohe Street Night Market and Songshan Station are within walking distance, and Songshan Airport is about 10 minutes by taxi.",
     "directions": "Full directions",
-    "openMap": "Open in Google Maps"
+    "openMap": "Open in Google Maps",
+    "chapterRoomsEn": "Rooms",
+    "chapterSpacesEn": "Shared spaces",
+    "chapterAccessEn": "Getting here"
   },
   "booking": {
     "title": "Check availability",
