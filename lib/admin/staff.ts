@@ -157,7 +157,9 @@ export type StaffListRow = StaffRow & { manageable: boolean };
 
 /** Staff sharing at least one property with the viewer, owners first; `manageable` = the viewer may edit them. */
 export async function listStaff(db: Db, ctx: StaffContext): Promise<StaffListRow[]> {
-  const rows = await db.select().from(staff).orderBy(asc(staff.role), asc(staff.email));
+  const rows = await db.select().from(staff).orderBy(
+    sql`case ${staff.role} when 'owner' then 0 when 'manager' then 1 when 'front_desk' then 2 else 3 end`, asc(staff.email),
+  );
   return rows
     .filter((r) => r.propertyIds.some((id) => ctx.staff.propertyIds.includes(id)))
     .map((r) => ({ ...r, manageable: manages(ctx, r) }));

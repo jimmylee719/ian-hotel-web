@@ -164,6 +164,7 @@ describe("update and deactivate", () => {
     const rows = await listStaff(db, owner);
     expect(rows.map((r) => [r.id, r.manageable])).toEqual(expect.arrayContaining([["owner", true], ["manager", true], ["both", false]]));
     expect(rows.find((r) => r.id === "elsewhere")).toBeUndefined();
+    expect(rows.map((r) => r.role)).toEqual(["owner", "manager", "manager"]);
   });
 });
 
