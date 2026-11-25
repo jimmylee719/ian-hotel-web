@@ -36,14 +36,16 @@ export type LookupResult =
 
 /**
  * SiteMinder (SiteConnect) in production; MockChannelManager until certification.
- * Rules (tests/conformance/channel.ts): pushing a code again gives the same smConfirmation; modify and cancel of an
- * unknown code fail, not retryable; a timeout is retryable; timeoutMs ≤ 60000 (below SYNC_LEASE_MS, so a push
+ * Rules (tests/conformance/channel.ts): pushing a code again gives the same smConfirmation; modify and cancel carry
+ * that smConfirmation, and fail (not retryable) for an unknown code or a smConfirmation that does not match it; a timeout is retryable; timeoutMs ≤ 60000 (below SYNC_LEASE_MS, so a push
  * never outlives its lease); lookup finds what a push left.
  */
 export interface ChannelManager {
   pushReservation(r: ChannelReservation): Promise<PushResult>;
-  modifyReservation(r: ChannelReservation): Promise<PushResult>;
-  cancelReservation(code: string): Promise<CancelResult>;
+  /** Replace the channel's copy of `r.code`; `smConfirmation` is the one its push returned. */
+  modifyReservation(r: ChannelReservation, smConfirmation: string): Promise<PushResult>;
+  /** Cancel `code`; `smConfirmation` is the one its push returned. */
+  cancelReservation(code: string, smConfirmation: string): Promise<CancelResult>;
   lookupReservation(code: string): Promise<LookupResult>;
   /** How long one call may take before it is abandoned (and reported retryable). */
   readonly timeoutMs: number;

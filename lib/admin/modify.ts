@@ -280,7 +280,9 @@ export async function modifyWithChannel(deps: Deps, reservationId: string, now: 
 
   let r: PushResult;
   try {
-    r = await deps.channel.modifyReservation(await toChannelReservation(db, reservationId));
+    r = res.smConfirmation
+      ? await deps.channel.modifyReservation(await toChannelReservation(db, reservationId), res.smConfirmation)
+      : { ok: false, retryable: false, error: "NO_SM_CONFIRMATION" };
   } catch (e) {
     r = { ok: false, retryable: true, error: e instanceof Error ? e.message : String(e) };
   }

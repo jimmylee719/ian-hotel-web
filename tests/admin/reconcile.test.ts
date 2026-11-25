@@ -112,7 +112,7 @@ test("a successful retry of a cancel refund whose claim was dropped completes th
     .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
   expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: `cancel:${s.id}` }));
   expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, cancelledAt: s.row.createdAt, syncState: "synced" });
-  expect(cancel).toHaveBeenCalledWith(s.code);
+  expect(cancel).toHaveBeenCalledWith(s.code, (await s.reservation(s.code)).smConfirmation);
   expect(await s.avail("2026-12-10")).toBe(3);
   expect(await s.avail("2026-12-11")).toBe(3);
   expect(s.email.sent.filter((e) => e.to === GUEST && e.subject.includes("cancelled"))).toHaveLength(1);

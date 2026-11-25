@@ -53,24 +53,38 @@ export class MockChannelManager implements ChannelManager {
   }
 
   /** The channel's copy is replaced; only an active, known code. Not routed through pushReservation, so spies can tell them apart. */
-  async modifyReservation(r: ChannelReservation): Promise<PushResult> {
+  async modifyReservation(r: ChannelReservation, smConfirmation: string): Promise<PushResult> {
     return this.call((): PushResult => {
       const h = this.held.get(r.code);
-      if (!h) return { ok: false, retryable: false, error: "UNKNOWN_RESERVATION" };
-      if (h.state === "cancelled") return { ok: false, retryable: false, error: "RESERVATION_CANCELLED" };
-      h.reservation = r;
-      return { ok: true, smConfirmation: h.smConfirmation };
+      const bad = this.refuse(h, smConfirmation);
+      if (bad) return bad;
+      if (h!.state === "cancelled") return { ok: false, retryable: false, error: "RESERVATION_CANCELLED" };
+      h!.reservation = r;
+      return { ok: true, smConfirmation };
     });
   }
 
-  /** Idempotent: cancelling a cancelled reservation succeeds; an unknown code does not. */
-  async cancelReservation(code: string): Promise<CancelResult> {
+  /** Idempotent: cancelling a cancelled reservation succeeds; an unknown code or another smConfirmation does not. */
+  async cancelReservation(code: string, smConfirmation: string): Promise<CancelResult> {
     return this.call((): CancelResult => {
       const h = this.held.get(code);
-      if (!h) return { ok: false, retryable: false, error: "UNKNOWN_RESERVATION" };
-      h.state = "cancelled";
+      const bad = this.refuse(h, smConfirmation);
+      if (bad) return bad;
+      h!.state = "cancelled";
       return { ok: true, retryable: false };
     });
+  }
+
+  /** Why a modify or cancel of `h` under `smConfirmation` is refused, or null. */
+  private refuse(h: Held | undefined, smConfirmation: string): { ok: false; retryable: false; error: string } | null {
+    if (!h) return { ok: false, retryable: false, error: "UNKNOWN_RESERVATION" };
+    if (h.smConfirmation !== smConfirmation) return { ok: false, retryable: false, error: "SM_CONFIRMATION_MISMATCH" };
+    return null;
+  }
+
+  /** Every reservation the channel holds, cancelled ones included. */
+  get records(): { code: string; smConfirmation: string; state: "active" | "cancelled" }[] {
+    return [...this.held.entries()].map(([code, h]) => ({ code, smConfirmation: h.smConfirmation, state: h.state }));
   }
 
   async lookupReservation(code: string): Promise<LookupResult> {

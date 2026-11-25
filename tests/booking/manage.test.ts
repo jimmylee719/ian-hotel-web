@@ -82,7 +82,8 @@ test("cancelling on check-in day refunds nothing but still cancels and tells Sit
   expect(res.status).toBe("cancelled");
   expect(res.refundedAmount).toBe(0);
   expect(refund).not.toHaveBeenCalled();
-  expect(cancel).toHaveBeenCalledWith(code);
+  expect(cancel).toHaveBeenCalledWith(code, res.smConfirmation); // the confirmation its push returned
+  expect(res.smConfirmation).toMatch(/^SM-/);
   expect(channel.pushed).toEqual([]);
   expect(await avail10()).toBe(3);
 });

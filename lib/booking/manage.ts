@@ -382,7 +382,10 @@ export async function cancelWithChannel(deps: Deps, reservationId: string, now: 
 
   let r: CancelResult;
   try {
-    r = refunded ? await cancelIfActive(deps, res.code) : await deps.channel.cancelReservation(res.code);
+    // A cancelled booking carries the smConfirmation its push returned; a refunded one (or one without) asks the channel.
+    r = !refunded && res.smConfirmation
+      ? await deps.channel.cancelReservation(res.code, res.smConfirmation)
+      : await cancelIfActive(deps, res.code);
   } catch (e) {
     r = { ok: false, retryable: true, error: e instanceof Error ? e.message : String(e) };
   }
@@ -411,10 +414,10 @@ export async function cancelWithChannel(deps: Deps, reservationId: string, now: 
   if (failed.length) await notifyStaff(deps, reservationId, "staff_sync_failed", now, {}, "cancel");
 }
 
-/** Cancel `code` at the channel only if the channel holds it as active. */
+/** Cancel `code` at the channel, under the smConfirmation the channel reports, only if it holds it as active. */
 async function cancelIfActive(deps: Deps, code: string): Promise<CancelResult> {
   const l = await deps.channel.lookupReservation(code);
   if ("error" in l) return { ok: false, retryable: l.retryable, error: `LOOKUP_FAILED: ${l.error}` };
   if (!l.found || l.state === "cancelled") return { ok: true, retryable: false };
-  return deps.channel.cancelReservation(code);
+  return deps.channel.cancelReservation(code, l.smConfirmation);
 }

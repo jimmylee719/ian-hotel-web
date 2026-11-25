@@ -42,18 +42,27 @@ export function channelConformance(make: () => ChannelManager, opts: ChannelConf
       expect(await cm.pushReservation(r)).toEqual({ ok: true, smConfirmation });
     });
 
-    test("2. modify and cancel of a known code keep its smConfirmation", async () => {
+    test("2. modify and cancel carrying a known code's smConfirmation keep it", async () => {
       const cm = make();
       const { r, smConfirmation } = await pushed(cm);
-      expect(await cm.modifyReservation({ ...r, total: r.total + 100 })).toEqual({ ok: true, smConfirmation });
-      expect(await cm.cancelReservation(r.code)).toMatchObject({ ok: true });
+      expect(await cm.modifyReservation({ ...r, total: r.total + 100 }, smConfirmation)).toEqual({ ok: true, smConfirmation });
+      expect(await cm.cancelReservation(r.code, smConfirmation)).toMatchObject({ ok: true });
     });
 
     test("2. modify and cancel of an unknown code fail, not retryable", async () => {
       const cm = make();
       const r = reservation(freshCode());
-      expect(await cm.modifyReservation(r)).toMatchObject({ ok: false, retryable: false });
-      expect(await cm.cancelReservation(r.code)).toMatchObject({ ok: false, retryable: false });
+      expect(await cm.modifyReservation(r, "SM-UNKNOWN")).toMatchObject({ ok: false, retryable: false });
+      expect(await cm.cancelReservation(r.code, "SM-UNKNOWN")).toMatchObject({ ok: false, retryable: false });
+    });
+
+    test("2. modify and cancel with another smConfirmation fail, not retryable, and change nothing", async () => {
+      const cm = make();
+      const { r, smConfirmation } = await pushed(cm);
+      const wrong = `${smConfirmation}-X`;
+      expect(await cm.modifyReservation({ ...r, total: r.total + 100 }, wrong)).toMatchObject({ ok: false, retryable: false });
+      expect(await cm.cancelReservation(r.code, wrong)).toMatchObject({ ok: false, retryable: false });
+      expect(await cm.lookupReservation(r.code)).toEqual({ found: true, smConfirmation, state: "active" });
     });
 
     test("3. a timeout is reported as retryable", async () => {
@@ -79,7 +88,7 @@ export function channelConformance(make: () => ChannelManager, opts: ChannelConf
       const cm = make();
       expect(await cm.lookupReservation(freshCode())).toEqual({ found: false });
       const { r, smConfirmation } = await pushed(cm);
-      expect(await cm.cancelReservation(r.code)).toMatchObject({ ok: true });
+      expect(await cm.cancelReservation(r.code, smConfirmation)).toMatchObject({ ok: true });
       expect([{ found: false }, { found: true, smConfirmation, state: "cancelled" }]).toContainEqual(await cm.lookupReservation(r.code));
     });
   });
