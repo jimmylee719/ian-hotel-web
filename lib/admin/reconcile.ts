@@ -52,6 +52,11 @@ export type ReconcileResult =
       completed: "cancellation" | "refund_and_fail" | null;
       /** The booking's status after the call. */
       reservationStatus: ReservationStatus;
+      /**
+       * settle_offline only: the gateway reported the refund made after all, so its result settled the row and
+       * the offline entry was NOT used (the hotel should check it did not also pay the guest back itself).
+       */
+      settledByGateway?: true;
     }
   | {
       ok: false;
@@ -70,7 +75,9 @@ export type ReconcileResult =
  * - `retry`: only a failed row (a succeeded one is ALREADY_RESOLVED); refundOnce again under the row's own key (the gateway's idempotency key), then
  *   finishes the flow as above.
  * - `settle_offline`: a failed or pending row the gateway will never take (e.g. its refund window has passed), that
- *   the hotel paid back itself by transfer, cash or card terminal. The reference (1–200 characters, never something
+ *   the hotel paid back itself by transfer, cash or card terminal. For a pending row the gateway is asked first
+ *   (queryRefund): if it made the refund after all, the row is settled with the gateway's ref instead (no note, the
+ *   audit row says `outcome: "gateway_succeeded"`) and the result says `settledByGateway`. The reference (1–200 characters, never something
  *   that looks like a card number) is required. Like mark_succeeded, in one batch guarded by the row's status as
  *   read: the row → succeeded with providerRef `offline:<reference>` and a note saying how, refundedAmount bumped
  *   for `cancel:` / `fail:` rows, the audit row; then finishFlow. A settled `modify:` row stops blocking cancels and
@@ -108,15 +115,26 @@ export async function reconcileRefund(
   let providerRef: string | null = null;
   let note: string | undefined;
   let extra: Record<string, unknown> = {};
+  let settledByGateway = false;
   if (action.kind === "settle_offline") {
     if (row.status === "succeeded") return { ok: false, error: "ALREADY_RESOLVED" };
     const reference = action.reference.trim();
     if (!reference) return { ok: false, error: "REFERENCE_REQUIRED" };
     if (reference.length > OFFLINE_REFERENCE_MAX || !OFFLINE_REFUND_METHODS.includes(action.method)) return { ok: false, error: "INVALID_REFERENCE" };
     if (looksLikeCardNumber(reference)) return { ok: false, error: "LOOKS_LIKE_CARD_NUMBER" };
-    providerRef = `offline:${reference}`;
-    note = `線下退款（${OFFLINE_METHOD_LABEL[action.method]}）：${reference}`;
-    extra = { method: action.method, reference };
+    // A pending row's refund may still have been made by the gateway: ask first. If it was, the gateway's
+    // result settles the row and the hotel's offline entry is not used (staff are told: the guest may now
+    // have been paid twice, by the gateway and by the hotel).
+    const made = row.status === "pending" ? await gatewayMadeRefund(deps, row.idempotencyKey) : null;
+    if (made) {
+      settledByGateway = true;
+      providerRef = made.refundRef;
+      extra = { method: action.method, reference, outcome: "gateway_succeeded" };
+    } else {
+      providerRef = `offline:${reference}`;
+      note = `線下退款（${OFFLINE_METHOD_LABEL[action.method]}）：${reference}`;
+      extra = { method: action.method, reference };
+    }
   } else {
     if (row.status !== "pending") return { ok: false, error: "ALREADY_RESOLVED" };
     providerRef = action.kind === "mark_succeeded" ? action.providerRef.trim() : null;
@@ -150,7 +168,17 @@ export async function reconcileRefund(
   const [won] = await db.select({ id: auditLog.id }).from(auditLog).where(eq(auditLog.id, auditId));
   if (!won) return { ok: false, error: "ALREADY_RESOLVED" };
   if (action.kind === "mark_failed") return { ok: true, status: "failed", completed: null, reservationStatus: await statusOf(db, row.reservationId) };
-  return { ok: true, status: "succeeded", ...await finishFlow(deps, row.idempotencyKey, row.reservationId, now) };
+  return {
+    ok: true, status: "succeeded", ...await finishFlow(deps, row.idempotencyKey, row.reservationId, now),
+    ...(settledByGateway ? { settledByGateway: true as const } : {}),
+  };
+}
+
+/** The gateway's refund ref if it reports the refund under `key` as made; null if it says otherwise or cannot say. */
+async function gatewayMadeRefund(deps: Deps, key: string | null): Promise<{ refundRef: string | null } | null> {
+  if (!key) return null;
+  const q = await deps.gateway.queryRefund(key).catch(() => null);
+  return q && !("error" in q) && q.status === "succeeded" ? { refundRef: q.refundRef ?? null } : null;
 }
 
 async function statusOf(db: Db, reservationId: string): Promise<ReservationStatus> {

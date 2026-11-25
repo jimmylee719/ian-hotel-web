@@ -276,11 +276,41 @@ describe("settle_offline: a refund the gateway will not take, paid back by the h
     expect(await s.db.select().from(auditLog).where(eq(auditLog.entityId, s.row.id))).toHaveLength(1);
   });
 
-  test("a pending (outcome unknown) row can be settled offline too", async () => {
+  test("a pending (outcome unknown) row can be settled offline too, once the gateway still cannot say it made it", async () => {
     const s = await stuckCancellation();
+    const query = vi.spyOn(s.gateway, "queryRefund");
+    query.mockClear(); // forget the original attempt's query
+    query.mockResolvedValueOnce({ status: "pending" });
     expect(await reconcileRefund(s.deps, s.manager, s.row.id, { ...OFFLINE, method: "cash" }, LATER))
       .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
+    expect(query).toHaveBeenCalledWith(`cancel:${s.id}`);
+    expect(await s.refundRows(s.id)).toMatchObject([{ status: "succeeded", providerRef: expect.stringMatching(/^offline:/) }]);
     expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID });
+  });
+
+  test("settle_offline on a pending row first asks the gateway: if it made the refund, that settles it and the offline entry is not used", async () => {
+    const s = await stuckCancellation(); // the mock gateway did make this refund; only its answer was lost
+    const query = vi.spyOn(s.gateway, "queryRefund");
+    query.mockClear();
+    expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER))
+      .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled", settledByGateway: true });
+    expect(query).toHaveBeenCalledWith(`cancel:${s.id}`);
+    const [row] = await s.refundRows(s.id);
+    expect(row).toMatchObject({ status: "succeeded", providerRef: s.gateway.refunds[0].refundRef, note: null, settledAt: LATER.getTime() });
+    expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID }); // counted once
+    expect(await s.db.select().from(auditLog).where(eq(auditLog.entityId, s.row.id))).toMatchObject([{
+      action: "payment.reconcile", staffEmail: s.manager.email,
+      after: { kind: "settle_offline", outcome: "gateway_succeeded", reference: OFFLINE.reference },
+    }]);
+    expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER)).toEqual({ ok: false, error: "ALREADY_RESOLVED" });
+  });
+
+  test("settle_offline on a failed row does not ask the gateway", async () => {
+    const s = await droppedClaim();
+    const query = vi.spyOn(s.gateway, "queryRefund");
+    query.mockClear();
+    expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER)).toMatchObject({ ok: true, status: "succeeded" });
+    expect(query).not.toHaveBeenCalled();
   });
 
   test("a failed modify: row settled offline lets the guest cancel again", async () => {
