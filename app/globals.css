@@ -137,31 +137,49 @@ a {
 }
 
 /* ---------- header ---------- */
+/* Full-bleed band (ink or paper, see lib/design/header-theme.ts); grid `1fr auto 1fr`:
+   nav left, brand centred, languages + book-now right. */
 .site-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding-top: 28px;
+  column-gap: var(--space-4);
+  padding: 22px 0;
+}
+.site-head .nav {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
 }
 .brand {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
-  align-items: baseline;
-  gap: 14px;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  line-height: 1.3;
   text-decoration: none;
 }
 .brand b {
   font-family: var(--font-zh-stack);
   font-weight: 600;
   font-size: 21px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.3em;
+  margin-right: -0.3em; /* trailing letter-spacing would push the name off centre */
 }
 .brand span {
-  font-style: italic;
+  margin-top: 5px;
+  margin-right: -0.4em;
+  font-size: 11px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
   color: var(--color-muted-text);
-  font-size: 16px;
 }
 .head-right {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
   display: flex;
   align-items: center;
   gap: 34px;
@@ -222,6 +240,27 @@ a {
 .menu-toggle,
 .nav-book {
   display: none;
+}
+/* Ink header: navigation (nav, brand, languages) stays on-ink with gold for hover and the current
+   page, rather than the blanket gold of `.band-ink a`; the book-now button keeps on-accent text. */
+.band-ink .site-head .nav a,
+.band-ink .site-head .brand {
+  color: var(--color-on-ink);
+}
+.band-ink .site-head .lang a {
+  color: var(--color-on-ink-muted);
+}
+.band-ink .site-head .lang a[aria-current="true"] {
+  color: var(--color-on-ink);
+}
+.band-ink .site-head .nav a:hover,
+.band-ink .site-head .nav a[aria-current="page"],
+.band-ink .site-head .nav .nav-book a,
+.band-ink .site-head .lang a:hover {
+  color: var(--color-gold);
+}
+.band-ink .site-head .head-cta {
+  color: var(--color-on-accent);
 }
 /* Header items never wrap inside themselves: below the width where the full row fits, the
    header switches to shorter forms (1240px) and then to the menu button (900px). */
@@ -435,24 +474,40 @@ a {
 }
 
 /* ---------- footer ---------- */
-.site-foot {
+/* Always inside the full-bleed .band-ink (.foot-band): brand + contact, main links, secondary links.
+   Link lists stay on-ink with gold on hover; inline links (phone, email, social) are gold. */
+.foot-band {
   margin-top: var(--space-9);
-  border-top: 1px solid var(--color-ink);
-  padding: var(--space-6) 0 var(--space-7);
+}
+.site-foot {
+  border-top: 1px solid var(--color-ink-line);
+  padding: var(--space-7) 0 var(--space-5);
   font-size: 15px;
+  color: var(--color-on-ink-muted);
 }
 .foot-grid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr;
+  grid-template-columns: 1.4fr 2fr;
   gap: var(--space-6);
 }
 .site-foot h2 {
-  font-family: var(--font-cjk);
-  font-weight: 500;
-  font-size: 15px;
-  letter-spacing: 0.1em;
-  color: var(--color-muted-text);
-  margin: 0 0 var(--space-1);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-zh-stack);
+  font-weight: 400;
+  font-size: 17px;
+  line-height: 1.4;
+  letter-spacing: 0.2em;
+  color: var(--color-on-ink);
+  margin: 0 0 var(--space-3);
+}
+.site-foot h2 span {
+  margin-top: 4px;
+  font-family: var(--font-en-stack);
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--color-on-ink-faint);
 }
 .site-foot address {
   font-style: normal;
@@ -461,7 +516,7 @@ a {
 }
 .site-foot address small {
   display: block;
-  color: var(--color-muted-text);
+  color: var(--color-on-ink-faint);
   font-size: 14px;
 }
 .site-foot ul {
@@ -469,26 +524,42 @@ a {
   margin: 0;
   padding: 0;
 }
+.site-foot .foot-contact {
+  margin-top: var(--space-2);
+}
+.foot-social {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
+}
 .site-foot a {
   text-decoration: none;
 }
 .site-foot a:hover {
-  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.foot-links {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+  font-family: var(--font-cjk);
+  line-height: 2.1;
+}
+.band-ink .foot-links a {
+  color: var(--color-on-ink);
+}
+.band-ink .foot-links a:hover {
+  color: var(--color-gold);
+  text-decoration: none;
 }
 .foot-legal {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin-top: var(--space-6);
+  margin: var(--space-6) 0 0;
   padding-top: var(--space-3);
-  border-top: 1px solid var(--color-line);
-  font-size: 14px;
-  color: var(--color-muted-text);
-}
-.foot-legal nav {
-  display: flex;
-  gap: var(--space-4);
+  border-top: 1px solid var(--color-ink-line);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--color-on-ink-faint);
 }
 
 /* ---------- not found ---------- */
@@ -553,22 +624,41 @@ a {
   .intro {
     grid-column: 1 / -1;
   }
+  /* Tablet: tighter spacing so the longest labels (en, ja) still fit on one row down to 901px. */
+  .site-head {
+    column-gap: var(--space-3);
+  }
   .nav ul {
-    gap: 22px;
+    gap: 18px;
+    font-size: 14px;
+    letter-spacing: 0.04em;
   }
   .head-right {
-    gap: 22px;
+    gap: 18px;
+  }
+  .brand b {
+    letter-spacing: 0.16em;
+    margin-right: -0.16em;
+  }
+  .head-cta {
+    padding: 8px 16px;
+  }
+  .lang .sep {
+    margin: 0 0.25em;
   }
 }
 
 @media (max-width: 900px) {
-  .site-head {
-    flex-wrap: wrap;
-  }
+  /* The nav collapses behind the menu button (left cell) and opens as a full-width panel on a
+     second row, inside the band so it takes the header's own colours. */
   .menu-toggle {
     display: inline-block;
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
     background: none;
-    border: 1px solid var(--color-ink);
+    color: inherit;
+    border: 1px solid currentColor;
     font: inherit;
     font-family: var(--font-cjk);
     font-size: 14px;
@@ -576,26 +666,20 @@ a {
     padding: 4px 12px;
     cursor: pointer;
   }
-  .head-right {
-    order: 1;
-    margin-left: auto;
-  }
-  .menu-toggle {
-    order: 2;
-  }
-  .nav {
+  .site-head .nav {
     display: none;
-    order: 3;
-    width: 100%;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
   }
-  .nav[data-open="true"] {
+  .site-head .nav[data-open="true"] {
     display: block;
   }
   .nav ul {
     flex-direction: column;
     gap: 0;
     border-top: 1px solid var(--color-line);
-    margin-top: var(--space-2);
+    margin-top: var(--space-3);
   }
   .nav li a {
     display: block;
@@ -612,8 +696,8 @@ a {
     font-size: 16px;
   }
   .site-head {
-    padding-top: 18px;
-    gap: var(--space-2);
+    padding: 16px 0;
+    column-gap: var(--space-2);
   }
   .brand span {
     display: none;
@@ -621,6 +705,7 @@ a {
   .brand b {
     font-size: 18px;
     letter-spacing: 0.08em;
+    margin-right: -0.08em;
   }
   .menu-toggle {
     padding: 2px 8px;
@@ -704,11 +789,17 @@ a {
     left: 0;
     width: 100%;
   }
-  .site-foot {
+  .foot-band {
     margin-top: var(--space-8);
+  }
+  .site-foot {
+    padding-top: var(--space-6);
   }
   .foot-grid {
     grid-template-columns: 1fr;
+    gap: var(--space-5);
+  }
+  .foot-links {
     gap: var(--space-4);
   }
 }

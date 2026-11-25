@@ -801,7 +801,7 @@ body:not(:has(#inline-booking)) .booking-dock[data-hidden="true"] {
   display: none;
 }
 /* The page footer follows the dock; keep the two apart. */
-.booking-dock + .wrap .site-foot {
+.booking-dock + .foot-band {
   margin-top: var(--space-7);
 }
 main + .booking-dock {
