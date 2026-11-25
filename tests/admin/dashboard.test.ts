@@ -130,6 +130,36 @@ describe("getDashboard", () => {
     expect(other.kpis.today.revenue).toBe(9999);
   });
 
+  it("alerts on a failed cancel / modify refund only while it is still the booking's open intent", async () => {
+    const { db, propertyId, res } = await setup();
+    const refund = (id: string, reservationId: string, key: string, status: "failed" | "succeeded" | "pending", createdAt = min(30)) =>
+      db.insert(payments).values({ id, reservationId, kind: "refund", method: "sinopac_online", amount: 700, status, idempotencyKey: key, createdAt });
+    // A cancellation in limbo: claimed (cancelledAt), still confirmed, its refund failed → alert.
+    await res("cx", "2026-12-10", "2026-12-12", { cancelledAt: min(40) });
+    await refund("r-cx", "cx", "cancel:cx", "failed");
+    // A cancel that failed outright and dropped its claim (guest told, staff emailed then): no standing alert.
+    await res("cy", "2026-12-10", "2026-12-12");
+    await refund("r-cy", "cy", "cancel:cy", "failed");
+    // A cancellation that was settled since: no alert.
+    await res("cz", "2026-12-10", "2026-12-12", { status: "cancelled", cancelledAt: min(40) });
+    await refund("r-cz", "cz", "cancel:cz", "succeeded");
+    // A failed modification refund still blocks the confirmed booking → alert; a settled one does not.
+    await res("mx", "2026-12-10", "2026-12-12");
+    await refund("r-mx", "mx", "modify:mx:1", "failed", min(50));
+    await refund("r-mx2", "mx", "modify:mx:2", "succeeded");
+    // A failed stray-charge refund is the stray_refund_failed alert's, not this one's.
+    await res("st", "2026-12-10", "2026-12-12");
+    await refund("r-st", "st", "stray:REF-1", "failed");
+    const { alerts } = await getDashboard(db, propertyId, NOW);
+    const failed = alerts.filter((a) => a.kind === "refund_failed");
+    expect(failed.map((a) => a.reservationId).sort()).toEqual(["cx", "mx"]);
+    expect(failed.find((a) => a.reservationId === "mx")).toMatchObject({ code: "C-mx", since: min(50), detail: expect.stringContaining("700") });
+    expect(alertHref(failed[0])).toBe("/admin/refunds");
+    // Ranked with the other refund trouble, ahead of channel and email alerts.
+    const kinds = alerts.map((a) => a.kind);
+    expect(kinds.indexOf("refund_failed")).toBeLessThan(kinds.indexOf("email_failed") === -1 ? Infinity : kinds.indexOf("email_failed"));
+  });
+
   it("computes revenue as charges and front-desk payments minus refunds, by Taipei day and month", async () => {
     const { db, propertyId, res, pay } = await setup();
     await res("arr", "2026-11-24", "2026-11-26");

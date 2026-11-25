@@ -13,6 +13,7 @@ export const metadata = { title: "總覽" };
 const ALERT_LABEL: Record<AlertKind, string> = {
   stray_refund_failed: "無主款項退款失敗",
   payment_alert: "收款異常",
+  refund_failed: "退款失敗",
   refund_pending: "退款未完成",
   desk_refund_due: "櫃檯待退款",
   sync_failed: "通路同步失敗",

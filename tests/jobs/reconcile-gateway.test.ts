@@ -1,13 +1,15 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
+import { alertHref, getDashboard } from "@/lib/admin/dashboard";
+import { reconcileRefund } from "@/lib/admin/reconcile";
 import { cancelReservation } from "@/lib/booking/manage";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
-import { jobRuns, paymentEvents, payments } from "@/lib/db/schema";
+import { jobRuns, notifications, paymentEvents, payments } from "@/lib/db/schema";
 import {
   CHANNEL_RECONCILE_JOB, CRON_CHANNEL_RECONCILE, CRON_EVERY_5_MIN, CRON_GATEWAY_RECONCILE, CRON_JOB, GATEWAY_RECONCILE_JOB, recordJob, runCronTrigger,
 } from "@/lib/jobs/cron";
-import { runGatewayReconcile } from "@/lib/jobs/reconcile-gateway";
-import { bookingSetup, minutes, PAY_NOW } from "@/tests/helpers/booking";
+import { REFUND_FAILED_REF, runGatewayReconcile } from "@/lib/jobs/reconcile-gateway";
+import { bookingSetup, minutes, PAY_NOW, STAFF } from "@/tests/helpers/booking";
 
 const GUEST = "mei@example.com";
 
@@ -51,12 +53,40 @@ test("a pending refund the gateway reports succeeded is settled and the cancella
   expect((await reservation(code)).refundedAmount).toBe(amount);
 });
 
-test("a pending refund the gateway reports failed or not found is marked failed; the booking is left alone", async () => {
-  const { deps, gateway, code, reservation, refundRows } = await stuckCancellation();
+test("a pending refund the gateway reports not_found stays pending for staff (refund_pending), nothing emailed", async () => {
+  const { db, deps, gateway, propertyId, code, reservation, refundRows } = await stuckCancellation();
   vi.spyOn(gateway, "queryRefund").mockResolvedValueOnce({ status: "not_found" });
-  expect(await runGatewayReconcile(deps, minutes(15))).toMatchObject({ refundsChecked: 1, refundsFailed: 1 });
-  expect(await refundRows()).toMatchObject([{ status: "failed" }]);
+  expect(await runGatewayReconcile(deps, minutes(15))).toMatchObject({ refundsChecked: 1, refundsFailed: 0, refundsUnresolved: 1 });
+  expect(await refundRows()).toMatchObject([{ status: "pending" }]);
   expect(await reservation(code)).toMatchObject({ status: "confirmed", refundedAmount: 0 });
+  expect(await db.select().from(notifications).where(like(notifications.ref, `${REFUND_FAILED_REF}%`))).toEqual([]);
+  expect((await getDashboard(db, propertyId, minutes(15))).alerts.map((a) => a.kind)).toContain("refund_pending");
+});
+
+test("a pending refund the gateway reports failed is marked failed, staff are emailed once and the dashboard alerts", async () => {
+  const { db, deps, gateway, propertyId, code, id, reservation, refundRows } = await stuckCancellation();
+  vi.spyOn(gateway, "queryRefund").mockResolvedValueOnce({ status: "failed" });
+  expect(await runGatewayReconcile(deps, minutes(15))).toMatchObject({ refundsChecked: 1, refundsFailed: 1 });
+  const [row] = await refundRows();
+  expect(row).toMatchObject({ status: "failed" });
+  expect(await reservation(code)).toMatchObject({ status: "confirmed", refundedAmount: 0 });
+  const alerts = () => db.select().from(notifications).where(eq(notifications.ref, `${REFUND_FAILED_REF}${row.id}`));
+  expect(await alerts()).toMatchObject([{ kind: "staff_payment_alert", to: STAFF, reservationId: id }]);
+
+  const dash = async (at: Date) => (await getDashboard(db, propertyId, at)).alerts.filter((a) => a.kind === "refund_failed");
+  expect(await dash(minutes(15))).toMatchObject([{ reservationId: id, code }]);
+  expect(alertHref((await dash(minutes(15)))[0])).toBe("/admin/refunds");
+
+  // Not asked again (no longer pending), not emailed again.
+  expect(await runGatewayReconcile(deps, minutes(30))).toMatchObject({ refundsChecked: 0 });
+  expect(await alerts()).toHaveLength(1);
+
+  // A staff retry refunds and finishes the cancellation: the alert goes away.
+  const member = { id: "s-manager", email: "manager@nk.test", name: "m", role: "manager" as const, propertyIds: [propertyId], active: true };
+  const staff = { staff: member, email: member.email };
+  expect(await reconcileRefund(deps, staff, row.id, { kind: "retry" }, minutes(31))).toMatchObject({ ok: true, completed: "cancellation" });
+  expect(await reservation(code)).toMatchObject({ status: "cancelled" });
+  expect(await dash(minutes(31))).toEqual([]);
 });
 
 test("a refund query that is still pending or fails leaves the row pending", async () => {

@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte } from "drizzle-orm";
 import { finishFlow } from "@/lib/admin/reconcile";
 import { countsAsBookingRefund, markRefundFailed, settleRefundRow } from "@/lib/booking/confirm";
-import type { Deps } from "@/lib/booking/notify";
+import { notifyStaff, type Deps } from "@/lib/booking/notify";
 import { applyPaymentNotice } from "@/lib/booking/payment-notice";
 import { payments, reservations } from "@/lib/db/schema";
 
@@ -17,6 +17,9 @@ const SLOW_QUERY_EVERY_MS = 60 * 60_000;
 /** At most this many refunds and this many charge-attempt queries per run. */
 export const GATEWAY_RECONCILE_BATCH = 50;
 
+/** The staff alert's ref for a refund row this job found failed: one email per row. */
+export const REFUND_FAILED_REF = "refund-failed:";
+
 export type GatewayReconcileResult = {
   refundsChecked: number; refundsSettled: number; refundsFailed: number; refundsUnresolved: number;
   chargesChecked: number; chargesApplied: number;
@@ -30,8 +33,9 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * - Refund rows `pending` for over 10 minutes → queryRefund(idempotencyKey):
  *   succeeded → settled as refundOnce settles it (settleRefundRow), then the flow waiting on it is finished as
  *   refund reconciliation finishes it (finishFlow: a cancellation completes, a failed booking is refunded and
- *   closed); failed / not_found → marked failed (pending → failed only); pending or no answer → left pending for
- *   staff (the dashboard's refund_pending alert).
+ *   closed); failed → marked failed (pending → failed only), staff emailed once per row (staff_payment_alert) and
+ *   the dashboard's refund_failed alert raised while the row is still the booking's open intent; not_found, pending
+ *   or no answer → left pending for staff (the dashboard's refund_pending alert).
  * - Bookings whose latest payment attempt started under a day ago (any status) → queryTransaction for each
  *   attempt `<code>-1 … <code>-<chargeAttempt>` not yet recorded as a charge (the latest only once 10 minutes old),
  *   newest bookings first, every run for the first hour and hourly after that;
@@ -55,7 +59,9 @@ export async function runGatewayReconcile(deps: Deps, now: Date): Promise<Gatewa
     out.refundsChecked++;
     try {
       const q = await deps.gateway.queryRefund(row.idempotencyKey).catch((e: unknown) => ({ error: errorText(e) }));
-      if ("error" in q || q.status === "pending") {
+      // Only a definite answer changes the row. not_found is not one here: the gateway may simply not show the
+      // refund (yet), so the row stays pending for staff to check with the bank (the refund_pending alert).
+      if ("error" in q || q.status === "pending" || q.status === "not_found") {
         out.refundsUnresolved++;
         continue;
       }
@@ -65,6 +71,9 @@ export async function runGatewayReconcile(deps: Deps, now: Date): Promise<Gatewa
         out.refundsSettled++;
       } else {
         await markRefundFailed(deps.db, row.id);
+        // The refund_pending alert goes with the pending row: tell staff (once per row) and let the dashboard's
+        // refund_failed alert carry it until the row is retried or settled by hand.
+        await notifyStaff(deps, row.reservationId, "staff_payment_alert", now, {}, `${REFUND_FAILED_REF}${row.id}`);
         out.refundsFailed++;
       }
     } catch (e) {
