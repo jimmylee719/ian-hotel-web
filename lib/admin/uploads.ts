@@ -1,4 +1,6 @@
+import type { Db } from "@/lib/db/types";
 import { VARIANT_WIDTHS, variantKey } from "@/lib/media";
+import { recordAudit } from "./audit";
 import type { StaffContext } from "./auth";
 import { can } from "./permissions";
 
@@ -34,6 +36,14 @@ export type UploadOptions = {
   onVariantError?: (key: string, width: number, error: unknown) => void;
 };
 
+/**
+ * Where an upload's audit row goes. The row is entity "media", id = the R2 key, and it is owner-only in the audit
+ * viewer (media is not in its PROPERTY_OF): no property can be derived from the key alone (room slugs are unique
+ * only per property; news/ and pages/ keys name none), so it fails closed. `propertyId` (the room type's, or the
+ * staff member's current property) is still recorded in the row for the owner reading it.
+ */
+export type UploadAudit = { db: Db; propertyId: string; now: Date };
+
 export type UploadResult = { ok: true; key: string } | { ok: false; error: "TOO_LARGE" | "BAD_TYPE" | "BAD_PREFIX" | "FORBIDDEN" };
 
 const ascii = (b: Uint8Array, at: number, s: string) => [...s].every((c, i) => b[at + i] === c.charCodeAt(0));
@@ -66,12 +76,14 @@ export function imagesResizer(images: ImagesBinding): ImageResizer {
  * bytes) and the 8 MB cap are checked before anything is written. With a Cloudflare Images binding the
  * WebP width variants the site requests (lib/media.ts `variantKey`) are written too; without one (local
  * dev, tests) only the original is stored and the media route serves it in place of a missing variant.
+ * Once the original is in R2, the upload is audited (see UploadAudit); a refused or failed upload writes no row.
  */
 export async function uploadImage(
   env: UploadEnv,
   ctx: StaffContext,
   file: { bytes: Uint8Array; contentType: string; filename: string },
   prefix: UploadPrefix,
+  audit: UploadAudit,
   opts: UploadOptions = {},
 ): Promise<UploadResult> {
   if (!can(ctx.staff, "content.edit")) return { ok: false, error: "FORBIDDEN" };
@@ -83,6 +95,10 @@ export async function uploadImage(
   const { ext, contentType } = FORMATS[format];
   const key = `${prefix}/${crypto.randomUUID()}.${ext}`;
   await env.MEDIA.put(key, file.bytes, { httpMetadata: { contentType } });
+  await recordAudit(audit.db, ctx, {
+    action: "media.upload", entity: "media", entityId: key,
+    after: { key, propertyId: audit.propertyId, contentType, bytes: file.bytes.byteLength, filename: file.filename.slice(0, 200) },
+  }, audit.now);
 
   const resize = opts.resize ?? (env.IMAGES ? imagesResizer(env.IMAGES) : null);
   if (resize)

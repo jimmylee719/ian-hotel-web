@@ -21,16 +21,20 @@ const handle = withAdmin("content.edit", async (ctx, req) => {
   if (!form || !(file instanceof File)) return actionError("BAD_REQUEST");
 
   let prefix: UploadPrefix;
+  let propertyId: string;
+  const db = await getDb();
   const unitTypeId = form.get("unitTypeId");
   if (typeof unitTypeId === "string" && unitTypeId) {
-    const [u] = await (await getDb()).select({ slug: unitTypes.slug, propertyId: unitTypes.propertyId }).from(unitTypes).where(eq(unitTypes.id, unitTypeId));
+    const [u] = await db.select({ slug: unitTypes.slug, propertyId: unitTypes.propertyId }).from(unitTypes).where(eq(unitTypes.id, unitTypeId));
     if (!u) return actionError("NOT_FOUND");
     if (!can(ctx.staff, "content.edit", u.propertyId)) return actionError("FORBIDDEN");
     prefix = `rooms/${u.slug}`;
+    propertyId = u.propertyId;
   } else {
     const target = form.get("target");
     if (target !== "news" && target !== "pages") return actionError("BAD_PREFIX");
-    if (!can(ctx.staff, "content.edit", await currentProperty(ctx))) return actionError("FORBIDDEN");
+    propertyId = await currentProperty(ctx);
+    if (!can(ctx.staff, "content.edit", propertyId)) return actionError("FORBIDDEN");
     prefix = target;
   }
 
@@ -38,7 +42,7 @@ const handle = withAdmin("content.edit", async (ctx, req) => {
   const { env } = await getCloudflareContext({ async: true });
   const r = await uploadImage({ MEDIA: env.MEDIA, IMAGES: env.IMAGES }, ctx, {
     bytes: new Uint8Array(await file.arrayBuffer()), contentType: file.type, filename: file.name,
-  }, prefix);
+  }, prefix, { db, propertyId, now: new Date() });
   if (!r.ok) return actionError(r.error);
   return Response.json(r, { headers: { "Cache-Control": "no-store" } });
 });

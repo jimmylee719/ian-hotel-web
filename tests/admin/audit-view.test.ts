@@ -33,6 +33,7 @@ async function setup() {
   await log("staff", "some-staff");
   await log("mystery", "?");
   await log("property", propertyId, { staffEmail: "manager@nk.test", action: "property.update" });
+  await log("media", "rooms/mixed-cube/1.png", { action: "media.upload", after: { propertyId } });
   return { ...s, other, res };
 }
 
@@ -42,13 +43,13 @@ describe("listAudit", () => {
   test("a non-owner sees only rows tied to their properties, newest first", async () => {
     const { db, propertyId } = await setup();
     const p = await listAudit(db, [propertyId], { page: 1 });
-    expect(ids(p)).toEqual(["a7", "a2", "a1"]);
+    expect(ids(p)).toEqual(["a7", "a2", "a1"]); // not a8: uploads are owner-only
     expect(p.rows[0].propertyId).toBe(propertyId);
   });
 
   test("an owner also sees staff rows and rows tied to no property, but still not other properties", async () => {
     const { db, propertyId } = await setup();
-    expect(ids(await listAudit(db, [propertyId], { page: 1, includeUnscoped: true }))).toEqual(["a7", "a6", "a5", "a2", "a1"]);
+    expect(ids(await listAudit(db, [propertyId], { page: 1, includeUnscoped: true }))).toEqual(["a8", "a7", "a6", "a5", "a2", "a1"]);
   });
 
   test("the other property's viewer sees its own rows only", async () => {

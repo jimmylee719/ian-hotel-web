@@ -11,7 +11,8 @@ import { paginate, type Page } from "./paginate";
  *    insert audit rows with positional `insert … select` guarded statements, which a new column would break);
  *  - entities never move between properties, so the answer cannot drift;
  *  - an entity it does not know, or a row whose entity is gone, maps to NULL, which only owners see (fails closed).
- * Staff rows (and anything else not tied to a property) are NULL on purpose: owner-only.
+ * Staff rows (and anything else not tied to a property) are NULL on purpose: owner-only. So are photo uploads
+ * (entity media, id = R2 key): a key names no property reliably (see UploadAudit in lib/admin/uploads.ts).
  * A new audited entity must be added to PROPERTY_OF or it stays owner-only.
  */
 const PROPERTY_OF: Record<string, SQL> = {

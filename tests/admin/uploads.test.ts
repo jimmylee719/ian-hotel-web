@@ -1,4 +1,8 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
+import { auditLog } from "@/lib/db/schema";
+import type { Db } from "@/lib/db/types";
+import { createTestDb } from "../helpers/test-db";
 import type { StaffContext } from "@/lib/admin/auth";
 import { MAX_UPLOAD_BYTES, sniffImage, uploadImage, type ImageResizer, type MediaBucket } from "@/lib/admin/uploads";
 import { VARIANT_WIDTHS, variantKey } from "@/lib/media";
@@ -35,6 +39,10 @@ const AVIF = bytes(0, 0, 0, 0x1c, ...ascii("ftypavif"));
 const AVIS = bytes(0, 0, 0, 0x1c, ...ascii("ftypavis"));
 const HTML = new TextEncoder().encode("<!doctype html><script>alert(1)</script>");
 const SVG = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+/** Where an upload's audit row goes: a fresh test db, the property the upload is for, a fixed time. */
+let lastDb: Db;
+const audit = () => { lastDb = createTestDb() as unknown as Db; return { db: lastDb, propertyId: "p1", now: new Date(1_000) }; };
+const audits = () => lastDb.select().from(auditLog);
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 
 describe("sniffImage", () => {
@@ -55,9 +63,9 @@ describe("sniffImage", () => {
 describe("uploadImage", () => {
   test("HTML labelled image/jpeg is BAD_TYPE and nothing is written", async () => {
     const MEDIA = fakeBucket();
-    expect(await uploadImage({ MEDIA }, ctx(), { bytes: HTML, contentType: "image/jpeg", filename: "a.jpg" }, "rooms/deluxe-room"))
+    expect(await uploadImage({ MEDIA }, ctx(), { bytes: HTML, contentType: "image/jpeg", filename: "a.jpg" }, "rooms/deluxe-room", audit()))
       .toEqual({ ok: false, error: "BAD_TYPE" });
-    expect(await uploadImage({ MEDIA }, ctx(), { bytes: SVG, contentType: "image/svg+xml", filename: "a.svg" }, "news"))
+    expect(await uploadImage({ MEDIA }, ctx(), { bytes: SVG, contentType: "image/svg+xml", filename: "a.svg" }, "news", audit()))
       .toEqual({ ok: false, error: "BAD_TYPE" });
     expect(MEDIA.puts).toEqual([]);
   });
@@ -66,7 +74,7 @@ describe("uploadImage", () => {
     const MEDIA = fakeBucket();
     const big = new Uint8Array(9 * 1024 * 1024);
     big.set(PNG);
-    expect(await uploadImage({ MEDIA }, ctx(), { bytes: big, contentType: "image/png", filename: "big.png" }, "rooms/deluxe-room"))
+    expect(await uploadImage({ MEDIA }, ctx(), { bytes: big, contentType: "image/png", filename: "big.png" }, "rooms/deluxe-room", audit()))
       .toEqual({ ok: false, error: "TOO_LARGE" });
     expect(MAX_UPLOAD_BYTES).toBe(8 * 1024 * 1024);
     expect(MEDIA.puts).toEqual([]);
@@ -74,7 +82,7 @@ describe("uploadImage", () => {
 
   test("a PNG is stored as rooms/<slug>/<uuid>.png with the sniffed content type; no IMAGES binding = original only", async () => {
     const MEDIA = fakeBucket();
-    const r = await uploadImage({ MEDIA }, ctx(), { bytes: PNG, contentType: "application/octet-stream", filename: "x.jpg" }, "rooms/deluxe-room");
+    const r = await uploadImage({ MEDIA }, ctx(), { bytes: PNG, contentType: "application/octet-stream", filename: "x.jpg" }, "rooms/deluxe-room", audit());
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.key).toMatch(new RegExp(`^rooms/deluxe-room/${UUID.source}\\.png$`));
@@ -85,7 +93,7 @@ describe("uploadImage", () => {
     const MEDIA = fakeBucket();
     const calls: number[] = [];
     const resize: ImageResizer = async (_b, width) => (calls.push(width), new Uint8Array(width));
-    const r = await uploadImage({ MEDIA }, ctx(), { bytes: JPEG, contentType: "image/jpeg", filename: "a.jpg" }, "news", { resize });
+    const r = await uploadImage({ MEDIA }, ctx(), { bytes: JPEG, contentType: "image/jpeg", filename: "a.jpg" }, "news", audit(), { resize });
     if (!r.ok) throw new Error("upload failed");
     expect(r.key).toMatch(new RegExp(`^news/${UUID.source}\\.jpg$`));
     expect(calls).toEqual([...VARIANT_WIDTHS]);
@@ -98,7 +106,7 @@ describe("uploadImage", () => {
   test("a failing resizer keeps the original (findMedia falls back to it)", async () => {
     const MEDIA = fakeBucket();
     const resize: ImageResizer = async () => { throw new Error("images down"); };
-    const r = await uploadImage({ MEDIA }, ctx(), { bytes: WEBP, contentType: "image/webp", filename: "a.webp" }, "pages", { resize, onVariantError: () => {} });
+    const r = await uploadImage({ MEDIA }, ctx(), { bytes: WEBP, contentType: "image/webp", filename: "a.webp" }, "pages", audit(), { resize, onVariantError: () => {} });
     expect(r.ok).toBe(true);
     expect(MEDIA.puts.map((p) => p.key)).toEqual([r.ok ? r.key : ""]);
   });
@@ -106,9 +114,29 @@ describe("uploadImage", () => {
   test("rejects a bad prefix and staff without content.edit", async () => {
     const MEDIA = fakeBucket();
     const file = { bytes: PNG, contentType: "image/png", filename: "a.png" };
-    expect(await uploadImage({ MEDIA }, ctx(), file, "rooms/../x" as never)).toEqual({ ok: false, error: "BAD_PREFIX" });
-    expect(await uploadImage({ MEDIA }, ctx(), file, "other" as never)).toEqual({ ok: false, error: "BAD_PREFIX" });
-    expect(await uploadImage({ MEDIA }, ctx("front_desk"), file, "news")).toEqual({ ok: false, error: "FORBIDDEN" });
+    expect(await uploadImage({ MEDIA }, ctx(), file, "rooms/../x" as never, audit())).toEqual({ ok: false, error: "BAD_PREFIX" });
+    expect(await uploadImage({ MEDIA }, ctx(), file, "other" as never, audit())).toEqual({ ok: false, error: "BAD_PREFIX" });
+    expect(await uploadImage({ MEDIA }, ctx("front_desk"), file, "news", audit())).toEqual({ ok: false, error: "FORBIDDEN" });
     expect(MEDIA.puts).toEqual([]);
+  });
+
+  test("a stored upload writes one audit row (entity media, id = key) after the put; a refused one writes none (M-5)", async () => {
+    const MEDIA = fakeBucket();
+    const r = await uploadImage({ MEDIA }, ctx(), { bytes: PNG, contentType: "image/png", filename: "lobby.png" }, "rooms/deluxe-room", audit());
+    if (!r.ok) throw new Error("upload failed");
+    expect(await audits()).toMatchObject([{
+      staffEmail: "m@nk.test", action: "media.upload", entity: "media", entityId: r.key, at: 1_000,
+      after: { key: r.key, propertyId: "p1", contentType: "image/png", bytes: PNG.byteLength, filename: "lobby.png" },
+    }]);
+
+    expect(await uploadImage({ MEDIA }, ctx(), { bytes: HTML, contentType: "image/png", filename: "x.png" }, "news", audit())).toMatchObject({ ok: false });
+    expect(await audits()).toEqual([]);
+  });
+
+  test("an R2 put that fails writes no audit row", async () => {
+    const MEDIA: MediaBucket = { put: async () => { throw new Error("R2 down"); } };
+    const a = audit();
+    await expect(uploadImage({ MEDIA }, ctx(), { bytes: PNG, contentType: "image/png", filename: "a.png" }, "news", a)).rejects.toThrow("R2 down");
+    expect(await a.db.select().from(auditLog).where(eq(auditLog.entity, "media"))).toEqual([]);
   });
 });
