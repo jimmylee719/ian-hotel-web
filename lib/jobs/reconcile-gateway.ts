@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, like, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNotNull, isNull, like, lte, ne, notExists, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { finishFlow } from "@/lib/admin/reconcile";
 import { countsAsBookingRefund, markRefundFailed, settleRefundRow, type PaymentRow } from "@/lib/booking/confirm";
 import { notifyStaff, type Deps } from "@/lib/booking/notify";
@@ -28,7 +29,7 @@ export const FLOW_UNFINISHED_REF = "flow-unfinished:";
 
 export type GatewayReconcileResult = {
   refundsChecked: number; refundsSettled: number; refundsFailed: number; refundsUnresolved: number;
-  /** Settled cancel / fail refunds whose booking was left unfinished, finished (or tried and failed) by the sweep. */
+  /** Bookings the sweep's finishFlow completed (flowsFinished) or threw on (flowsFailed). */
   flowsFinished: number; flowsFailed: number;
   chargesChecked: number; chargesApplied: number;
   /** Set when the run stopped issuing gateway calls early: its wall-clock budget ran out, or too many errors in a row. */
@@ -55,7 +56,8 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * - Succeeded `cancel:<id>` refunds whose booking is still `confirmed`, and succeeded `fail:<id>:…` refunds whose
  *   booking is still `paid_pending_confirm` with syncState failed, settled over 10 minutes ago (a flow that died
  *   after its refund settled: a live cancel, a refundAndFail, or this job's own finishFlow) → finishFlow again;
- *   a flow that throws emails staff once per row and is tried again next run.
+ *   a flow that throws emails staff once per row and is tried again next run. A failed booking with another
+ *   `fail:` refund failed or pending is left to staff (never re-refunded here). flowsFinished counts completions.
  * One item failing is logged and counted as unresolved; it never stops the others. The run stops issuing gateway
  * calls 10 minutes after it started, or after 5 errors in a row (lib/jobs/budget.ts), and records `stoppedEarly`;
  * what it did not reach waits for the next run.
@@ -109,8 +111,18 @@ export async function runGatewayReconcile(
   // booking still holding the room. Only rows settled over GATEWAY_RECONCILE_AFTER_MS ago, so a live cancel or
   // refundAndFail that has just settled its refund and is finishing right now is never raced. finishFlow is
   // guarded (status as expected, intent succeeded) and safe to run again.
+  // A failed booking is finished only while none of its other `fail:` refunds is failed or pending: finishing would
+  // refund those again (refundOnce reopens a failed row), and a refund the gateway refused is staff's to retry or
+  // settle offline (it already carries the sync_failed and refund alerts) — never retried unattended here.
+  // One row per booking (a failed booking may have several), newest first, so bookings that never finish cannot
+  // starve a newer orphan out of the batch.
   const settledBefore = now.getTime() - GATEWAY_RECONCILE_AFTER_MS;
-  const orphans = await deps.db.select({ p: payments }).from(payments)
+  const sibling = alias(payments, "sibling");
+  const settled = sql<number>`max(coalesce(${payments.settledAt}, ${payments.createdAt}))`;
+  const orphans = await deps.db.select({
+    reservationId: payments.reservationId,
+    id: sql<string>`min(${payments.id})`, idempotencyKey: sql<string>`min(${payments.idempotencyKey})`,
+  }).from(payments)
     .innerJoin(reservations, eq(reservations.id, payments.reservationId))
     .where(and(
       eq(payments.kind, "refund"), eq(payments.status, "succeeded"),
@@ -120,20 +132,21 @@ export async function runGatewayReconcile(
         and(
           eq(reservations.status, "paid_pending_confirm"), eq(reservations.syncState, "failed"),
           like(payments.idempotencyKey, sql`'fail:' || ${reservations.id} || ':%'`),
+          notExists(deps.db.select({ one: sql`1` }).from(sibling).where(and(
+            eq(sibling.reservationId, reservations.id), eq(sibling.kind, "refund"),
+            like(sibling.idempotencyKey, sql`'fail:' || ${reservations.id} || ':%'`), ne(sibling.status, "succeeded"),
+          ))),
         ),
       ),
     ))
-    .orderBy(asc(payments.settledAt), asc(payments.id))
+    .groupBy(payments.reservationId)
+    .orderBy(desc(settled), asc(payments.reservationId))
     .limit(GATEWAY_RECONCILE_BATCH);
-  const seen = new Set<string>();
-  for (const { p: row } of orphans) {
-    if (seen.has(row.reservationId)) continue; // one finish per booking per run (a failed booking may have several)
-    seen.add(row.reservationId);
+  for (const row of orphans) {
     if (!budget.canCall()) break; // finishing may refund and call the channel
-    const finished = await finishOrAlert(deps, row, now);
-    budget.record(finished);
-    if (finished) out.flowsFinished++;
-    else out.flowsFailed++;
+    const r = await finishOrAlert(deps, row, now);
+    if (r === "threw") { out.flowsFailed++; budget.record(false); }
+    else if (r === "completed") { out.flowsFinished++; budget.record(true); }
   }
 
   // Every attempt of a payment started in the last day, whatever the booking's status since: a guest may pay on
@@ -186,15 +199,17 @@ export async function runGatewayReconcile(
 /**
  * finishFlow for a settled refund row. Never throws: a failure is logged and staff are emailed once per row
  * (staff_payment_alert, ref FLOW_UNFINISHED_REF + row id); the sweep tries again on later runs.
- * True when it ran without throwing.
+ * "completed" when finishFlow finished the flow, "unfinished" when it ran but left the booking as it was.
  */
-async function finishOrAlert(deps: Deps, row: Pick<PaymentRow, "id" | "idempotencyKey" | "reservationId">, now: Date): Promise<boolean> {
+async function finishOrAlert(
+  deps: Deps, row: Pick<PaymentRow, "id" | "idempotencyKey" | "reservationId">, now: Date,
+): Promise<"completed" | "unfinished" | "threw"> {
   try {
-    await finishFlow(deps, row.idempotencyKey, row.reservationId, now);
-    return true;
+    const r = await finishFlow(deps, row.idempotencyKey, row.reservationId, now);
+    return r.completed ? "completed" : "unfinished";
   } catch (e) {
     console.error(`gateway reconcile: finishing the flow of refund ${row.id} failed`, e);
     await notifyStaff(deps, row.reservationId, "staff_payment_alert", now, {}, `${FLOW_UNFINISHED_REF}${row.id}`);
-    return false;
+    return "threw";
   }
 }

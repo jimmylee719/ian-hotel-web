@@ -386,3 +386,55 @@ test("the run stops issuing gateway calls once its wall-clock budget is spent", 
   expect(await runGatewayReconcile(s.deps, minutes(15), { clock })).toMatchObject({ refundsChecked: 2, stoppedEarly: "deadline" });
   expect(tx).not.toHaveBeenCalled();
 });
+
+test("the sweep never reopens a failed sibling refund: a failed booking with one charge refunded and one refused is left to staff", async () => {
+  const s = await bookingSetup();
+  const code = await s.book();
+  const res0 = await s.reservation(code);
+  await s.db.insert(payments).values({
+    id: "charge-b", reservationId: res0.id, kind: "charge", method: "sinopac_online", amount: 100, status: "succeeded",
+    providerRef: "REF-B", createdAt: minutes(1).getTime(),
+  });
+  // Paid the wrong amount: refundAndFail refunds the first charge, the gateway refuses the second outright.
+  const real = s.gateway.refund.bind(s.gateway);
+  const refund = vi.spyOn(s.gateway, "refund")
+    .mockImplementationOnce(real)
+    .mockResolvedValueOnce({ ok: false, error: "WINDOW_CLOSED" });
+  await handlePaymentNotice(s.deps, await s.notice(code, { amount: PAY_NOW - 1 }), minutes(2));
+  const rows = () => s.db.select().from(payments).where(and(eq(payments.reservationId, res0.id), eq(payments.kind, "refund")));
+  expect((await rows()).map((r) => r.status).sort()).toEqual(["failed", "succeeded"]);
+  expect(await s.reservation(code)).toMatchObject({ status: "paid_pending_confirm", syncState: "failed" });
+  refund.mockClear();
+
+  for (const m of [15, 30, 45, 60]) expect(await runGatewayReconcile(s.deps, minutes(m))).toMatchObject({ flowsFinished: 0, flowsFailed: 0 });
+  expect(refund).not.toHaveBeenCalled();
+  expect((await rows()).find((r) => r.refundOf === "charge-b")).toMatchObject({ status: "failed" });
+  expect(await s.reservation(code)).toMatchObject({ status: "paid_pending_confirm", syncState: "failed" });
+});
+
+test("over 50 stuck orphan bookings do not starve a newer orphan: distinct bookings, newest first", async () => {
+  const s = await bookingSetup({ available: 80 });
+  const orphan = async (key: string, settledAt: number, refundOf?: string) => {
+    const code = await s.book({ idempotencyKey: key });
+    const res = await s.reservation(code);
+    await s.db.update(reservations).set({ status: "confirmed", syncState: "synced" }).where(eq(reservations.id, res.id));
+    const chargeId = `ch-${res.id}`;
+    await s.db.insert(payments).values({
+      id: chargeId, reservationId: res.id, kind: "charge", method: "sinopac_online", amount: PAY_NOW, status: "succeeded",
+      providerRef: `REF-${code}`, createdAt: minutes(1).getTime(),
+    });
+    await s.db.insert(payments).values({
+      id: `rf-${res.id}`, reservationId: res.id, kind: "refund", method: "sinopac_online", amount: PAY_NOW, status: "succeeded",
+      refundOf: refundOf ?? chargeId, idempotencyKey: `cancel:${res.id}`, providerRef: `R-${code}`, createdAt: settledAt, settledAt,
+    });
+    return code;
+  };
+  // Stuck: their intent points at no charge of theirs, so finishing never completes.
+  for (let i = 0; i < 55; i++) await orphan(`key-stuck-${String(i).padStart(4, "0")}`, minutes(1).getTime() + i, "no-such-charge");
+  const fresh = await orphan("key-fresh-0001", minutes(5).getTime());
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const r = await runGatewayReconcile(s.deps, minutes(30));
+  error.mockRestore();
+  expect(r).toMatchObject({ flowsFinished: 1 }); // only the one that actually completed counts
+  expect((await s.reservation(fresh)).status).toBe("cancelled");
+});
