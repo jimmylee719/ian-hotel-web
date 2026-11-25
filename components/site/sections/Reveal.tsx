@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
-import { revealEnabled } from "@/lib/design/motion";
+import { REVEAL_OBSERVER, revealEnabled } from "@/lib/design/motion";
 
 /**
- * Gentle fade-up on first scroll into view (once, threshold 0.15). Server HTML is always visible; the hidden starting
- * state is only armed on the client when motion is allowed, so reduced-motion and no-JS visitors see it as-is.
+ * Gentle fade-up on first scroll into view (once, when any part is above the bottom 10% of the viewport; see
+ * REVEAL_OBSERVER, which works for blocks of any height). Server HTML is always visible; the hidden starting state
+ * is only armed on the client when motion is allowed, so reduced-motion and no-JS visitors see it as-is.
  * Content already on screen when the observer first reports is never armed, so it does not fade out and back in.
  */
 export function Reveal({ children }: { children: ReactNode }) {
@@ -29,7 +30,7 @@ export function Reveal({ children }: { children: ReactNode }) {
           io.disconnect();
         }
       },
-      { threshold: 0.15 },
+      REVEAL_OBSERVER,
     );
     io.observe(el);
     return () => io.disconnect();

@@ -1277,6 +1277,23 @@ html:lang(en) .home-statement-text {
   background: none;
   cursor: zoom-in;
 }
+/* The frame clips its content (overflow: hidden), so the global 3px-outside focus ring would be cut off: draw it
+   inside the button as a fallback, and on the frame itself where :has() is supported (accent on paper, gold on ink). */
+.frame-open:focus-visible {
+  outline-offset: -4px;
+}
+@supports selector(:has(*)) {
+  .frame-open:focus-visible {
+    outline: none;
+  }
+  .frame:has(> .frame-open:focus-visible) {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+  }
+  .band-ink .frame:has(> .frame-open:focus-visible) {
+    outline-color: var(--color-gold);
+  }
+}
 /* Full-size viewer: a <dialog> showing the photo at its source size (up to 1100px). */
 .lightbox {
   margin: auto;

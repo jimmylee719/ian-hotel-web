@@ -1,7 +1,8 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PHOTO_DIMENSIONS, frameBox, frameHeight, maxSlotHeight, photoFits, pickFitting } from "@/lib/design/photo-fit";
+import { PHOTO_DIMENSIONS, frameBox, frameHeight, frameImageSize, maxSlotHeight, photoFits, pickFitting } from "@/lib/design/photo-fit";
+import { mediaSrcSet } from "@/lib/media";
 
 describe("photo dimensions manifest", () => {
   it("has an entry for every file under content/images and nothing else", () => {
@@ -66,6 +67,21 @@ describe("frameBox", () => {
     expect(frameBox("uploads/abc123.jpg", 596, 290)).toEqual({ known: false, fits: true, maxW: 596, h: 290 });
     // only own keys count as known
     expect(frameBox("constructor", 300, 200)).toEqual({ known: false, fits: true, maxW: 300, h: 200 });
+  });
+});
+
+describe("frameImageSize", () => {
+  it("is the recorded size for a known photo", () => {
+    expect(frameImageSize("rooms/rooms_76.jpg", 596, 290)).toEqual({ w: 1100, h: 440 });
+    expect(frameImageSize("amenities/amenities_32.jpg", 300, 210)).toEqual({ w: 960, h: 501 });
+  });
+  it("is the widest upload variant (1100px) at the slot's aspect ratio for a staff upload", () => {
+    expect(frameImageSize("uploads/abc123.jpg", 596, 290)).toEqual({ w: 1100, h: 535 });
+    expect(frameImageSize("uploads/abc123.jpg", 288, 210)).toEqual({ w: 1100, h: 802 });
+  });
+  it("lets a staff upload's srcset reach the 1100w variant for 2x screens", () => {
+    const { w } = frameImageSize("uploads/abc123.jpg", 288, 210);
+    expect(mediaSrcSet("uploads/abc123.jpg", w)).toContain("/media/_w1100/uploads/abc123.jpg.webp 1100w");
   });
 });
 
