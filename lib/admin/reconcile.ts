@@ -9,6 +9,7 @@ import type { Db } from "@/lib/db/types";
 import { todayInTaipei } from "@/lib/domain/dates";
 import { recordAudit, type AuditEntry } from "./audit";
 import type { StaffContext } from "./auth";
+import { looksLikeCardNumber } from "./front-desk";
 import { can } from "./permissions";
 
 export type RefundListRow = {
@@ -31,7 +32,18 @@ export async function listPendingRefunds(db: Db, propertyId: string, status: "pe
 
 type ReservationStatus = typeof reservations.$inferSelect["status"];
 
-export type ReconcileAction = { kind: "mark_succeeded"; providerRef: string } | { kind: "mark_failed" } | { kind: "retry" };
+/** How the hotel paid a refund back itself when the gateway would not (settle_offline). */
+export const OFFLINE_REFUND_METHODS = ["transfer", "cash", "edc"] as const;
+export type OfflineRefundMethod = (typeof OFFLINE_REFUND_METHODS)[number];
+const OFFLINE_METHOD_LABEL: Record<OfflineRefundMethod, string> = { transfer: "匯款", cash: "現金", edc: "刷卡機退刷" };
+/** Longest settle_offline reference. */
+export const OFFLINE_REFERENCE_MAX = 200;
+
+export type ReconcileAction =
+  | { kind: "mark_succeeded"; providerRef: string }
+  | { kind: "mark_failed" }
+  | { kind: "retry" }
+  | { kind: "settle_offline"; reference: string; method: OfflineRefundMethod };
 
 export type ReconcileResult =
   | {
@@ -43,7 +55,8 @@ export type ReconcileResult =
     }
   | {
       ok: false;
-      error: "NOT_FOUND" | "FORBIDDEN" | "ALREADY_RESOLVED" | "NOT_FAILED" | "PROVIDER_REF_REQUIRED" | "DUPLICATE_PROVIDER_REF" | "REFUND_FAILED";
+      error: "NOT_FOUND" | "FORBIDDEN" | "ALREADY_RESOLVED" | "NOT_FAILED" | "PROVIDER_REF_REQUIRED" | "DUPLICATE_PROVIDER_REF" | "REFUND_FAILED"
+        | "REFERENCE_REQUIRED" | "INVALID_REFERENCE" | "LOOKS_LIKE_CARD_NUMBER";
     };
 
 /** Refunds that count toward the booking's refundedAmount (as refundOnce is told for them); stray-charge refunds do not. */
@@ -58,6 +71,14 @@ const countsAsBookingRefund = (key: string | null) => !!key && (key.startsWith("
  * - `mark_failed`: pending → failed, nothing else; it is not retried automatically.
  * - `retry`: only a failed row (a succeeded one is ALREADY_RESOLVED); refundOnce again under the row's own key (the gateway's idempotency key), then
  *   finishes the flow as above.
+ * - `settle_offline`: a failed or pending row the gateway will never take (e.g. its refund window has passed), that
+ *   the hotel paid back itself by transfer, cash or card terminal. The reference (1–200 characters, never something
+ *   that looks like a card number) is required. Like mark_succeeded, in one batch guarded by the row's status as
+ *   read: the row → succeeded with providerRef `offline:<reference>` and a note saying how, refundedAmount bumped
+ *   for `cancel:` / `fail:` rows, the audit row; then finishFlow. A settled `modify:` row stops blocking cancels and
+ *   further modifications. The row keeps its online method on purpose: it still reverses the ONLINE charge (the
+ *   money the gateway took), so the money module counts it against onlineNet, not the desk; how the cash actually
+ *   moved is in the note and the audit row.
  */
 export async function reconcileRefund(
   deps: Deps, ctx: StaffContext, paymentId: string, action: ReconcileAction, now: Date,
@@ -86,25 +107,41 @@ export async function reconcileRefund(
     return { ok: true, status: "succeeded", ...await finishFlow(deps, row.idempotencyKey, row.reservationId, now) };
   }
 
-  if (row.status !== "pending") return { ok: false, error: "ALREADY_RESOLVED" };
-  const providerRef = action.kind === "mark_succeeded" ? action.providerRef.trim() : null;
-  if (action.kind === "mark_succeeded" && !providerRef) return { ok: false, error: "PROVIDER_REF_REQUIRED" };
+  let providerRef: string | null = null;
+  let note: string | undefined;
+  let extra: Record<string, unknown> = {};
+  if (action.kind === "settle_offline") {
+    if (row.status === "succeeded") return { ok: false, error: "ALREADY_RESOLVED" };
+    const reference = action.reference.trim();
+    if (!reference) return { ok: false, error: "REFERENCE_REQUIRED" };
+    if (reference.length > OFFLINE_REFERENCE_MAX || !OFFLINE_REFUND_METHODS.includes(action.method)) return { ok: false, error: "INVALID_REFERENCE" };
+    if (looksLikeCardNumber(reference)) return { ok: false, error: "LOOKS_LIKE_CARD_NUMBER" };
+    providerRef = `offline:${reference}`;
+    note = `線下退款（${OFFLINE_METHOD_LABEL[action.method]}）：${reference}`;
+    extra = { method: action.method, reference };
+  } else {
+    if (row.status !== "pending") return { ok: false, error: "ALREADY_RESOLVED" };
+    providerRef = action.kind === "mark_succeeded" ? action.providerRef.trim() : null;
+    if (action.kind === "mark_succeeded" && !providerRef) return { ok: false, error: "PROVIDER_REF_REQUIRED" };
+  }
+  const settles = action.kind !== "mark_failed";
 
-  // Every statement is guarded by "still pending", checked before the last one settles the row, so of two
-  // concurrent calls only one bumps refundedAmount and writes its audit row.
-  const stillPending = exists(db.select({ one: sql`1` }).from(payments).where(and(eq(payments.id, row.id), eq(payments.status, "pending"))));
+  // Every statement is guarded by "still in the status read" (pending, or failed for settle_offline), checked before
+  // the last one settles the row, so of two concurrent calls only one bumps refundedAmount and writes its audit row.
+  const fromStatus = row.status;
+  const unchanged = exists(db.select({ one: sql`1` }).from(payments).where(and(eq(payments.id, row.id), eq(payments.status, fromStatus))));
   const auditId = crypto.randomUUID();
-  const entry = audit(providerRef ? { providerRef } : {});
+  const entry = audit({ ...extra, ...(providerRef ? { providerRef } : {}) });
   const stmts = [
     db.insert(auditLog).select(sql`select ${auditId}, ${ctx.email}, ${entry.action}, ${entry.entity}, ${entry.entityId},
-      ${JSON.stringify(entry.before)}, ${JSON.stringify(entry.after)}, ${now.getTime()} where ${stillPending}`),
-    ...(action.kind === "mark_succeeded" && countsAsBookingRefund(row.idempotencyKey)
+      ${JSON.stringify(entry.before)}, ${JSON.stringify(entry.after)}, ${now.getTime()} where ${unchanged}`),
+    ...(settles && countsAsBookingRefund(row.idempotencyKey)
       ? [db.update(reservations).set({ refundedAmount: sql`${reservations.refundedAmount} + ${row.amount}` })
-        .where(and(eq(reservations.id, row.reservationId), stillPending))]
+        .where(and(eq(reservations.id, row.reservationId), unchanged))]
       : []),
     db.update(payments)
-      .set(action.kind === "mark_succeeded" ? { status: "succeeded", providerRef } : { status: "failed" })
-      .where(and(eq(payments.id, row.id), eq(payments.status, "pending"))),
+      .set(settles ? { status: "succeeded", providerRef, ...(note ? { note } : {}) } : { status: "failed" })
+      .where(and(eq(payments.id, row.id), eq(payments.status, fromStatus))),
   ];
   try {
     await runAtomic(db, stmts);

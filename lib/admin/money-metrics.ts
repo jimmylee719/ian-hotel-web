@@ -39,6 +39,9 @@ export const DESK_METHODS: readonly string[] = ["edc", "cash", "transfer"];
 /**
  * The one fold: succeeded MONEY_KINDS rows (of one reservation; amounts may be per-kind-and-method sums) into
  * metrics. A refund's `method` says where the money went back from: a desk method → the desk; else online.
+ * A refund the gateway refused and the hotel paid back itself (reconcile `settle_offline`, providerRef
+ * `offline:…`) keeps the online method of the charge it reverses, so it counts against onlineNet: the guest's
+ * online payment is what it gives back, even though the cash moved by transfer, cash or card terminal.
  */
 export function summarizeMoney(rows: { kind: string; amount: number; method?: string }[]): MoneyMetrics {
   let onlineNet = 0;

@@ -95,11 +95,19 @@ export function ResendNotificationAction({ notificationId, to }: { notificationI
   );
 }
 
-/** The reconcile actions on one refund row: pending → mark succeeded / mark failed; failed → retry. */
+const OFFLINE_LABEL = { transfer: "匯款", cash: "現金", edc: "刷卡機退刷" } as const;
+type OfflineMethod = keyof typeof OFFLINE_LABEL;
+
+/**
+ * The reconcile actions on one refund row: pending → mark succeeded / mark failed; failed → retry; both →
+ * 已線下退款 (settle_offline) for a refund the gateway will not take and the hotel paid back itself.
+ */
 export function ReconcileRefundActions({ paymentId, status, amount }: { paymentId: string; status: "pending" | "failed"; amount: number }) {
   const router = useRouter();
   const { show, view } = useToast();
   const [providerRef, setProviderRef] = useState("");
+  const [reference, setReference] = useState("");
+  const [offlineMethod, setOfflineMethod] = useState<OfflineMethod>("transfer");
   const url = `/api/admin/refunds/${encodeURIComponent(paymentId)}/reconcile`;
   const done = (r: { completed: string | null; reservationStatus?: string }, text: string) => {
     show(r.completed === "cancellation" ? `${text}，訂單已完成取消`
@@ -108,13 +116,32 @@ export function ReconcileRefundActions({ paymentId, status, amount }: { paymentI
     router.refresh();
   };
 
+  const offline = (
+    <ConfirmDialog triggerLabel="已線下退款" title="這筆退款已由飯店自行退還？" confirmLabel="標記已線下退款" danger
+      onConfirm={async () => {
+        if (!reference.trim()) throw new Error("請填寫參考資料");
+        done(await post(url, { kind: "settle_offline", reference, method: offlineMethod }), "已標記為線下退款");
+      }}>
+      <div className="adm-dialog-form">
+        <p>金流無法退款時（例如已超過可退款期限），飯店以匯款、現金或刷卡機把 {formatMoney(amount)} 退給旅客後才標記。不會再向金流退款。</p>
+        <label htmlFor={`offm-${paymentId}`}>退款方式</label>
+        <select id={`offm-${paymentId}`} value={offlineMethod} onChange={(e) => setOfflineMethod(e.target.value as OfflineMethod)}>
+          {(Object.keys(OFFLINE_LABEL) as OfflineMethod[]).map((m) => <option key={m} value={m}>{OFFLINE_LABEL[m]}</option>)}
+        </select>
+        <label htmlFor={`offr-${paymentId}`}>參考資料（必填，例如匯款末五碼、收據編號；請勿輸入卡號）</label>
+        <input id={`offr-${paymentId}`} required aria-required="true" maxLength={200} value={reference} onChange={(e) => setReference(e.target.value)} />
+      </div>
+    </ConfirmDialog>
+  );
+
   if (status === "failed")
     return (
       <>
         <ConfirmDialog triggerLabel="重試退款" title="重試這筆退款？" confirmLabel="重試"
           onConfirm={async () => done(await post(url, { kind: "retry" }), "已重試，退款成功")}>
           <p>會用原本的退款編號（idempotency key）再向金流退款 {formatMoney(amount)}。</p>
-        </ConfirmDialog>
+        </ConfirmDialog>{" "}
+        {offline}
         {view}
       </>
     );
@@ -134,7 +161,8 @@ export function ReconcileRefundActions({ paymentId, status, amount }: { paymentI
       <ConfirmDialog triggerLabel="標記失敗" title="確認這筆退款沒有成功？" confirmLabel="標記失敗" danger
         onConfirm={async () => done(await post(url, { kind: "mark_failed" }), "已標記為失敗，可以重試")}>
         <p>只會把狀態改成失敗，不會自動重試。之後可以在這裡按「重試退款」。</p>
-      </ConfirmDialog>
+      </ConfirmDialog>{" "}
+      {offline}
       {view}
     </>
   );

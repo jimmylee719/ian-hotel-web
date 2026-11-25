@@ -1,12 +1,14 @@
 import { and, eq } from "drizzle-orm";
-import { expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { StaffContext } from "@/lib/admin/auth";
 import { listPendingRefunds, reconcileRefund } from "@/lib/admin/reconcile";
-import { cancelReservation } from "@/lib/booking/manage";
+import { moneyOf } from "@/lib/admin/money-metrics";
+import { cancelReservation, findReservation } from "@/lib/booking/manage";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { auditLog, inventoryDaily, notifications, payments, reservations, staff } from "@/lib/db/schema";
 import { fillAri } from "@/tests/helpers/ari";
 import { bookingSetup, minutes, PAY_NOW } from "@/tests/helpers/booking";
+import { AT, ONE_NIGHT, tenK } from "@/tests/helpers/money";
 
 const PAID = 4960;
 const GUEST = "mei@example.com";
@@ -217,4 +219,67 @@ test("a reconcile that hits a second refund failure keeps the mismatch reason, s
   expect(kinds).toContain("payment_refunded");
   expect(kinds).not.toContain("booking_failed_refunded");
   expect(email.sent.filter((e) => e.to === GUEST)).toHaveLength(1);
+});
+
+describe("settle_offline: a refund the gateway will not take, paid back by the hotel itself (I-3)", () => {
+  const OFFLINE = { kind: "settle_offline" as const, reference: "匯款 0123-4567 末五碼 88123", method: "transfer" as const };
+
+  test("a failed cancel: row settled offline cancels the booking and gives its nights back; a second settle is ALREADY_RESOLVED", async () => {
+    const s = await droppedClaim();
+    const refund = vi.spyOn(s.gateway, "refund");
+    refund.mockClear();
+    expect(await s.avail("2026-12-10")).toBe(2);
+    expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER))
+      .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
+    expect(refund).not.toHaveBeenCalled(); // the money moved by bank transfer, not through the gateway
+    expect(await s.refundRows(s.id)).toMatchObject([{
+      status: "succeeded", amount: PAID, method: "sinopac_online", providerRef: `offline:${OFFLINE.reference}`,
+      note: expect.stringContaining("匯款"),
+    }]);
+    expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, frontDeskRefundDue: 0, cancelledAt: s.row.createdAt });
+    expect(await s.avail("2026-12-10")).toBe(3);
+    expect(await s.avail("2026-12-11")).toBe(3);
+    // Still an online refund: it reverses the online charge, so nothing is left online and the desk owes nothing.
+    expect(await moneyOf(s.db, s.id)).toMatchObject({ onlineNet: 0, frontDeskNet: 0, received: 0, refunded: PAID });
+    expect(await s.db.select().from(auditLog).where(eq(auditLog.entityId, s.row.id))).toMatchObject([{
+      action: "payment.reconcile", entity: "payment", staffEmail: s.manager.email,
+      before: { status: "failed" },
+      after: { kind: "settle_offline", method: "transfer", reference: OFFLINE.reference, providerRef: `offline:${OFFLINE.reference}` },
+    }]);
+
+    expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER)).toEqual({ ok: false, error: "ALREADY_RESOLVED" });
+    expect((await s.reservation(s.code)).refundedAmount).toBe(PAID);
+    expect(await s.db.select().from(auditLog).where(eq(auditLog.entityId, s.row.id))).toHaveLength(1);
+  });
+
+  test("a pending (outcome unknown) row can be settled offline too", async () => {
+    const s = await stuckCancellation();
+    expect(await reconcileRefund(s.deps, s.manager, s.row.id, { ...OFFLINE, method: "cash" }, LATER))
+      .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
+    expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID });
+  });
+
+  test("a failed modify: row settled offline lets the guest cancel again", async () => {
+    const s = await tenK();
+    vi.spyOn(s.gateway, "refund").mockResolvedValueOnce({ ok: false, error: "REFUND_WINDOW_CLOSED" });
+    expect(await s.modify(ONE_NIGHT)).toMatchObject({ ok: true, refundFailed: true });
+    expect(await findReservation(s.db, s.code, GUEST, AT)).toMatchObject({ canCancel: false, changePending: true });
+    const [row] = await s.refunds();
+    expect(await reconcileRefund(s.deps, s.manager, row.id, { ...OFFLINE, method: "edc" }, minutes(20)))
+      .toEqual({ ok: true, status: "succeeded", completed: null, reservationStatus: "confirmed" });
+    expect(await findReservation(s.db, s.code, GUEST, minutes(21))).toMatchObject({ canCancel: true, changePending: false, paid: 4000, refunded: 6000 });
+    expect((await s.row()).refundedAmount).toBe(0); // a modification refund never counted toward refundedAmount
+    expect(await cancelReservation(s.deps, s.code, GUEST, minutes(22))).toEqual({ ok: true, refunded: 4000, alreadyCancelled: false });
+  });
+
+  test("the reference is required, at most 200 characters and never a card number; staff need payments.reconcile", async () => {
+    const s = await droppedClaim();
+    const settle = (reference: string, who = s.manager) => reconcileRefund(s.deps, who, s.row.id, { ...OFFLINE, reference }, LATER);
+    expect(await settle("  ")).toEqual({ ok: false, error: "REFERENCE_REQUIRED" });
+    expect(await settle("x".repeat(201))).toEqual({ ok: false, error: "INVALID_REFERENCE" });
+    expect(await settle("退卡 4111 1111 1111 1111")).toEqual({ ok: false, error: "LOOKS_LIKE_CARD_NUMBER" });
+    expect(await settle("ok", s.frontDesk)).toEqual({ ok: false, error: "FORBIDDEN" });
+    expect(await s.refundRows(s.id)).toMatchObject([{ status: "failed" }]);
+    expect((await s.reservation(s.code)).status).toBe("confirmed");
+  });
 });
