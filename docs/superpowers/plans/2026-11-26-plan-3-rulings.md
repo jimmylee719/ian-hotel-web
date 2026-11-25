@@ -1,0 +1,48 @@
+# Plan 3 — executor rulings and deferred minors
+
+Decisions made during execution on the owner's behalf, and review findings deliberately deferred. Keep in view for Plan 4 and launch.
+
+## Rulings
+- Ruling: T6 runs after T5 even though it changes paidAmount semantics that T5's staffCancel relies on — T6 implementer must re-run/extend T5 tests with front-desk payments present — cost: none if followed.
+- Task 1: Ruling: local DEV_STAFF_EMAIL bypass checked before ACCESS_NOT_CONFIGURED (else local dev can't log in) — only when ENVIRONMENT=local; top-level env has workers_dev=false; DEV_STAFF_EMAIL must never be set as a deployed secret (DEPLOY.md note in Task 11) — cost: if someone deploys the default env with that secret, Access is bypassed.
+- Task 2: Ruling: paginate takes {rows(limit,offset), total()} instead of a drizzle builder — builder can't count itself — none. Ruling: requirePage(perm) wrapper redirects 403→/admin/forbidden — none.
+- Task 2: Ruling: admin uses a sans-serif UI font despite tokens.md "no sans" — plan says admin favours dense legibility over marketing look; tokens' serif is for the guest site — cost: cosmetic, revert in one line.
+- Task 2: Ruling: manual check on next dev instead of preview accepted — Task 11 Step 5 does the full e2e on preview — none.
+- Task 3: Ruling: inHouse = checkIn < today < checkOut (arrivals/departures separate) — none. Ruling: email_failed alerts limited to 7 days — avoids permanent noise; Task 5 resend clears them — cost: an unhandled failure >7d drops off the dashboard (still in reservation timeline).
+- Task 4: Ruling: balanceDue shown as "—" for cancelled/expired/confirm_failed_refunded — owing nothing on closed bookings — none.
+- Task 5: Ruling: override cap = online refundable (charges − refunds), excludes front_desk money — only gateway money is refundable online — none. Ruling: new payment_refunded email kind for amount-mismatch refunds (booking_failed_refunded wording says sold out) — none. Ruling: refundOnce success path now conditional on row not already succeeded (guards manual mark_succeeded + late attempt double count) — none.
+- Task 5: Ruling: upgraded Minors 1 (completion within lease no-ops) and 2 (RECONCILED overwrites failure marker → wrong email) into fix round 1 — both cause wrong guest outcomes — none.
+- Task 6: Ruling: void = payments.front_desk + role owner/manager inside function (no 14th permission) — keeps matrix as single source — none. Ruling: paidAmount split into onlineNetAmount (gateway paths) + receivedAmount (displays, emails, SiteMinder paidAmount) — none. Ruling: cancellation policy applies to total received; online part via gateway capped at online net; remainder frontDeskRefundDue persisted on reservation — none.
+- Task 6: review → spec ❌, 3 Important (record during in-flight cancel; void ignores cancel state; money vocabulary split). Fix round 1 dispatched + Ruling: guest cancels with frontDeskRefundDue>0 write audit as system:guest; upgraded Minor: reject card-number-like digit runs in authCode/note (PCI constraint).
+- Task 7: review → spec ❌, 3 Important. Ruling: CORRECTED controller ruling 2 — refund only true overpayment: overpaid=max(0,received−newTotal), online=min(overpaid,onlineNet), desk-due SET (recomputed, not +=) — my original rule over-refunded deposit bookings — cost of original: refunds/desk-due for money never paid.
+- Ruling: siteminder_ota bookings not modifiable by staff (NOT_MODIFIABLE/OTA_BOOKING) — OTA bookings change via OTA/SiteMinder — none.
+- Ruling: cancel blocked while a modify refund is unsettled (MODIFICATION_REFUND_PENDING, guest+staff); cancel policy base = received − outstanding desk-due; final desk-due = outstanding + cancel's desk portion.
+- Ruling: upgraded M-1 (guest manage view uses money module) and M-3 (desk record/void bump updatedAt) into fix round.
+- Task 7: Ruling: desk payout refused during in-flight cancel (CANCEL_IN_PROGRESS) — desk share not fixed yet — none. Ruling: cancelDeskDue column fixes the cancel's desk share with its intent; frontDeskRefundDue written only on completion — none.
+- Task 7: fix round 3/5 (2 addressed, 0 open; commits 042ee67..62de6ff). Ruling: EXCEEDS_RECEIVED error name and receivedWithout helper accepted.
+- Task 8: Ruling: variant naming _w<width>/<key>.webp follows existing variantKey/findMedia (my note was wrong) — none. Ruling: seedContent fills only blank fields on existing rooms (seedNk creates blank rooms), insert-only for pages/news/faqs — none. Ruling: unpublished pages 404 publicly — "delete" = unpublish — none. Ruling: no revalidatePath (all public routes force-dynamic) — none.
+- Task 9: Ruling: add-on/promo "delete" = active:false (referenced by reservations) — none. Ruling: read-only fields rejected 400 READ_ONLY_FIELD (not ignored) — none. Ruling: migration 0015 uppercases promo codes and adds unique addons(property,slug); aborts on collisions — no prod DB yet — cost: none now. Owner item: confirm check-in 15:00 / check-out 11:00.
+- Task 10: Ruling: numeric CSV cells raw (guard strings only) — negative net as text breaks Excel math; numbers can't inject formulas — none. Ruling: occupancy sold = confirmed nights + cancelled bookings' nights before Taipei cancel date — matches release rule — none. Ruling: cancellation rate is cohort-based with rateBase exposed — none.
+- Task 11: Ruling: audit property derived at read time from entity/entityId (AUDIT_PROPERTY_ENTITIES pinned by test), unknown → owner-only — no backfill needed, positional INSERT…SELECT writers unaffected — cost: a new audited entity must be added to the list or stays owner-only. Ruling: getSystemStatus/listAudit gained scope params — none. Owner item: keep Cloudflare Access MFA policy lists in sync when promoting staff.
+
+## Deferred minors
+- Task 1: minor (deferred): no clock tolerance on exp/nbf; no alg-confusion test; staff.email unique case-sensitive (Task 11 stores lowercase); withAdmin test skips 401 path / mock leak risk; (+5 more in task-1-review.md)
+- Task 2: minor (deferred): duplicate ConfirmDialog id; no nav↔page permission drift test; empty propertyIds edge case; Toast timer reset
+- Task 3: minor (deferred): 7 minors in task-3-review.md (untested 7-day window, non-direct channel & cancellation scoping untested)
+- Task 4: minor (deferred): guest totalSpent counts cancelled-with-charge-no-refund (pre-existing net semantics; actually correct as money kept); AdminAuthError existence oracle in note action; guests.ts restates netDelta in SQL; payment_events index; guest history per guest row not per email
+- Task 5: minor (deferred): audit not atomic with multi-step actions (staff-cancel/reconcile/resend) — acceptable post-hoc for multi-step flows; notifyGuest:false lost on reconcile completion; no concurrent mark_succeeded test; offline zero-refund cancels show 同步中 indefinitely
+- Task 5: minor (deferred): originalFailReason splits at first " (" (garbled reason if gateway text has it; marker survives); toast shows raw English status enum
+- Task 6: minor (deferred): no "desk refund handed back" action/alert (Task 11 or Plan 4 — surface on dashboard); positional INSERT…SELECT; untested admin routes
+- Task 6: minor (deferred): wrong error label (OVERPAY/ALREADY_VOIDED) when a dropped claim races (write still refused); guest audit insert not atomic with cancel
+- Task 7: minor (deferred): lastSyncError overwrite / not cleared after reconcile; booking unmodifiable for good after mark_failed on a modify refund (reconcile retry clears it)
+- Task 7: minor (deferred): received counts only succeeded rows, overstating held money while a modify refund intent is failed (non-blocking under correct desk-due arithmetic)
+- Task 8: minor (deferred): news/pages photo uploads have no images column to attach to; room save fails if any listed photo missing from prod R2 (DEPLOY: upload media before enabling admin edits)
+- Task 8: minor (deferred): seedContent refills cleared amenities/sizeSqm/images; content page slug change breaks fixed URL; no title/body length cap; uploads buffers full body before size check; room images accept any existing R2 key (+3 in task-8-review.md)
+- Task 9: minor (deferred): backfill uses today's plan terms; reservations without reservation_rooms get empty defaults; dead ratePlans join in guests.ts
+- Task 10: minor (deferred): bookings report pages of 50 → many D1 subrequests for large ranges
+- Task 10: minor (deferred): revenue split re-implements online/desk refund classification (reports.ts:373) — final review should weigh vs single-money-module rule; bookings report many queries / >50 paging untested; page lacks empty-property guard; CSV guard first char only (standard OWASP behaviour)
+- Task 11: minor (deferred): no test pinning audit.view ⊆ reservations.view pairing (+ others in task-11-review.md)
+- Final: minor (deferred): M-2 multi-charge cap pushes online money to desk-due (rare); M-6 refunds bucketed by created not settled date; M-8 hand-written data SQL in 0012/0013/0015/0016/0017 (verified on fresh D1; remote staging run outstanding); notifyGuest:false lost on reconcile completion
+- Final: minor (deferred): M-1 residual — stalled attempt's final transition writes its own stale desk share (needs >2min stall + definitive gateway failure)
+- Final: minor (deferred): M-3 — a push outliving SYNC_LEASE_MS can land stale at channel; Plan 4 adapter timeout must be < 2 min
+- Final: minor (deferred): settle_offline on a pending row doesn't warn the gateway may still complete; one transfer can't cover two rows (unique providerRef); reconcile route still requires online payments configured
