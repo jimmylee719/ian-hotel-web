@@ -23,7 +23,7 @@ export default async function ManageCodePage({ params }: Props) {
   const property = await loadProperty();
   return (
     <main id="main" className="wrap book-page">
-      <PageHead title={t("title")} />
+      <PageHead title={t("title")} theme="paper" />
       <ManageBooking
         code={decodeURIComponent(code).toUpperCase()}
         hotelPhone={property?.phone ?? CONTACT.phone}

@@ -20,7 +20,7 @@ export default async function ReturnPage({ params }: Props) {
   const t = await getTranslations({ locale, namespace: "bookingStatus" });
   return (
     <main id="main" className="wrap book-page">
-      <PageHead title={t("title")} />
+      <PageHead title={t("title")} theme="paper" />
       <ReturnStatus code={decodeURIComponent(code).toUpperCase()} />
     </main>
   );

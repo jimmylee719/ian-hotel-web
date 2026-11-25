@@ -6,7 +6,7 @@ import type { Locale } from "@/lib/db/schema";
 export async function BookingDisabledNotice({ locale }: { locale: Locale }) {
   const t = await getTranslations({ locale, namespace: "book" });
   return (
-    <div className="book-message" role="status">
+    <div className="book-message book-disabled" role="status">
       <h2>{t("disabledTitle")}</h2>
       <p>{t("disabledBody")}</p>
       <p>

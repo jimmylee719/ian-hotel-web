@@ -49,7 +49,7 @@ export default async function BookPage({ params, searchParams }: Props) {
   if (!(await bookingEnabled())) {
     return (
       <main id="main" className="wrap book-page">
-        <PageHead title={t("title")} />
+        <PageHead title={t("title")} theme="paper" />
         <BookingDisabledNotice locale={locale} />
       </main>
     );
@@ -73,7 +73,7 @@ export default async function BookPage({ params, searchParams }: Props) {
 
   return (
     <main id="main" className="wrap book-page">
-      <PageHead title={t("title")} />
+      <PageHead title={t("title")} theme="paper" />
       <div id={INLINE_BOOKING_ID} className="book-search">
         <BookingBar initial={{ ...stay, ...guests }} />
       </div>

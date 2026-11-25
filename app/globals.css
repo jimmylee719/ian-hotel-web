@@ -517,16 +517,11 @@ a {
   color: var(--color-on-ink-faint);
 }
 
-/* ---------- not found ---------- */
-.not-found {
-  padding: var(--space-9) 0;
-  max-width: 34em;
-}
-.not-found h1 {
+/* ---------- not found: ink head (PageHead) then a link back on paper ---------- */
+.not-found > p:last-child {
+  margin: 0;
+  padding-bottom: var(--space-9);
   font-family: var(--font-cjk);
-  font-weight: 500;
-  font-size: 30px;
-  letter-spacing: 0.16em;
 }
 .not-found a {
   color: var(--color-accent);

@@ -22,14 +22,14 @@ export default async function ManagePage({ params }: Props) {
   if (!(await bookingEnabled())) {
     return (
       <main id="main" className="wrap book-page narrow">
-        <PageHead title={t("title")} />
+        <PageHead title={t("title")} theme="paper" />
         <BookingDisabledNotice locale={locale} />
       </main>
     );
   }
   return (
     <main id="main" className="wrap book-page narrow">
-      <PageHead title={t("title")} lead={t("intro")} />
+      <PageHead title={t("title")} lead={t("intro")} theme="paper" />
       <ManageLookup />
     </main>
   );
