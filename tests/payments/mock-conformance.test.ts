@@ -9,8 +9,24 @@ import { MockSinoPacGateway } from "@/lib/payments/mock-sinopac";
 import { bookingSetup, minutes, PAY_NOW } from "@/tests/helpers/booking";
 import { paymentConformance } from "@/tests/conformance/payment";
 
+let attempt = 0;
 paymentConformance(() => new MockSinoPacGateway({ secret: "s", baseUrl: "https://hotel.test" }), {
-  fixtures: { signedNotice: (gw, n) => gw.signedNotice(n) },
+  fixtures: {
+    signedNotice: (gw, n) => gw.signedNotice(n),
+    // As in production: the attempt is started, then the provider's notice brings its own transaction ref.
+    paidAttempt: async (gw) => {
+      const code = `NK-PA${++attempt}`;
+      const merchantOrderNo = `${code}-1`;
+      await gw.startCharge({
+        reservationCode: code, merchantOrderNo, amount: 4000, locale: "en",
+        returnUrl: "https://hotel.test/r", notifyUrl: "https://hotel.test/n", description: "x",
+      });
+      const providerRef = `BANK-${merchantOrderNo}`;
+      const v = await gw.verifyNotice(await gw.signedNotice({ reservationCode: code, providerRef, amount: 4000, status: "succeeded", merchantOrderNo }));
+      if (!v.ok) throw new Error(v.error);
+      return { merchantOrderNo, providerRef, amount: 4000 };
+    },
+  },
 });
 
 const GUEST = "mei@example.com";

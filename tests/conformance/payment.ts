@@ -21,6 +21,12 @@ export type PaymentConformanceOptions<G extends PaymentGateway = PaymentGateway>
     tamper?: (signed: { headers: Record<string, string>; body: string }, notice: PaymentNotice) => { headers: Record<string, string>; body: string };
     /** A charge that succeeded at the provider, to refund (rules 2 and 4). Default: a made-up ref of NT$100. */
     paidCharge?: (gw: G) => Promise<{ providerRef: string; amount: number }>;
+    /**
+     * A payment attempt started with startCharge (under the returned merchantOrderNo) and then paid at the provider,
+     * whose verified notice carried `providerRef` and `amount` (rule 6). Required: without it rule 6 fails rather
+     * than being skipped.
+     */
+    paidAttempt?: (gw: G) => Promise<{ merchantOrderNo: string; providerRef: string; amount: number }>;
   };
 };
 
@@ -37,6 +43,11 @@ export function paymentConformance<G extends PaymentGateway>(make: () => G, opts
   const notice = (): PaymentNotice => {
     const code = fresh("NK-P");
     return { reservationCode: code, providerRef: fresh(`REF-${code}-`), amount: 4960, status: "succeeded" };
+  };
+  const paidAttempt = (gw: G) => {
+    const pay = opts.fixtures?.paidAttempt;
+    if (!pay) return expect.fail("fixtures.paidAttempt is required to check rule 6");
+    return pay(gw);
   };
   const signed = (gw: G, n: PaymentNotice) => {
     const sign = opts.fixtures?.signedNotice;
@@ -104,6 +115,36 @@ export function paymentConformance<G extends PaymentGateway>(make: () => G, opts
       const q = await gw.queryRefund(key);
       expect(q).toMatchObject({ status: "succeeded" });
       if ("status" in q && q.refundRef !== undefined) expect(q.refundRef).toBe(r.refundRef);
+    });
+
+    test("6. queryTransaction by a paid attempt's merchantOrderNo answers succeeded with the notice's providerRef and amount", async () => {
+      const gw = make();
+      const paid = await paidAttempt(gw);
+      expect(await gw.queryTransaction({ merchantOrderNo: paid.merchantOrderNo }))
+        .toMatchObject({ status: "succeeded", providerRef: paid.providerRef, amount: paid.amount });
+    });
+
+    test("6. queryTransaction by that providerRef gives the same answer", async () => {
+      const gw = make();
+      const paid = await paidAttempt(gw);
+      const byOrder = await gw.queryTransaction({ merchantOrderNo: paid.merchantOrderNo });
+      const byRef = await gw.queryTransaction({ providerRef: paid.providerRef });
+      expect(byRef).toMatchObject({ status: "succeeded", providerRef: paid.providerRef, amount: paid.amount });
+      expect(byRef).toEqual(byOrder);
+    });
+
+    test("6. an attempt never paid (or never started) is not_found or pending, never succeeded", async () => {
+      const gw = make();
+      const code = fresh("NK-Q");
+      const merchantOrderNo = `${code}-1`;
+      await gw.startCharge({
+        reservationCode: code, merchantOrderNo, amount: 100, locale: "en",
+        returnUrl: `${BASE}/return`, notifyUrl: `${BASE}/notify`, description: "CONFORMANCE",
+      });
+      for (const ref of [{ merchantOrderNo }, { merchantOrderNo: `${fresh("NK-N")}-1` }]) {
+        const q = await gw.queryTransaction(ref);
+        expect("status" in q && ["not_found", "pending"].includes(q.status), JSON.stringify(q)).toBe(true);
+      }
     });
 
     test("5. timeoutMs is set and at most 30000", () => {

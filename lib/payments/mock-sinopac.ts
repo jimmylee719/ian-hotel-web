@@ -96,15 +96,23 @@ export class MockSinoPacGateway implements PaymentGateway {
     if (!timingSafeEqual(given, await hmacHex(this.secret, req.body))) {
       return { ok: false, error: "BAD_SIGNATURE" };
     }
+    // The provider's notice carries its own transaction ref and, when it reports one, the attempt's order number.
     const known = this.charges.get(parsed.providerRef);
-    this.charges.set(parsed.providerRef, { merchantOrderNo: known?.merchantOrderNo, amount: parsed.amount, status: parsed.status });
+    const merchantOrderNo = parsed.merchantOrderNo ?? known?.merchantOrderNo;
+    this.charges.set(parsed.providerRef, { merchantOrderNo, amount: parsed.amount, status: parsed.status });
     return { ok: true, notice: parsed };
   }
 
+  /**
+   * By providerRef, or by merchantOrderNo: an attempt is first known under the ref startCharge made up and then, once
+   * paid, under the notice's ref; the settled outcome (succeeded, then failed) wins over the still-pending start.
+   */
   async queryTransaction(ref: { providerRef?: string; merchantOrderNo?: string }): Promise<TransactionQueryResult> {
-    const hit = [...this.charges].find(([providerRef, c]) =>
+    const rank = { succeeded: 0, failed: 1, pending: 2 } as const;
+    const hit = [...this.charges].filter(([providerRef, c]) =>
       (ref.providerRef !== undefined && providerRef === ref.providerRef) ||
-      (ref.merchantOrderNo !== undefined && c.merchantOrderNo === ref.merchantOrderNo));
+      (ref.merchantOrderNo !== undefined && c.merchantOrderNo === ref.merchantOrderNo))
+      .sort(([, a], [, b]) => rank[a.status] - rank[b.status])[0];
     if (!hit) return { status: "not_found" };
     const [providerRef, c] = hit;
     return { status: c.status, amount: c.amount, providerRef };
