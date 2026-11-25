@@ -11,6 +11,12 @@ export type AppEnv = {
   EMAIL_FROM?: string;
   STAFF_EMAILS?: string;
   BASE_URL?: string;
+  /** Cloudflare Access team domain, e.g. "nkhostel.cloudflareaccess.com" (scheme optional). Unset = admin locked. */
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  /** The Access application's AUD tag. Unset = admin locked. */
+  CF_ACCESS_AUD?: string;
+  /** Local dev only (ENVIRONMENT=local): act as this staff email without an Access JWT. */
+  DEV_STAFF_EMAIL?: string;
 };
 
 /**

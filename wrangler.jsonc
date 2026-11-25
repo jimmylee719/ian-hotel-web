@@ -14,7 +14,11 @@
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "nk-booking" }],
   "triggers": { "crons": ["*/5 * * * *"] },
   "workers_dev": false,
-  "vars": { "ENVIRONMENT": "local", "PAYMENT_MODE": "mock", "CHANNEL_MODE": "mock" },
+  // CF_ACCESS_* are left empty locally: the admin then uses DEV_STAFF_EMAIL from .dev.vars instead of a JWT.
+  "vars": {
+    "ENVIRONMENT": "local", "PAYMENT_MODE": "mock", "CHANNEL_MODE": "mock",
+    "CF_ACCESS_TEAM_DOMAIN": "", "CF_ACCESS_AUD": ""
+  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -32,7 +36,9 @@
       "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "nk-booking-production" }],
       "triggers": { "crons": ["*/5 * * * *"] },
       "workers_dev": false,
-      "vars": { "ENVIRONMENT": "production" },
+      // Set both CF_ACCESS_* to the Zero Trust team domain and the admin Access application's AUD tag
+      // before deploying; while either is empty every /admin request is 401 (fails closed).
+      "vars": { "ENVIRONMENT": "production", "CF_ACCESS_TEAM_DOMAIN": "", "CF_ACCESS_AUD": "" },
       "d1_databases": [
         {
           "binding": "DB",

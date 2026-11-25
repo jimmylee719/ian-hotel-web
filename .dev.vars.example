@@ -20,3 +20,8 @@ CHANNEL_MODE=mock
 # RESEND_API_KEY=re_xxx
 # EMAIL_FROM="NK Hostel <noreply@nkhostel.com>"
 # STAFF_EMAILS=front@nkhostel.com,manager@nkhostel.com
+
+# Staff admin (/admin). Production signs staff in through Cloudflare Access (CF_ACCESS_TEAM_DOMAIN and
+# CF_ACCESS_AUD in wrangler.jsonc). Locally, with ENVIRONMENT=local, act as this staff email instead;
+# it must exist (and be active) in the staff table. Ignored in any other ENVIRONMENT.
+# DEV_STAFF_EMAIL=owner@nkhostel.com
