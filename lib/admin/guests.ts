@@ -1,7 +1,7 @@
 import { and, count, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { guests, payments, ratePlans, reservationRooms, reservations, unitTypes } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
-import { balanceDue, MONEY_KINDS, moneyByReservation } from "./money-metrics";
+import { displayMoney, MONEY_KINDS, moneyByReservation } from "./money-metrics";
 import { paginate, type Page } from "./paginate";
 import { containsText } from "./search";
 import { nightsBetween, type ResStatus } from "./reservations";
@@ -62,7 +62,7 @@ export async function listGuests(
 
 export type GuestHistoryRow = {
   id: string; code: string; status: ResStatus; checkIn: string; checkOut: string; nights: number;
-  roomName: string; total: number; paid: number; refunded: number; balanceDue: number;
+  roomName: string; total: number; paid: number; refunded: number; balanceDue: number | null;
 };
 
 export type GuestDetail = Omit<GuestListRow, "reservationCount"> & {
@@ -95,8 +95,8 @@ export async function getGuest(db: Db, propertyId: string, id: string): Promise<
     const m = money.get(r.id)!;
     return {
       id: r.id, code: r.code, status: r.status, checkIn: r.checkIn, checkOut: r.checkOut, nights: nightsBetween(r.checkIn, r.checkOut),
-      roomName: [...new Set(names.get(r.id) ?? [])].join("、"), total: r.totalAmount, paid: m.paid, refunded: m.refunded,
-      balanceDue: balanceDue(r.totalAmount, m),
+      roomName: [...new Set(names.get(r.id) ?? [])].join("、"), total: r.totalAmount,
+      ...displayMoney(r.status, { total: r.totalAmount, received: m.paid, refunded: m.refunded }),
     };
   });
   return {

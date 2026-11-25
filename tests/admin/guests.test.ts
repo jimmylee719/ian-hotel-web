@@ -74,6 +74,7 @@ describe("getGuest", () => {
     expect(g).toMatchObject({ id: "g1", name: "Amy Chen", email: "a@x.com", phone: "0912", country: "TW", stays: 1, totalSpent: 4000 });
     expect(g.reservations.map((r) => r.id)).toEqual(["r2", "r1"]);
     expect(g.reservations.find((r) => r.id === "r1")).toMatchObject({ code: "C-r1", paid: 4000, balanceDue: 0, roomName: "男.女混合雙人旅艙" });
+    expect(g.reservations.find((r) => r.id === "r2")).toMatchObject({ status: "cancelled", paid: 0, balanceDue: null });
     expect(await getGuest(db, propertyId, "g9")).toBeNull();
     expect(await getGuest(db, propertyId, "nope")).toBeNull();
   });

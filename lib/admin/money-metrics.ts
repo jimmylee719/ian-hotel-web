@@ -23,6 +23,23 @@ export const EMPTY_METRICS: MoneyMetrics = { paid: 0, refunded: 0, net: 0 };
 /** What is still owed on a reservation: its total minus the net received. Negative when overpaid. */
 export const balanceDue = (total: number, m: MoneyMetrics): number => total - m.net;
 
+/** Statuses whose booking owes nothing, whatever its payment history says. */
+export const CLOSED_STATUSES: readonly string[] = ["cancelled", "expired", "confirm_failed_refunded"];
+
+export type DisplayMoney = {
+  /** Net received (gross received minus refunds): what the 已收（淨額）figure shows everywhere. */
+  paid: number;
+  refunded: number;
+  /** What is still owed; null (shown as "—") for closed bookings. */
+  balanceDue: number | null;
+};
+
+/** The one rule for the money figures staff see: list, detail and guest pages all go through here. */
+export function displayMoney(status: string, m: { total: number; received: number; refunded: number }): DisplayMoney {
+  const paid = m.received - m.refunded;
+  return { paid, refunded: m.refunded, balanceDue: CLOSED_STATUSES.includes(status) ? null : m.total - paid };
+}
+
 /** Fold succeeded payment rows (of one reservation) into metrics. */
 export function summarizeMoney(rows: { kind: string; amount: number }[]): MoneyMetrics {
   let paid = 0;

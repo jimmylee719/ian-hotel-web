@@ -17,8 +17,6 @@ const STATUS_LABEL: Record<string, string> = {
   confirm_failed_refunded: "確認失敗，已退款", cancelled: "已取消", expired: "已逾時",
 };
 const SYNC_LABEL: Record<string, string> = { not_required: "無需同步", pending: "同步中", synced: "已同步", failed: "同步失敗" };
-/** A cancelled or expired reservation owes nothing, whatever its payment history says. */
-const owes = (r: ReservationListRow) => r.status !== "cancelled" && r.status !== "expired" && r.status !== "confirm_failed_refunded";
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const ctx = await requirePage("reservations.view");
@@ -36,8 +34,9 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
     { key: "room", header: "房型", render: (r) => r.roomName },
     { key: "guest", header: "旅客", render: (r) => r.guestName },
     { key: "total", header: "總額", align: "right", render: (r) => <Money amount={r.total} /> },
-    { key: "paid", header: "已收", align: "right", render: (r) => <Money amount={r.paid - r.refunded} /> },
-    { key: "due", header: "待收", align: "right", render: (r) => (owes(r) ? <Money amount={r.balanceDue} /> : <span className="adm-muted">—</span>) },
+    { key: "paid", header: "已收（淨額）", align: "right", render: (r) => <Money amount={r.paid} /> },
+    { key: "refunded", header: "已退", align: "right", render: (r) => <Money amount={r.refunded} /> },
+    { key: "due", header: "待收", align: "right", render: (r) => (r.balanceDue !== null ? <Money amount={r.balanceDue} /> : <span className="adm-muted">—</span>) },
     { key: "createdAt", header: "建立時間", sortable: true, render: (r) => <span className="adm-num">{new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Taipei", dateStyle: "short", timeStyle: "short" }).format(r.createdAt)}</span> },
   ];
 

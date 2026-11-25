@@ -16,7 +16,9 @@ const columns: Column<GuestHistoryRow>[] = [
   { key: "stay", header: "住宿日期", render: (r) => <span className="adm-num">{r.checkIn} → {r.checkOut}（{r.nights} 晚）</span> },
   { key: "room", header: "房型", render: (r) => r.roomName },
   { key: "total", header: "總額", align: "right", render: (r) => <Money amount={r.total} /> },
-  { key: "paid", header: "已收", align: "right", render: (r) => <Money amount={r.paid - r.refunded} /> },
+  { key: "paid", header: "已收（淨額）", align: "right", render: (r) => <Money amount={r.paid} /> },
+  { key: "refunded", header: "已退", align: "right", render: (r) => <Money amount={r.refunded} /> },
+  { key: "due", header: "待收", align: "right", render: (r) => (r.balanceDue !== null ? <Money amount={r.balanceDue} /> : <span className="adm-muted">—</span>) },
 ];
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {

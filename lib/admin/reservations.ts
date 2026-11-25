@@ -8,7 +8,7 @@ import {
 import type { Db } from "@/lib/db/types";
 import { auditStatement } from "./audit";
 import { AdminAuthError, type StaffContext } from "./auth";
-import { balanceDue, moneyByReservation, type MoneyMetrics } from "./money-metrics";
+import { displayMoney, type DisplayMoney, moneyByReservation } from "./money-metrics";
 import { paginate, type Page } from "./paginate";
 import { can } from "./permissions";
 import { containsText } from "./search";
@@ -40,9 +40,11 @@ export type ReservationListRow = {
   roomName: string;
   guestName: string;
   total: number;
+  /** Net received (charges and front-desk payments minus refunds). */
   paid: number;
   refunded: number;
-  balanceDue: number;
+  /** Null for closed bookings. */
+  balanceDue: number | null;
   createdAt: number;
 };
 
@@ -99,10 +101,10 @@ export async function listReservations(db: Db, propertyId: string, f: Reservatio
       const ids = base.map((r) => r.id);
       const [rooms, money] = await Promise.all([roomNames(db, ids), moneyByReservation(db, ids)]);
       return base.map(({ firstName, lastName, ...r }): ReservationListRow => {
-        const m = money.get(r.id)!;
+        const m = displayMoney(r.status, { total: r.total, received: money.get(r.id)!.paid, refunded: money.get(r.id)!.refunded });
         return {
           ...r, nights: nightsBetween(r.checkIn, r.checkOut), roomName: rooms.get(r.id) ?? "",
-          guestName: nameOf({ firstName, lastName }), paid: m.paid, refunded: m.refunded, balanceDue: balanceDue(r.total, m),
+          guestName: nameOf({ firstName, lastName }), ...m,
         };
       });
     },
@@ -122,7 +124,8 @@ export type ReservationDetail = {
   guest: { id: string; name: string; email: string; phone: string; country: string };
   quote: unknown;
   rooms: { unitTypeName: string; ratePlanName: string; nightlyPrices: number[] }[];
-  money: MoneyMetrics & { balanceDue: number };
+  /** `paid` is net; `received` is the gross before refunds. */
+  money: DisplayMoney & { received: number };
   payments: {
     id: string; kind: string; method: string; status: string; amount: number; last4: string | null; authCode: string | null;
     providerRef: string | null; idempotencyKey: string | null; refundOf: string | null; createdAt: number;
@@ -193,7 +196,7 @@ export async function getReservationDetail(db: Db, propertyId: string, id: strin
     guest: { id: g.id, name: nameOf(g), email: g.email, phone: g.phone, country: g.country },
     quote: r.quote,
     rooms: rooms.map((x) => ({ unitTypeName: x.unit["zh-TW"], ratePlanName: x.plan["zh-TW"], nightlyPrices: x.nightlyPrices })),
-    money: { ...metrics, balanceDue: balanceDue(r.totalAmount, metrics) },
+    money: { ...displayMoney(r.status, { total: r.totalAmount, received: metrics.paid, refunded: metrics.refunded }), received: metrics.paid },
     payments: pays.map((p) => ({
       id: p.id, kind: p.kind, method: p.method, status: p.status, amount: p.amount, last4: p.last4, authCode: p.authCode,
       providerRef: p.providerRef, idempotencyKey: p.idempotencyKey, refundOf: p.refundOf, createdAt: p.createdAt,

@@ -110,9 +110,10 @@ export default async function Page({
           <h2 className="adm-h2">金額</h2>
           <dl className="adm-dl">
             <dt>總額</dt><dd><Money amount={r.totalAmount} /></dd>
-            <dt>已收</dt><dd><Money amount={d.money.paid} /></dd>
+            <dt>已收（淨額）</dt><dd><Money amount={d.money.paid} /></dd>
             <dt>已退</dt><dd><Money amount={d.money.refunded} /></dd>
-            <dt>待收</dt><dd><Money amount={d.money.balanceDue} /></dd>
+            <dt>待收</dt><dd>{d.money.balanceDue !== null ? <Money amount={d.money.balanceDue} /> : <span className="adm-muted">—</span>}</dd>
+            <dt>已收款（退款前）</dt><dd className="adm-muted"><Money amount={d.money.received} /></dd>
           </dl>
         </section>
       </div>

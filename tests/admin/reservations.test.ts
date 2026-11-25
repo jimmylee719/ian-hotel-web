@@ -117,7 +117,7 @@ describe("listReservations", () => {
     const [row] = (await listReservations(db, propertyId, base)).rows;
     expect(row).toMatchObject({
       id: "a", code: "C-a", status: "confirmed", syncState: "synced", checkIn: "2026-12-01", checkOut: "2026-12-03", nights: 2,
-      roomName: "男.女混合雙人旅艙", guestName: "Mei L1", total: 4000, paid: 3500, refunded: 500, balanceDue: 1000,
+      roomName: "男.女混合雙人旅艙", guestName: "Mei L1", total: 4000, paid: 3000, refunded: 500, balanceDue: 1000,
     });
     expect(typeof row.createdAt).toBe("number");
   });
@@ -191,7 +191,25 @@ describe("getReservationDetail", () => {
     await pay("p1", "a", "charge", 3000, T(1));
     await pay("p2", "a", "refund", 1000, T(2));
     const d = (await getReservationDetail(db, propertyId, "a"))!;
-    expect(d.money).toEqual({ paid: 3000, refunded: 1000, net: 2000, balanceDue: 2000 });
+    expect(d.money).toEqual({ paid: 2000, refunded: 1000, balanceDue: 2000, received: 3000 });
+  });
+
+  it("shows the same paid and balanceDue as the list row, including for a closed booking", async () => {
+    const { db, propertyId, res, pay } = await setup();
+    await res("open", { totalAmount: 4000 });
+    await pay("p1", "open", "charge", 3000, T(1));
+    await pay("p2", "open", "refund", 1000, T(2));
+    await res("closed", { totalAmount: 4000, status: "cancelled" });
+    await pay("p3", "closed", "charge", 4000, T(3));
+    await pay("p4", "closed", "refund", 4000, T(4));
+    const rows = new Map((await listReservations(db, propertyId, base)).rows.map((r) => [r.id, r]));
+    for (const id of ["open", "closed"]) {
+      const d = (await getReservationDetail(db, propertyId, id))!;
+      expect({ paid: rows.get(id)!.paid, refunded: rows.get(id)!.refunded, balanceDue: rows.get(id)!.balanceDue })
+        .toEqual({ paid: d.money.paid, refunded: d.money.refunded, balanceDue: d.money.balanceDue });
+    }
+    expect(rows.get("open")!.balanceDue).toBe(2000);
+    expect(rows.get("closed")!.balanceDue).toBeNull();
   });
 });
 
