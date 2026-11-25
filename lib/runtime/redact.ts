@@ -44,12 +44,7 @@ export function redact(s: string): string {
 /** redact for any log argument: strings and Error messages/stacks are masked; plain data is masked through JSON. */
 export function redactValue(v: unknown): unknown {
   if (typeof v === "string") return redact(v);
-  if (v instanceof Error) {
-    const copy = new Error(redact(v.message));
-    copy.name = v.name;
-    copy.stack = v.stack === undefined ? undefined : redact(v.stack);
-    return copy;
-  }
+  if (v instanceof Error) return redactError(v, 0);
   if (v === null || typeof v !== "object") return v;
   let json: string | undefined;
   try {
@@ -65,4 +60,21 @@ export function redactValue(v: unknown): unknown {
   } catch {
     return masked;
   }
+}
+
+/** How deep an Error's cause chain is followed (drizzle wraps the SQLite/D1 error one level down). */
+const MAX_CAUSE_DEPTH = 5;
+
+/**
+ * A redacted copy of an Error: message and stack masked, name kept, and its `cause` chain kept (each cause redacted
+ * the same way, up to MAX_CAUSE_DEPTH levels), so a DrizzleQueryError still shows the SQLite/D1 reason underneath.
+ */
+function redactError(e: Error, depth: number): Error {
+  const copy = new Error(redact(e.message));
+  copy.name = e.name;
+  copy.stack = e.stack === undefined ? undefined : redact(e.stack);
+  if (e.cause !== undefined && depth < MAX_CAUSE_DEPTH) {
+    copy.cause = e.cause instanceof Error ? redactError(e.cause, depth + 1) : redactValue(e.cause);
+  }
+  return copy;
 }

@@ -61,3 +61,21 @@ test("log redacts string arguments and Error messages/stacks, keeping the consol
   log.warn({ password: "x", ok: 1 });
   expect(warn).toHaveBeenCalledWith({ password: REDACTED, ok: 1 });
 });
+
+test("log keeps an Error's cause chain, redacted: the root reason survives, secrets in it do not", () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  const root = new Error("D1_ERROR: UNIQUE constraint failed: notifications.id token=s3cr3t");
+  const mid = new Error("SqliteError wrapper", { cause: root });
+  const top = new Error("Failed query: insert into x params: 4111111111111111", { cause: mid });
+  log.error("notify failed", top);
+  const err = error.mock.calls[0][1] as Error;
+  expect(err.message).toBe(`Failed query: insert into x params: ${REDACTED}`);
+  const c1 = err.cause as Error;
+  expect(c1).toBeInstanceOf(Error);
+  expect(c1.message).toBe("SqliteError wrapper");
+  const c2 = c1.cause as Error;
+  expect(c2.message).toBe(`D1_ERROR: UNIQUE constraint failed: notifications.id token=${REDACTED}`);
+  expect(c2.stack).not.toContain("s3cr3t");
+  log.error("x", new Error("y", { cause: "password=hunter2" }));
+  expect((error.mock.calls[1][1] as Error).cause).toBe(`password=${REDACTED}`);
+});
