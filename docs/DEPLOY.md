@@ -104,6 +104,11 @@ by the build.
    - `www.nkhostel.com` with path `/api/admin*`
    Session duration: 8 to 24 hours. Leave the identity providers you will use enabled (one-time PIN by email,
    and/or Google Workspace).
+   **Cookie settings** (the application's Settings → Advanced settings → Cookie settings): set **SameSite
+   Attribute** to **Lax** (or Strict) and turn **HTTP Only** on. With SameSite=None the `CF_Authorization` cookie
+   travels on requests other sites make, and Access would add a valid JWT to a forged admin POST. The app also
+   refuses any non-GET admin request whose `Origin` / `Sec-Fetch-Site` is not this site (403 `CSRF_REJECTED`) and
+   any JSON body not sent as `application/json` (415), but the cookie setting is the first line of defence.
 2. **Policy for owners and managers, with MFA.** Add an **Allow** policy, e.g. `owners-managers`:
    - Include → Emails: every owner's and manager's address.
    - Require → Authentication method → `mfa` (Google Workspace accounts need 2-Step Verification on;
@@ -124,7 +129,8 @@ by the build.
    `CF_ACCESS_TEAM_DOMAIN`, after removing the empty vars). Redeploy.
 5. **Check.** In a private window open `https://www.nkhostel.com/admin`: Access must ask you to sign in first.
    `curl -i https://www.nkhostel.com/api/admin/staff -X POST` must be redirected to Access (or 401/403), never
-   reach the app unauthenticated. After signing in, `/admin/system` must show Cloudflare Access「已設定」.
+   reach the app unauthenticated. After signing in, `/admin/system` must show Cloudflare Access「已設定」. In the
+   browser's dev tools, the `CF_Authorization` cookie must show `SameSite=Lax` (or `Strict`) and `HttpOnly`.
 
 **`DEV_STAFF_EMAIL` must never be set as a deployed secret** (production or any staging Worker). It is the local
 sign-in shortcut: with `ENVIRONMENT=local` it makes every request that staff member without any Access check. It
@@ -187,8 +193,12 @@ as `--remote`).
   `POST /api/bookings` must answer 503.
 - [ ] Resend: verify the sending domain (SPF, DKIM) for `EMAIL_FROM`, then send a test inquiry.
 - [ ] Cloudflare Access application for `/admin*` and `/api/admin*` on the production hostname, owner/manager
-  policy requiring MFA, `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` filled in
-  ([Cloudflare Access 設定](#cloudflare-access-設定)).
+  policy requiring MFA, cookie **SameSite=Lax (or Strict) and HTTP Only**, `CF_ACCESS_TEAM_DOMAIN` and
+  `CF_ACCESS_AUD` filled in ([Cloudflare Access 設定](#cloudflare-access-設定)).
+- [ ] The `IMAGES` binding (`wrangler.jsonc`) needs **Cloudflare Images enabled on the account** (dashboard →
+  Images). Without it the binding cannot transform, so admin uploads store only the original (each failed variant
+  is logged, the upload still succeeds) and `/media` serves the full-size original in place of the WebP variants.
+  After enabling it, upload one photo in `/admin/content` and check that `/media/_w480/<key>.webp` answers 200.
 - [ ] First owner created by the owner with the `--remote` SQL template ([建立第一位 owner](#建立第一位-owner)),
   and a second owner added in `/admin/staff`.
 - [ ] `DEV_STAFF_EMAIL` is **not** among the deployed secrets (`npx wrangler secret list --env production`).
