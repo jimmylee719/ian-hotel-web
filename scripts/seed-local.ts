@@ -1,7 +1,7 @@
 /**
  * Local dev only: seed NK Hostel, its migrated site content (rooms, pages, FAQs, news) and
  * 14 days of fake ARI, a breakfast add-on and a WELCOME10 promo code (placeholders: the owner sets
- * the real ones in Plan 3) into the local D1 (`wrangler --local`).
+ * the real ones in Plan 3) and three local staff (owner@, frontdesk@, marketing@local.test) into the local D1 (`wrangler --local`).
  * Builds the rows in an in-memory SQLite with the real migrations, dumps them as INSERTs,
  * then applies the file with wrangler. Wipes the seeded tables in the local DB first.
  * Then uploads the WebP width variants the site requests by default (scripts/media-variants.ts,
@@ -25,7 +25,7 @@ import { todayInTaipei } from "../lib/domain/dates";
 // Child tables first: the DELETEs run in this order, the INSERTs in reverse. Local bookings are wiped too.
 const TABLES = [
   "notifications", "payment_events", "payments", "reservation_rooms", "reservations", "guests", "rate_limits",
-  "promo_codes", "addons", "content_pages", "news", "faqs", "inventory_daily", "ari_daily", "rate_plans", "unit_types", "properties",
+  "promo_codes", "addons", "content_pages", "news", "faqs", "inventory_daily", "ari_daily", "rate_plans", "unit_types", "properties", "staff",
 ];
 
 async function main() {
@@ -55,6 +55,13 @@ async function main() {
     name: { "zh-TW": "早餐", en: "Breakfast", ja: "朝食", ko: "조식" },
   });
   await db.insert(schema.promoCodes).values({ id: crypto.randomUUID(), propertyId, code: "WELCOME10", kind: "percent", value: 10 });
+
+  // Local staff for the admin (set DEV_STAFF_EMAIL in .dev.vars to act as one of them).
+  await db.insert(schema.staff).values([
+    { id: crypto.randomUUID(), email: "owner@local.test", name: "店主（本機）", role: "owner", propertyIds: [propertyId], active: true },
+    { id: crypto.randomUUID(), email: "frontdesk@local.test", name: "櫃檯（本機）", role: "front_desk", propertyIds: [propertyId], active: true },
+    { id: crypto.randomUUID(), email: "marketing@local.test", name: "行銷（本機）", role: "marketing", propertyIds: [propertyId], active: true },
+  ]);
 
   const q = (v: unknown) => (v === null ? "NULL" : typeof v === "number" ? String(v) : `'${String(v).replaceAll("'", "''")}'`);
   const lines = TABLES.map((t) => `DELETE FROM ${t};`);

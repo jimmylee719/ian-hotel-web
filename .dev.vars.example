@@ -25,3 +25,5 @@ CHANNEL_MODE=mock
 # CF_ACCESS_AUD in wrangler.jsonc). Locally, with ENVIRONMENT=local, act as this staff email instead;
 # it must exist (and be active) in the staff table. Ignored in any other ENVIRONMENT.
 # DEV_STAFF_EMAIL=owner@nkhostel.com
+# Seeded local staff (npx tsx scripts/seed-local.ts): owner@local.test (everything), frontdesk@local.test,
+# marketing@local.test. Switch DEV_STAFF_EMAIL between them to check each role's menu.
