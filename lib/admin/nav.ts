@@ -7,6 +7,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/admin/dashboard", label: "總覽", permission: "dashboard.view" },
   { href: "/admin/reservations", label: "訂單", permission: "reservations.view" },
   { href: "/admin/guests", label: "旅客", permission: "reservations.view" },
+  { href: "/admin/refunds", label: "退款對帳", permission: "payments.reconcile" },
   { href: "/admin/content", label: "內容", permission: "content.edit" },
   { href: "/admin/commerce", label: "加購與折扣", permission: "commerce.edit" },
   { href: "/admin/rate-plans", label: "房價方案", permission: "commerce.edit" },

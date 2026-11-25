@@ -21,7 +21,7 @@ export type EmailData = {
   refundAmount?: number;
 };
 
-type CustomerKind = "booking_confirmed" | "booking_failed_refunded" | "cancelled" | "pre_arrival";
+type CustomerKind = "booking_confirmed" | "booking_failed_refunded" | "payment_refunded" | "cancelled" | "pre_arrival";
 
 type Copy = {
   labels: {
@@ -58,6 +58,11 @@ const copy: Record<Locale, Copy> = {
         heading: "很抱歉，這次訂房未能完成",
         intro: () => "付款完成時，房間已被預訂一空，我們無法為您保留。已付款項將全額退回原付款方式，銀行入帳時間依發卡行而定。",
       },
+      payment_refunded: {
+        subject: (d) => `付款金額不符，訂房未成立，款項將退還：${d.code}｜${d.hotelName}`,
+        heading: "很抱歉，這次訂房未能完成",
+        intro: () => "我們收到的付款金額與訂單應付金額不一致，為保障您的權益，這筆訂房未能成立。已付款項將全額退回原付款方式，銀行入帳時間依發卡行而定。如仍想入住，歡迎重新訂房或與我們聯絡。",
+      },
       cancelled: {
         subject: (d) => `訂單已取消：${d.code}｜${d.hotelName}`,
         heading: "您的訂單已取消",
@@ -92,6 +97,11 @@ const copy: Record<Locale, Copy> = {
         subject: (d) => `We could not complete your booking, refund issued: ${d.code} | ${d.hotelName}`,
         heading: "We're sorry, your booking could not be completed",
         intro: () => "The room was taken just as your payment went through, so we were unable to hold it for you. Your payment is being refunded in full to your original payment method; timing depends on your bank.",
+      },
+      payment_refunded: {
+        subject: (d) => `Payment amount did not match, booking not completed, refund issued: ${d.code} | ${d.hotelName}`,
+        heading: "We're sorry, your booking could not be completed",
+        intro: () => "The amount we received did not match the amount due for this booking, so the booking could not be completed. Your payment is being refunded in full to your original payment method; timing depends on your bank. You are welcome to book again or contact us.",
       },
       cancelled: {
         subject: (d) => `Booking cancelled: ${d.code} | ${d.hotelName}`,
@@ -128,6 +138,11 @@ const copy: Record<Locale, Copy> = {
         heading: "誠に申し訳ございません。ご予約を完了できませんでした",
         intro: () => "お支払い手続きの直前にお部屋が満室となり、ご用意することができませんでした。お支払い済みの金額は、ご利用のお支払い方法へ全額ご返金いたします。反映時期はカード会社・金融機関により異なります。",
       },
+      payment_refunded: {
+        subject: (d) => `お支払い金額の不一致によりご予約が成立しませんでした（ご返金手続き済み）：${d.code}｜${d.hotelName}`,
+        heading: "誠に申し訳ございません。ご予約を完了できませんでした",
+        intro: () => "お受け取りした金額がご予約のお支払い金額と一致しなかったため、ご予約を成立させることができませんでした。お支払い済みの金額は、ご利用のお支払い方法へ全額ご返金いたします。反映時期はカード会社・金融機関により異なります。改めてのご予約やお問い合わせをお待ちしております。",
+      },
       cancelled: {
         subject: (d) => `ご予約をキャンセルしました：${d.code}｜${d.hotelName}`,
         heading: "ご予約をキャンセルいたしました",
@@ -162,6 +177,11 @@ const copy: Record<Locale, Copy> = {
         subject: (d) => `예약을 완료하지 못했습니다 (환불 처리됨): ${d.code} | ${d.hotelName}`,
         heading: "죄송합니다. 예약을 완료하지 못했습니다",
         intro: () => "결제가 이루어지는 사이에 객실이 모두 예약되어 확보해 드리지 못했습니다. 결제하신 금액은 기존 결제 수단으로 전액 환불되며, 반영 시점은 카드사 및 은행에 따라 다릅니다.",
+      },
+      payment_refunded: {
+        subject: (d) => `결제 금액 불일치로 예약이 완료되지 않았습니다 (환불 처리됨): ${d.code} | ${d.hotelName}`,
+        heading: "죄송합니다. 예약을 완료하지 못했습니다",
+        intro: () => "받은 결제 금액이 예약 결제 금액과 일치하지 않아 예약을 완료할 수 없었습니다. 결제하신 금액은 기존 결제 수단으로 전액 환불되며, 반영 시점은 카드사 및 은행에 따라 다릅니다. 다시 예약하시거나 문의해 주시기 바랍니다.",
       },
       cancelled: {
         subject: (d) => `예약이 취소되었습니다: ${d.code} | ${d.hotelName}`,
@@ -200,7 +220,7 @@ function rows(kind: CustomerKind, c: Copy, d: EmailData): [string, string][] {
     if (d.discount > 0) r.push([l.discount, `-${formatTwd(d.discount)}`]);
     r.push([l.total, formatTwd(d.total)], [l.paid, formatTwd(d.paid)]);
   }
-  if ((kind === "cancelled" || kind === "booking_failed_refunded") && d.refundAmount !== undefined) {
+  if ((kind === "cancelled" || kind === "booking_failed_refunded" || kind === "payment_refunded") && d.refundAmount !== undefined) {
     r.push([l.refund, formatTwd(d.refundAmount)]);
   }
   if (kind === "booking_confirmed" || kind === "pre_arrival" || kind === "cancelled") {

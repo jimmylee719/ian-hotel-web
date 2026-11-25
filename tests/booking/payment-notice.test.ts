@@ -95,8 +95,9 @@ test("an amount one dollar short is refunded in full and staff are alerted", asy
   expect(refund).toHaveBeenCalledWith(expect.objectContaining({ providerRef: `REF-${code}`, amount: PAY_NOW - 1 }));
   expect(channel.pushed).toHaveLength(0);
   expect(await avail()).toBe(3);
-  expect(email.sent.map((e) => e.to)).toEqual([STAFF]);
-  expect(email.sent[0].subject).toContain("付款異常");
+  // The guest is told too (Plan 2 deferred item, done in Plan 3 Task 5).
+  expect(email.sent.map((e) => e.to)).toEqual(["mei@example.com", STAFF]);
+  expect(email.sent[1].subject).toContain("付款異常");
   const refunds = await db.select().from(payments).where(eq(payments.kind, "refund"));
   expect(refunds).toMatchObject([{ amount: PAY_NOW - 1, status: "succeeded", reservationId: res.id }]);
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 
 /**
  * A button that asks "are you sure?" before running a risky action (cancel, refund, delete).
@@ -18,6 +18,7 @@ export function ConfirmDialog({
   onConfirm: () => void | Promise<void>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,8 +40,8 @@ export function ConfirmDialog({
       <button type="button" className={danger ? "adm-btn adm-btn-danger-ghost" : "adm-btn"} onClick={() => { setError(null); ref.current?.showModal(); }}>
         {triggerLabel}
       </button>
-      <dialog ref={ref} className="adm-dialog" aria-labelledby="adm-dialog-title" onCancel={(e) => busy && e.preventDefault()}>
-        <h2 id="adm-dialog-title">{title}</h2>
+      <dialog ref={ref} className="adm-dialog" aria-labelledby={titleId} onCancel={(e) => busy && e.preventDefault()}>
+        <h2 id={titleId}>{title}</h2>
         {children ? <div className="adm-dialog-body">{children}</div> : null}
         {error ? <p className="adm-form-error" role="alert">{error}</p> : null}
         <div className="adm-dialog-actions">

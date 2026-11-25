@@ -85,6 +85,16 @@ export function buildDeps(env: AppEnv, db: Db, origin: string): Deps {
   return { ...core, gateway: paymentGateway(env, core.baseUrl), channel: channelManager(env) };
 }
 
+/**
+ * Deps for staff actions while online payments are off (getDeps threw BookingDisabledError): the email
+ * deps work; the gateway and channel refuse. Only an action that moves no money may use it (a staff
+ * cancel refunding 0 — the channel cancel then waits in syncState pending for the retry job).
+ */
+export async function getOfflineDeps(origin: string): Promise<Deps> {
+  const core = buildCoreDeps(await appEnv(), await getDb(), origin);
+  return { ...core, gateway: disabledGateway, channel: disabledChannel };
+}
+
 export type ScheduledDeps = Deps & { syncSkipReason: string | null; emailSkipReason: string | null };
 
 /** The cron's base URL when BASE_URL is unset outside production: `wrangler dev`. */

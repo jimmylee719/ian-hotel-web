@@ -97,6 +97,10 @@
 .adm-dialog h2 { font-size: 17px; margin: 0 0 8px; }
 .adm-dialog-body { color: var(--a-muted); margin-bottom: 8px; }
 .adm-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.adm-dialog-form { display: flex; flex-direction: column; gap: 6px; color: var(--a-ink); }
+.adm-dialog-form p { color: var(--a-muted); margin: 0 0 4px; }
+.adm-dialog-form textarea, .adm-dialog-form input:not([type="checkbox"]) { font: inherit; width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--a-border); border-radius: 3px; background: #fff; color: var(--a-ink); }
+.adm-check { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
 .adm-form-error { color: var(--a-danger); margin: 8px 0 0; }
 
 /* Toast */

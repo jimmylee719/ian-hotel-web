@@ -164,6 +164,7 @@ export async function getReservationDetail(db: Db, propertyId: string, id: strin
 
   const auditScope: SQL[] = [and(eq(auditLog.entity, "reservation"), eq(auditLog.entityId, id))!];
   if (pays.length) auditScope.push(and(eq(auditLog.entity, "payment"), inArray(auditLog.entityId, pays.map((p) => p.id)))!);
+  if (notifs.length) auditScope.push(and(eq(auditLog.entity, "notification"), inArray(auditLog.entityId, notifs.map((n) => n.id)))!);
   if (notes.length) auditScope.push(and(eq(auditLog.entity, "reservation_note"), inArray(auditLog.entityId, notes.map((n) => n.id)))!);
   const audit = await db.select().from(auditLog).where(or(...auditScope)).orderBy(auditLog.at, auditLog.id);
 

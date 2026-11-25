@@ -1,4 +1,4 @@
-import { and, eq, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, eq, exists, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { PushResult } from "@/lib/channel/types";
 import { runAtomic } from "@/lib/db/atomic";
 import { holdStatements, isCheckViolation, releaseInventory, type HoldItem } from "@/lib/db/inventory-hold";
@@ -32,7 +32,9 @@ export async function confirmWithChannel(deps: Deps, reservationId: string, now:
   const payNow = (res.quote as Quote).payNow;
   const paid = await paidAmount(db, reservationId);
   if (paid !== payNow) {
-    await refundAndFail(deps, reservationId, `AMOUNT_MISMATCH: expected ${payNow}, got ${paid}`, now, { staffKind: "staff_payment_alert" });
+    await refundAndFail(deps, reservationId, `AMOUNT_MISMATCH: expected ${payNow}, got ${paid}`, now, {
+      guestKind: "payment_refunded", staffKind: "staff_payment_alert",
+    });
     return;
   }
   if (res.holdExpiresAt == null && !await reHold(db, res, now)) {
@@ -122,7 +124,21 @@ export async function refundAndFail(
     .where(and(eq(reservations.id, reservationId), eq(reservations.status, "paid_pending_confirm"), ne(reservations.syncState, "failed")))
     .returning();
   if (!res) return false;
+  return finishRefundAndFail(deps, res, reason, now, o);
+}
 
+export type RefundAndFailKinds = { guestKind?: NotificationKind; staffKind: NotificationKind };
+
+/**
+ * The steps of refundAndFail after its claim (`res` is the claimed row, syncState "failed"): refund what
+ * is left on every charge, then `confirm_failed_refunded`, release, emails. Refund reconciliation calls it
+ * again once a stuck refund is settled by hand; refunds already settled are skipped.
+ */
+export async function finishRefundAndFail(
+  deps: Deps, res: Reservation, reason: string, now: Date, o: RefundAndFailKinds,
+): Promise<boolean> {
+  const { db } = deps;
+  const reservationId = res.id;
   let refunded = 0;
   for (const c of await refundableCharges(db, reservationId)) {
     if (c.remaining <= 0) continue;
@@ -205,11 +221,15 @@ export async function refundOnce(
     await db.update(payments).set({ status: "failed" }).where(and(eq(payments.id, row.id), eq(payments.status, "pending")));
     return { ok: false, error: r.error, refundId: row.id };
   }
+  // Only the first writer to settle the row counts it: staff may have marked it succeeded by hand
+  // (refund reconciliation) while this call was in flight. The bump runs first, while the row is unsettled.
+  const unsettled = and(eq(payments.id, row.id), ne(payments.status, "succeeded"));
   await runAtomic(db, [
-    db.update(payments).set({ status: "succeeded", providerRef: r.refundRef }).where(eq(payments.id, row.id)),
     ...(o.countsAsBookingRefund
-      ? [db.update(reservations).set({ refundedAmount: sql`${reservations.refundedAmount} + ${row.amount}` }).where(eq(reservations.id, charge.reservationId))]
+      ? [db.update(reservations).set({ refundedAmount: sql`${reservations.refundedAmount} + ${row.amount}` })
+        .where(and(eq(reservations.id, charge.reservationId), exists(db.select({ one: sql`1` }).from(payments).where(unsettled))))]
       : []),
+    db.update(payments).set({ status: "succeeded", providerRef: r.refundRef }).where(unsettled),
   ]);
   return { ok: true, amount: row.amount };
 }

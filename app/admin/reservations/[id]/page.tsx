@@ -3,11 +3,13 @@ import { notFound } from "next/navigation";
 import { DataTable, type Column } from "@/components/admin/DataTable";
 import { DateRange } from "@/components/admin/DateRange";
 import { Money } from "@/components/admin/Money";
+import { CancelReservationAction, ResendNotificationAction } from "@/components/admin/StaffActions";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { can, type Permission } from "@/lib/admin/permissions";
 import { requirePage } from "@/lib/admin/page-guard";
 import { currentProperty } from "@/lib/admin/property-scope";
 import { getReservationDetail, NOTE_MAX, type ReservationDetail } from "@/lib/admin/reservations";
+import { staffCancelPreview } from "@/lib/admin/staff-cancel";
 import { getDb } from "@/lib/db/client";
 import { addNoteAction } from "./actions";
 
@@ -16,12 +18,10 @@ export const metadata = { title: "訂單詳情" };
 const taipei = (ms: number) =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Taipei", dateStyle: "short", timeStyle: "medium" }).format(ms);
 
-/** Disabled until Tasks 5-7 wire the actions; each shows only to staff allowed to do it. */
-const ACTIONS: { label: string; permission: Permission }[] = [
-  { label: "取消", permission: "reservations.cancel" },
+/** Disabled until Tasks 6-7 wire them; each shows only to staff allowed to do it. */
+const PENDING_ACTIONS: { label: string; permission: Permission }[] = [
   { label: "修改", permission: "reservations.modify" },
   { label: "登錄收款", permission: "payments.front_desk" },
-  { label: "重寄通知信", permission: "notifications.resend" },
 ];
 
 const NOTE_ERRORS: Record<string, string> = {
@@ -51,11 +51,15 @@ const eventColumns: Column<ReservationDetail["events"][number]>[] = [
   { key: "len", header: "內容長度", align: "right", render: (e) => <span className="adm-num">{e.bodyLength}</span> },
 ];
 
-const notificationColumns: Column<ReservationDetail["notifications"][number]>[] = [
+const notificationColumns = (canResend: boolean): Column<ReservationDetail["notifications"][number]>[] => [
   { key: "at", header: "時間", render: (n) => <span className="adm-num">{taipei(n.at)}</span> },
   { key: "kind", header: "類型", render: (n) => n.kind },
   { key: "to", header: "收件人", render: (n) => n.to },
   { key: "status", header: "狀態", render: (n) => n.status },
+  ...(canResend ? [{
+    key: "resend", header: "", render: (n: ReservationDetail["notifications"][number]) =>
+      n.status === "failed" ? <ResendNotificationAction notificationId={n.id} to={n.to} /> : null,
+  }] : []),
 ];
 
 export default async function Page({
@@ -65,9 +69,11 @@ export default async function Page({
   const propertyId = await currentProperty(ctx);
   const { id } = await params;
   const { noteError } = await searchParams;
-  const d = await getReservationDetail(await getDb(), propertyId, id);
+  const db = await getDb();
+  const d = await getReservationDetail(db, propertyId, id);
   if (!d) notFound();
   const r = d.reservation;
+  const cancelPreview = can(ctx.staff, "reservations.cancel", propertyId) ? await staffCancelPreview(db, r.id, new Date()) : null;
   const quote = (d.quote ?? {}) as Quote;
 
   return (
@@ -78,7 +84,11 @@ export default async function Page({
       </h1>
 
       <div className="adm-actions" role="group" aria-label="訂單操作">
-        {ACTIONS.filter((a) => can(ctx.staff, a.permission, propertyId)).map((a) => (
+        {cancelPreview ? (
+          <CancelReservationAction reservationId={r.id} refund={cancelPreview.refund} maxOverride={cancelPreview.maxOverride}
+            canOverride={can(ctx.staff, "reservations.refund_override", propertyId)} />
+        ) : null}
+        {PENDING_ACTIONS.filter((a) => can(ctx.staff, a.permission, propertyId)).map((a) => (
           <button key={a.label} type="button" className="adm-btn" disabled>{a.label}</button>
         ))}
       </div>
@@ -139,7 +149,7 @@ export default async function Page({
       <h2 className="adm-h2">收款回呼</h2>
       <DataTable columns={eventColumns} rows={d.events} rowKey={(e) => e.id} empty="沒有收款回呼" />
       <h2 className="adm-h2">通知信</h2>
-      <DataTable columns={notificationColumns} rows={d.notifications} rowKey={(n) => n.id} empty="沒有通知信" />
+      <DataTable columns={notificationColumns(can(ctx.staff, "notifications.resend", propertyId))} rows={d.notifications} rowKey={(n) => n.id} empty="沒有通知信" />
 
       <h2 className="adm-h2">內部備註</h2>
       {d.notes.length === 0 ? <p className="adm-muted">還沒有備註。</p> : (

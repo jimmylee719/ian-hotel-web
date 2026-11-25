@@ -1,9 +1,9 @@
 import { and, eq, exists, isNull, lte, notExists, or, sql } from "drizzle-orm";
 import type { CancelResult } from "@/lib/channel/types";
-import { releaseInventory } from "@/lib/db/inventory-hold";
+import { releaseInventory, type HoldItem } from "@/lib/db/inventory-hold";
 import { payments, ratePlans, reservationRooms, reservations, unitTypes, type I18n } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
-import { todayInTaipei } from "@/lib/domain/dates";
+import { todayInTaipei, type ISODate } from "@/lib/domain/dates";
 import { refundAmount } from "@/lib/domain/cancellation";
 import type { Quote } from "@/lib/domain/quote";
 import { holdItemsFor, MAX_SYNC_ATTEMPTS, refundOnce, SYNC_LEASE_MS, SYNC_RETRY_MS, type RefundOutcome } from "./confirm";
@@ -82,7 +82,7 @@ function withinCancelWindow(res: Reservation, now: Date): boolean {
 }
 
 /** The one refund row of a guest cancellation; every attempt at that cancellation converges on it. */
-const cancelKey = (reservationId: string) => `cancel:${reservationId}`;
+export const cancelKey = (reservationId: string) => `cancel:${reservationId}`;
 
 async function cancelIntent(db: Db, reservationId: string) {
   const [row] = await db.select().from(payments).where(eq(payments.idempotencyKey, cancelKey(reservationId)));
@@ -105,7 +105,39 @@ async function cancellationRefund(db: Db, res: Reservation, at: Date): Promise<n
 }
 
 /**
- * Cancel a confirmed reservation for the guest and refund what the policy allows.
+ * Cancel a confirmed reservation for the guest and refund what the policy allows (the shared core,
+ * `cancelConfirmed`, does the work). Guests may cancel only within the cancel window.
+ */
+export async function cancelReservation(deps: Deps, code: string, email: string, now: Date): Promise<CancelOutcome> {
+  const res = await lookup(deps.db, code, email);
+  if (!res) return { ok: false, error: "NOT_FOUND" };
+  if (res.status === "cancelled") return { ok: true, refunded: res.refundedAmount, alreadyCancelled: true };
+  if (res.status !== "confirmed" || !withinCancelWindow(res, now)) return { ok: false, error: "NOT_CANCELLABLE" };
+  const r = await cancelConfirmed(deps, res.id, now, { reason: "GUEST_CANCELLED" });
+  return r.ok || r.error !== "PAYMENTS_UNAVAILABLE" ? r : { ok: false, error: "REFUND_FAILED" };
+}
+
+export type CancelCoreOptions = {
+  /** Why, as told to the payment gateway with the refund. */
+  reason: string;
+  /** The refund amount, used ONLY if this call creates the cancellation's refund intent; an existing intent's amount wins. */
+  refundOverride?: number;
+  /** Give back only the nights on or after this date (a stay already under way); default every night. */
+  releaseFrom?: ISODate;
+  /** Email the guest (default true). Staff are always emailed. */
+  notifyGuest?: boolean;
+  /**
+   * False when no payment gateway is configured: a cancellation that would move money then fails with
+   * PAYMENTS_UNAVAILABLE before touching the gateway (the claim is dropped); one refunding 0 goes ahead.
+   */
+  gatewayAvailable?: boolean;
+};
+
+export type CoreCancelOutcome = CancelOutcome | { ok: false; error: "PAYMENTS_UNAVAILABLE" };
+
+/**
+ * The cancellation core shared by the guest cancel, the staff cancel and refund reconciliation.
+ * The caller has checked who may cancel and when; this only requires the booking to be `confirmed`.
  * 1. Claim it: stamp `cancelledAt` (status stays `confirmed`) unless another request holds a fresh claim.
  *    The policy is applied at the first request's time.
  * 2. Refund against the paying charge through ONE intent row keyed `cancel:<id>` (refundOnce): its
@@ -117,58 +149,75 @@ async function cancellationRefund(db: Db, res: Reservation, at: Date): Promise<n
  *    refund); the channel cancel is queued (syncState pending).
  * 4. Give the rooms back, 5. cancel on the channel (the retry job retries), 6. email guest and staff.
  */
-export async function cancelReservation(deps: Deps, code: string, email: string, now: Date): Promise<CancelOutcome> {
+export async function cancelConfirmed(deps: Deps, reservationId: string, now: Date, o: CancelCoreOptions): Promise<CoreCancelOutcome> {
   const { db } = deps;
-  const res = await lookup(db, code, email);
-  if (!res) return { ok: false, error: "NOT_FOUND" };
-  if (res.status === "cancelled") return { ok: true, refunded: res.refundedAmount, alreadyCancelled: true };
-  if (res.status !== "confirmed" || !withinCancelWindow(res, now)) return { ok: false, error: "NOT_CANCELLABLE" };
+  const claim = await claimCancellation(db, reservationId, now);
+  if (!claim) return settledElsewhere(db, reservationId);
 
-  const claim = await claimCancellation(db, res.id, now);
-  if (!claim) return settledElsewhere(db, res.id);
-
-  const r = await refundCancellation(deps, claim, now);
+  const r = await refundCancellation(deps, claim, now, o);
   if (!r.ok) {
     if (!r.pendingRefundId)
       await db.update(reservations)
         .set({ cancelledAt: null, lastSyncError: `CANCEL_REFUND_FAILED: ${r.error}`, updatedAt: now.getTime() })
-        .where(and(eq(reservations.id, res.id), eq(reservations.status, "confirmed"), eq(reservations.updatedAt, claim.updatedAt)));
+        .where(and(eq(reservations.id, reservationId), eq(reservations.status, "confirmed"), eq(reservations.updatedAt, claim.updatedAt)));
+    if (r.error === "PAYMENTS_UNAVAILABLE") return { ok: false, error: "PAYMENTS_UNAVAILABLE" };
     const ref = r.pendingRefundId ?? `cancel-refund-failed:${now.getTime()}`;
-    await notifyStaff(deps, res.id, "staff_payment_alert", now, {}, ref);
+    await notifyStaff(deps, reservationId, "staff_payment_alert", now, {}, ref);
     return { ok: false, error: "REFUND_FAILED" };
   }
 
   // refundOnce already added the refund to refundedAmount.
   // nextSyncAt = now: from this moment the retry job is the safety net for the channel cancel.
-  const key = cancelKey(res.id);
+  const key = cancelKey(reservationId);
   const refundSettled = or(
     notExists(db.select({ one: sql`1` }).from(payments).where(eq(payments.idempotencyKey, key))),
     exists(db.select({ one: sql`1` }).from(payments).where(and(eq(payments.idempotencyKey, key), eq(payments.status, "succeeded")))),
   );
-  const cancelled = await transition(db, res.id, "confirmed", "cancelled", {
+  const cancelled = await transition(db, reservationId, "confirmed", "cancelled", {
     holdExpiresAt: null,
     syncState: "pending", syncAttempts: 0, nextSyncAt: now.getTime(), lastSyncError: null,
   }, now, refundSettled);
-  if (!cancelled) return settledElsewhere(db, res.id);
+  if (!cancelled) return settledElsewhere(db, reservationId);
 
-  if (claim.holdExpiresAt != null) await releaseInventory(db, await holdItemsFor(db, claim));
-  await cancelWithChannel(deps, res.id, now);
-  await notifyGuest(deps, res.id, "cancelled", now, { refundAmount: r.amount });
-  await notifyStaff(deps, res.id, "cancelled", now, { refundAmount: r.amount });
+  if (claim.holdExpiresAt != null) {
+    const items = nightsFrom(await holdItemsFor(db, claim), o.releaseFrom);
+    if (items.length) await releaseInventory(db, items);
+  }
+  await cancelWithChannel(deps, reservationId, now);
+  if (o.notifyGuest !== false) await notifyGuest(deps, reservationId, "cancelled", now, { refundAmount: r.amount });
+  await notifyStaff(deps, reservationId, "cancelled", now, { refundAmount: r.amount });
   return { ok: true, refunded: r.amount, alreadyCancelled: false };
 }
 
+/** The hold items limited to nights on or after `from` (all of them when `from` is unset); empty items dropped. */
+function nightsFrom(items: HoldItem[], from?: ISODate): HoldItem[] {
+  if (!from) return items;
+  return items.map((i) => ({ ...i, nights: i.nights.filter((d) => d >= from) })).filter((i) => i.nights.length > 0);
+}
+
+/**
+ * What cancelling now would refund, as `cancelConfirmed` will compute it: the existing intent's amount,
+ * else `override` if given, else the policy at the claim time (or `now` if unclaimed).
+ */
+export async function plannedCancelRefund(db: Db, res: Reservation, now: Date, override?: number): Promise<number> {
+  const intent = await cancelIntent(db, res.id);
+  if (intent) return intent.amount;
+  if (override !== undefined) return override;
+  return cancellationRefund(db, res, new Date(res.cancelledAt ?? now.getTime()));
+}
+
 /** Run (or finish, or join) the cancellation's refund. Nothing to refund → `{ ok: true, amount: 0 }`. */
-async function refundCancellation(deps: Deps, claim: Reservation, now: Date): Promise<RefundOutcome> {
+async function refundCancellation(deps: Deps, claim: Reservation, now: Date, o: CancelCoreOptions): Promise<RefundOutcome> {
   const { db } = deps;
   const intent = await cancelIntent(db, claim.id);
-  const amount = intent ? intent.amount : await cancellationRefund(db, claim, new Date(claim.cancelledAt!));
+  const amount = intent ? intent.amount : o.refundOverride ?? await cancellationRefund(db, claim, new Date(claim.cancelledAt!));
   if (amount <= 0) return { ok: true, amount: 0 };
+  if (o.gatewayAvailable === false) return { ok: false, error: "PAYMENTS_UNAVAILABLE" };
   const chargeId = intent?.refundOf ?? await payingChargeId(db, claim.id);
   const charge = (await refundableCharges(db, claim.id)).find((c) => c.id === chargeId);
   if (!charge) return { ok: false, error: "NO_PAYING_CHARGE" };
   if (!intent && charge.remaining < amount) return { ok: false, error: `REFUNDABLE_${charge.remaining}_LT_${amount}` };
-  return refundOnce(deps, cancelKey(claim.id), charge, amount, "GUEST_CANCELLED", now, { countsAsBookingRefund: true });
+  return refundOnce(deps, cancelKey(claim.id), charge, amount, o.reason, now, { countsAsBookingRefund: true });
 }
 
 /**

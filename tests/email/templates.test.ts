@@ -11,7 +11,7 @@ const data: EmailData = {
   hotelPhone: "+886-2-1234-5678", hotelEmail: "hi@ian.test", hotelAddress: "1 Test Rd, Taipei",
   manageUrl: "https://hotel.test/en/booking/NK-1234", refundAmount: 4960,
 };
-const customerKinds: NotificationKind[] = ["booking_confirmed", "booking_failed_refunded", "cancelled", "pre_arrival"];
+const customerKinds: NotificationKind[] = ["booking_confirmed", "booking_failed_refunded", "payment_refunded", "cancelled", "pre_arrival"];
 
 describe("renderEmail", () => {
   it("ja booking_confirmed has the code in the subject and formatted total in html", () => {
@@ -38,6 +38,7 @@ describe("renderEmail", () => {
   it("shows the refund amount on refund-bearing emails", () => {
     expect(renderEmail("cancelled", "en", data).html).toContain("NT$4,960");
     expect(renderEmail("booking_failed_refunded", "ko", data).text).toContain("NT$4,960");
+    expect(renderEmail("payment_refunded", "ja", data).text).toContain("NT$4,960");
   });
 
   it("escapes html in user-supplied fields", () => {

@@ -237,7 +237,7 @@ export const notifications = sqliteTable(
     reservationId: text("reservation_id").notNull().references(() => reservations.id),
     kind: text("kind", {
       enum: [
-        "booking_confirmed", "booking_failed_refunded", "cancelled", "pre_arrival",
+        "booking_confirmed", "booking_failed_refunded", "payment_refunded", "cancelled", "pre_arrival",
         "staff_new_booking", "staff_sync_failed", "staff_payment_alert",
       ],
     }).notNull(),

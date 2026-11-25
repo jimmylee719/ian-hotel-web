@@ -9,7 +9,7 @@ const labels = (role: StaffRow["role"]) => navItemsFor(member(role)).map((i) => 
 
 describe("navItemsFor", () => {
   it("shows everything to the owner", () => {
-    expect(labels("owner")).toEqual(["總覽", "訂單", "旅客", "內容", "加購與折扣", "房價方案", "報表", "員工", "操作紀錄", "系統狀態"]);
+    expect(labels("owner")).toEqual(["總覽", "訂單", "旅客", "退款對帳", "內容", "加購與折扣", "房價方案", "報表", "員工", "操作紀錄", "系統狀態"]);
   });
   it("hides staff management from managers", () => {
     expect(labels("manager")).not.toContain("員工");
