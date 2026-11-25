@@ -239,6 +239,11 @@ export const payments = sqliteTable(
     createdAt: ms("created_at"),
     /** Front-desk payments: the staff's free-text note (e.g. transfer reference); null otherwise. */
     note: text("note"),
+    /**
+     * For an online charge: the payment attempt's order number (`<code>-<n>`) when known (the notice carried it, or
+     * the gateway reconcile job recorded or matched it), so that job does not ask about that attempt again. Null otherwise.
+     */
+    merchantOrderNo: text("merchant_order_no"),
   },
   (t) => [
     uniqueIndex("payments_provider_ref_unique").on(t.providerRef), // NULLs never collide

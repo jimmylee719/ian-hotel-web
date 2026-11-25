@@ -1,0 +1,1 @@
+ALTER TABLE `payments` ADD `merchant_order_no` text;

@@ -178,6 +178,7 @@ export async function refundStray(deps: Deps, reservationId: string, charge: Cha
 async function recordCharge(db: Db, reservationId: string, n: PaymentNotice, now: Date): Promise<ChargeRow | null> {
   const fields = {
     status: n.status, amount: n.amount, providerRef: n.providerRef, authCode: n.authCode ?? null, last4: n.last4 ?? null,
+    merchantOrderNo: n.merchantOrderNo ?? null,
   } as const;
   try {
     if (n.status === "succeeded") {

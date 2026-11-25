@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, gt, gte, isNotNull, isNull, lte } from "drizzle-orm";
 import { finishFlow } from "@/lib/admin/reconcile";
 import { countsAsBookingRefund, markRefundFailed, settleRefundRow } from "@/lib/booking/confirm";
 import type { Deps } from "@/lib/booking/notify";
@@ -9,7 +9,7 @@ import { payments, reservations } from "@/lib/db/schema";
 export const GATEWAY_RECONCILE_AFTER_MS = 10 * 60_000;
 /** A payment started longer ago than this is no longer asked about (an abandoned payment page). */
 export const CHARGE_LOOKBACK_MS = 24 * 3600_000;
-/** At most this many charges and this many refunds per run. */
+/** At most this many refunds and this many charge-attempt queries per run. */
 export const GATEWAY_RECONCILE_BATCH = 50;
 
 export type GatewayReconcileResult = {
@@ -27,10 +27,11 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
  *   refund reconciliation finishes it (finishFlow: a cancellation completes, a failed booking is refunded and
  *   closed); failed / not_found → marked failed (pending → failed only); pending or no answer → left pending for
  *   staff (the dashboard's refund_pending alert).
- * - Payments started over 10 minutes (and under a day) ago whose notice never came (booking still
- *   pending_payment or expired) → queryTransaction(the latest attempt's merchantOrderNo); succeeded → applied
- *   exactly like a verified notice (applyPaymentNotice: dedupe, amount check, re-hold, channel push); anything
- *   else changes nothing.
+ * - Bookings whose latest payment attempt started under a day ago (any status) → queryTransaction for each
+ *   attempt `<code>-1 … <code>-<chargeAttempt>` not yet recorded as a charge (the latest only once 10 minutes old);
+ *   succeeded → applied exactly like a verified notice (applyPaymentNotice: dedupe, amount check, re-hold, channel
+ *   push, stray refund of a second payment); the charge row then carries its order number and is not asked about
+ *   again. Anything else changes nothing.
  * One item failing is logged and counted as unresolved; it never stops the others.
  */
 export async function runGatewayReconcile(deps: Deps, now: Date): Promise<GatewayReconcileResult> {
@@ -66,25 +67,41 @@ export async function runGatewayReconcile(deps: Deps, now: Date): Promise<Gatewa
     }
   }
 
-  const charges = await deps.db.select({ code: reservations.code, attempt: reservations.chargeAttempt }).from(reservations)
+  // Every attempt of a payment started in the last day, whatever the booking's status since: a guest may pay on
+  // one attempt, lose the notice and start another, and the booking may have expired or been paid by that other one.
+  // Attempts already recorded as charges are not asked about again; the latest only once it is 10 minutes old.
+  const bookings = await deps.db.select({
+    id: reservations.id, code: reservations.code, attempts: reservations.chargeAttempt, startedAt: reservations.lastChargeStartedAt,
+  }).from(reservations)
     .where(and(
-      eq(reservations.channel, "direct"), inArray(reservations.status, ["pending_payment", "expired"]),
-      gt(reservations.chargeAttempt, 0),
-      lte(reservations.lastChargeStartedAt, due), gte(reservations.lastChargeStartedAt, now.getTime() - CHARGE_LOOKBACK_MS),
+      eq(reservations.channel, "direct"), gt(reservations.chargeAttempt, 0),
+      gte(reservations.lastChargeStartedAt, now.getTime() - CHARGE_LOOKBACK_MS),
     ))
-    .orderBy(asc(reservations.lastChargeStartedAt), asc(reservations.id))
-    .limit(GATEWAY_RECONCILE_BATCH);
-  for (const { code, attempt } of charges) {
-    out.chargesChecked++;
-    try {
-      const merchantOrderNo = `${code}-${attempt}`;
-      const q = await deps.gateway.queryTransaction({ merchantOrderNo }).catch((e: unknown) => ({ error: errorText(e) }));
-      if ("error" in q || q.status !== "succeeded" || !q.providerRef || q.amount === undefined) continue;
-      const notice = { reservationCode: code, providerRef: q.providerRef, amount: q.amount, status: "succeeded" as const };
-      await applyPaymentNotice(deps, notice, JSON.stringify({ source: "gateway_reconcile", merchantOrderNo, query: q }), now);
-      out.chargesApplied++;
-    } catch (e) {
-      console.error(`gateway reconcile: charge of ${code} failed`, e);
+    .orderBy(asc(reservations.lastChargeStartedAt), asc(reservations.id));
+  charges: for (const b of bookings) {
+    const recorded = new Set((await deps.db.select({ order: payments.merchantOrderNo }).from(payments)
+      .where(and(eq(payments.reservationId, b.id), eq(payments.kind, "charge"), isNotNull(payments.merchantOrderNo))))
+      .map((r) => r.order));
+    const last = (b.startedAt ?? 0) <= due ? b.attempts : b.attempts - 1;
+    for (let n = 1; n <= last; n++) {
+      const merchantOrderNo = `${b.code}-${n}`;
+      if (recorded.has(merchantOrderNo)) continue;
+      if (out.chargesChecked >= GATEWAY_RECONCILE_BATCH) break charges;
+      out.chargesChecked++;
+      try {
+        const q = await deps.gateway.queryTransaction({ merchantOrderNo }).catch((e: unknown) => ({ error: errorText(e) }));
+        if ("error" in q || q.status !== "succeeded" || !q.providerRef || q.amount === undefined) continue;
+        // Exactly as a verified notice: the first paid attempt settles the booking (or takes the late-payment path of
+        // an expired one); any further paid attempt is a stray charge, refunded once (keyed by its provider ref).
+        const notice = { reservationCode: b.code, providerRef: q.providerRef, amount: q.amount, status: "succeeded" as const, merchantOrderNo };
+        await applyPaymentNotice(deps, notice, JSON.stringify({ source: "gateway_reconcile", merchantOrderNo, query: q }), now);
+        // A real notice may have recorded this charge first, without its order number: note it, so it is not asked again.
+        await deps.db.update(payments).set({ merchantOrderNo })
+          .where(and(eq(payments.providerRef, q.providerRef), eq(payments.kind, "charge"), isNull(payments.merchantOrderNo)));
+        out.chargesApplied++;
+      } catch (e) {
+        console.error(`gateway reconcile: charge ${merchantOrderNo} failed`, e);
+      }
     }
   }
   return out;

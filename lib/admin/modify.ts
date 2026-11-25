@@ -218,7 +218,7 @@ export async function applyModification(
       // last (it would make `guard` false) and commits exactly when the audit row did.
       ...(pl.refundOnline > 0
         ? [db.insert(payments).select(sql`select ${refundId}, ${res.id}, 'refund', ${pl.chargeMethod!}, ${pl.refundOnline},
-            'failed', null, null, null, ${pl.chargeId!}, ${key}, ${at}, null
+            'failed', null, null, null, ${pl.chargeId!}, ${key}, ${at}, null, null
             where exists (select 1 from ${auditLog} where ${auditLog.id} = ${auditId})`)]
         : []),
     ]);

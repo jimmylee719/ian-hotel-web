@@ -37,7 +37,8 @@ function isNotice(v: unknown): v is PaymentNotice {
     typeof n.amount === "number" && Number.isInteger(n.amount) &&
     (n.status === "succeeded" || n.status === "failed") &&
     (n.authCode === undefined || typeof n.authCode === "string") &&
-    (n.last4 === undefined || typeof n.last4 === "string")
+    (n.last4 === undefined || typeof n.last4 === "string") &&
+    (n.merchantOrderNo === undefined || typeof n.merchantOrderNo === "string")
   );
 }
 

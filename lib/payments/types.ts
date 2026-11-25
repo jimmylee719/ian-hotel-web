@@ -25,6 +25,8 @@ export type PaymentNotice = {
   status: "succeeded" | "failed";
   authCode?: string;
   last4?: string;
+  /** The attempt's order number (`<code>-<n>`, ChargeRequest.merchantOrderNo), when the provider reports it. */
+  merchantOrderNo?: string;
 };
 
 export type VerifyResult =

@@ -150,3 +150,60 @@ test("each cron trigger runs its own job: the reconcile triggers record their ow
     [CRON_JOB, expect.objectContaining({ expired: expect.any(Number) })],
   ]);
 });
+
+/** A booking whose payment was started twice (attempt 1, then attempt 2 at +3 min), the gateway answering per attempt. */
+async function twoAttempts(answers: Record<number, { status: "succeeded" | "pending" | "not_found"; providerRef?: string; amount?: number }>) {
+  const s = await bookingSetup();
+  const code = await s.book();
+  expect(await s.book({}, minutes(3))).toBe(code); // same idempotency key: payment restarted
+  expect((await s.reservation(code)).chargeAttempt).toBe(2);
+  const query = vi.spyOn(s.gateway, "queryTransaction").mockImplementation(async ({ merchantOrderNo }) => {
+    const n = Number(merchantOrderNo?.slice(code.length + 1));
+    return answers[n] ?? { status: "not_found" };
+  });
+  const charges = async () => s.db.select().from(payments)
+    .where(and(eq(payments.reservationId, (await s.reservation(code)).id), eq(payments.kind, "charge"), eq(payments.status, "succeeded")));
+  return { ...s, code, query, charges };
+}
+
+test("an earlier attempt paid with its notice lost is found and applied though the guest's retry was abandoned", async () => {
+  const { deps, code, query, charges, reservation } = await twoAttempts({
+    1: { status: "succeeded", providerRef: "BANK-1", amount: PAY_NOW }, 2: { status: "pending" },
+  });
+  expect(await runGatewayReconcile(deps, minutes(15))).toMatchObject({ chargesApplied: 1 });
+  expect(query).toHaveBeenCalledWith({ merchantOrderNo: `${code}-1` });
+  expect(await reservation(code)).toMatchObject({ status: "confirmed" });
+  expect(await charges()).toMatchObject([{ providerRef: "BANK-1", merchantOrderNo: `${code}-1` }]);
+
+  // Attempt 1 is recorded now: only attempt 2 is asked about again.
+  query.mockClear();
+  expect(await runGatewayReconcile(deps, minutes(30))).toMatchObject({ chargesApplied: 0 });
+  expect(query.mock.calls).toEqual([[{ merchantOrderNo: `${code}-2` }]]);
+});
+
+test("an earlier attempt's lost payment on a booking that has since expired takes the late-payment path", async () => {
+  const { deps, code, reservation } = await twoAttempts({ 1: { status: "succeeded", providerRef: "BANK-1", amount: PAY_NOW } });
+  const { runExpireHolds } = await import("@/lib/jobs/expire-holds");
+  await runExpireHolds(deps, minutes(30));
+  expect((await reservation(code)).status).toBe("expired");
+  expect(await runGatewayReconcile(deps, minutes(31))).toMatchObject({ chargesApplied: 1 });
+  expect(await reservation(code)).toMatchObject({ status: "confirmed" }); // re-held and confirmed, as a late notice would be
+});
+
+test("two attempts both paid: one settles, the other is refunded as a stray exactly once over repeated runs", async () => {
+  const { db, deps, gateway, code, query, charges, reservation } = await twoAttempts({
+    1: { status: "succeeded", providerRef: "BANK-1", amount: PAY_NOW }, 2: { status: "succeeded", providerRef: "BANK-2", amount: PAY_NOW },
+  });
+  expect(await runGatewayReconcile(deps, minutes(15))).toMatchObject({ chargesApplied: 2 });
+  expect(await reservation(code)).toMatchObject({ status: "confirmed" });
+  expect(gateway.refunds).toMatchObject([{ providerRef: "BANK-2", amount: PAY_NOW }]);
+  expect((await db.select().from(paymentEvents)).map((e) => [e.providerRef, e.verdict]))
+    .toEqual([["BANK-1", "accepted"], ["BANK-2", "stray_charge"]]);
+
+  query.mockClear();
+  await runGatewayReconcile(deps, minutes(30));
+  await runGatewayReconcile(deps, minutes(45));
+  expect(query).not.toHaveBeenCalled(); // both attempts are recorded
+  expect(gateway.refunds).toHaveLength(1);
+  expect((await charges()).map((c) => c.merchantOrderNo).sort()).toEqual([`${code}-1`, `${code}-2`]);
+});

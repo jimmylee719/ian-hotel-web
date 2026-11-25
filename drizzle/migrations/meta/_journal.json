@@ -134,6 +134,13 @@
       "when": 1795590950145,
       "tag": "0018_public_lord_hawal",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1795591776005,
+      "tag": "0019_nebulous_nick_fury",
+      "breakpoints": true
     }
   ]
 }
