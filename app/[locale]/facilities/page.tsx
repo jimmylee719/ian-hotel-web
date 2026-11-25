@@ -16,5 +16,5 @@ export default async function FacilitiesPage({ params }: Props) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "facilityPhoto" });
   const captions = Object.fromEntries(Object.entries(FACILITY_PHOTOS).map(([k, v]) => [k, t(v)]));
-  return <ContentPage locale={locale} slug="facilities" captions={captions} maxPhotos={7} />;
+  return <ContentPage locale={locale} slug="facilities" captions={captions} maxPhotos={7} layout="chapters" />;
 }

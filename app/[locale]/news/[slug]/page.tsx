@@ -3,10 +3,13 @@ import { notFound } from "next/navigation";
 import { getFormatter, getTranslations, setRequestLocale } from "next-intl/server";
 import { loadNews } from "@/components/site/data";
 import { JsonLd } from "@/components/site/JsonLd";
-import { Photo } from "@/components/site/Photo";
+import { PageHead } from "@/components/site/PageHead";
 import { RichText } from "@/components/site/RichText";
+import { Frame } from "@/components/site/sections/Frame";
 import { Link } from "@/i18n/navigation";
+import { READING_PHOTO } from "@/lib/content/sections";
 import type { Locale } from "@/lib/db/schema";
+import { pickFitting } from "@/lib/design/photo-fit";
 import { mediaUrl } from "@/lib/media";
 import { buildMetadata, localizedPath, SITE_URL } from "@/lib/seo";
 
@@ -30,9 +33,10 @@ export default async function NewsItemPage({ params }: Props) {
   if (!item) notFound();
   const [t, format] = await Promise.all([getTranslations({ locale, namespace: "news" }), getFormatter({ locale })]);
   const date = item.publishedAt ? new Date(item.publishedAt).toISOString() : undefined;
+  const photo = pickFitting(item.images, READING_PHOTO);
 
   return (
-    <main id="main" className="wrap news-item">
+    <main id="main" className="wrap content-page news-item">
       <JsonLd
         data={{
           "@context": "https://schema.org",
@@ -44,20 +48,25 @@ export default async function NewsItemPage({ params }: Props) {
           publisher: { "@id": new URL("/#hotel", SITE_URL).toString() },
         }}
       />
-      <nav className="crumbs" aria-label={t("back")}>
-        <Link href="/news">{t("back")}</Link>
-      </nav>
       <article>
-        <header className="page-head">
+        <PageHead title={item.title}>
           {item.publishedAt && <time dateTime={date!.slice(0, 10)}>{format.dateTime(item.publishedAt, { dateStyle: "long" })}</time>}
-          <h1>{item.title}</h1>
-        </header>
-        {item.images[0] && (
-          <figure className="news-photo">
-            <Photo src={item.images[0]} alt="" width={900} height={600} priority />
-          </figure>
-        )}
-        <div className="content-plain">
+        </PageHead>
+        <div className="reading">
+          <nav className="crumbs" aria-label={t("back")}>
+            <Link href="/news">{t("back")}</Link>
+          </nav>
+          {photo && (
+            <Frame
+              className="reading-photo"
+              src={photo}
+              alt=""
+              slotWidth={READING_PHOTO.w}
+              cap={READING_PHOTO.h}
+              sizes="(max-width: 700px) calc(100vw - 40px), 420px"
+              priority
+            />
+          )}
           <RichText text={item.body} />
         </div>
       </article>

@@ -51,10 +51,6 @@ html:lang(ko) body {
 .crumbs a::before {
   content: "← ";
 }
-.crumbs + .page-head,
-.crumbs + article .page-head {
-  padding-top: var(--space-4);
-}
 
 /* ---------- running text ---------- */
 .prose {
@@ -96,28 +92,6 @@ html:lang(ko) body {
 .prose ul ul {
   margin: 6px 0 0;
 }
-.content-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: var(--space-8);
-  align-items: start;
-}
-.content-plain .prose {
-  max-width: 40em;
-}
-.content-aside {
-  display: grid;
-  gap: var(--space-5);
-}
-.content-aside figure {
-  margin: 0;
-}
-.content-aside img {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 8 / 5;
-  object-fit: cover;
-}
 figcaption {
   font-size: 14px;
   color: var(--color-muted-text);
@@ -130,7 +104,7 @@ figcaption {
   padding-top: var(--space-3);
   font-family: var(--font-cjk);
 }
-.address-card h2 {
+.address-card h3 {
   font-weight: 500;
   font-size: 15px;
   letter-spacing: 0.1em;
@@ -242,12 +216,6 @@ figcaption {
 .news-list li:first-child article {
   padding-top: 0;
 }
-.news-list img {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 3 / 2;
-  object-fit: cover;
-}
 .news-list h2 {
   font-family: var(--font-cjk);
   font-weight: 500;
@@ -266,14 +234,6 @@ figcaption {
   font-family: var(--font-cjk);
   font-size: 15px;
   margin: 0;
-}
-.news-photo {
-  margin: 0 0 var(--space-6);
-  max-width: 900px;
-}
-.news-photo img {
-  width: 100%;
-  height: auto;
 }
 
 /* ---------- FAQ ---------- */
@@ -348,10 +308,6 @@ figcaption {
   font-weight: 400;
   font-size: 22px;
   margin: 0;
-}
-.award-score {
-  font-size: 18px;
-  margin: 2px 0 0;
 }
 .award-name {
   font-family: var(--font-cjk);
@@ -518,13 +474,6 @@ main + .booking-dock {
 @media (max-width: 1100px) {
   .award-list {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 900px) {
-  .content-layout {
-    grid-template-columns: 1fr;
-    gap: var(--space-6);
   }
 }
 
@@ -1509,5 +1458,152 @@ html:lang(en) .home-statement-text {
   .room-cta .cta {
     width: 100%;
     justify-content: center;
+  }
+}
+
+/* ==========================================================================
+   Content pages (spec §5.3): ink head → chapters (facilities) or one list chapter (location, attractions, groups);
+   FAQ, privacy, terms and news articles in a paper reading column. components/site/ContentPage.tsx.
+   ========================================================================== */
+
+/* The first band's chapter starts right under the ink head's own bottom margin. */
+.page-head-ink + .band > .wrap > .chapter:first-child {
+  padding-top: 0;
+}
+.content-intro {
+  max-width: 904px;
+  margin-bottom: var(--space-6);
+}
+.page-head-ink + .band > .wrap > .content-intro {
+  margin-bottom: 0;
+}
+.band-ink .prose li::marker {
+  color: var(--color-gold);
+}
+.split-text .prose,
+.grid3-text .prose {
+  font-size: 15px;
+}
+/* A section's text is longer than the home page's one paragraph: photos stay at the top beside it. */
+.content-page .photo-split {
+  align-items: start;
+}
+
+/* ---------- list chapter: sections as heading | text rows with hairlines ---------- */
+.content-page .photo-grid3 + .section-list,
+.content-page .reveal + .section-list,
+.content-page .address-card + .section-list {
+  margin-top: var(--space-7);
+}
+.section-list {
+  max-width: 904px;
+  border-bottom: 1px solid var(--color-line);
+}
+.section-item {
+  display: grid;
+  grid-template-columns: minmax(0, 12em) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-6);
+  padding: var(--space-5) 0;
+  border-top: 1px solid var(--color-line);
+}
+.section-item h3 {
+  font-family: var(--font-cjk);
+  font-weight: 500;
+  font-size: 18px;
+  line-height: 1.6;
+  letter-spacing: 0.1em;
+  margin: 0;
+}
+.section-item-head .chapter-en {
+  margin-top: 4px;
+}
+.section-item .prose {
+  font-size: 15px;
+  line-height: 1.9;
+}
+.section-item .prose > :last-child,
+.split-text .prose > :last-child,
+.grid3-text .prose > :last-child {
+  margin-bottom: 0;
+}
+.grid3-text .address-card {
+  margin: 0;
+}
+
+/* ---------- reading column: FAQ, privacy, terms, news article ---------- */
+/* Aligned with the chapter bodies (200px rail + gap) on wide screens. */
+.reading {
+  max-width: 680px;
+  margin-left: calc(200px + var(--space-6));
+  padding-bottom: var(--space-8);
+}
+.reading .prose {
+  font-size: 17px;
+  line-height: 1.85;
+  max-width: none;
+}
+.reading .faq-list {
+  max-width: none;
+}
+.reading .crumbs {
+  padding-top: 0;
+  margin-bottom: var(--space-5);
+}
+.reading-photo {
+  max-width: min(420px, var(--frame-max-w, 420px));
+  height: var(--frame-h, 300px);
+  margin: 0 0 var(--space-6);
+}
+.page-head-ink time {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: 14px;
+  color: var(--color-on-ink-muted);
+}
+
+/* ---------- news list ---------- */
+.news-thumb {
+  height: var(--frame-h, 186px);
+  margin: 0;
+}
+.news-list article.no-photo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* ---------- reviews: the ratings strip (six scores: one row, or two rows of three) above the certificates ---------- */
+.reviews-page .ratings {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  padding-top: 0;
+}
+
+@media (max-width: 900px) {
+  .reading {
+    margin-left: 0;
+  }
+  .reviews-page .ratings {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .section-item {
+    grid-template-columns: minmax(0, 1fr);
+    padding: var(--space-4) 0;
+  }
+  .news-thumb {
+    max-width: min(640px, var(--frame-max-w, 640px));
+    height: min(var(--frame-h, 186px), 62vw);
+  }
+  .reading-photo {
+    height: min(var(--frame-h, 300px), 62vw);
+  }
+  /* Three platforms a row: "HOSTELWORLD" must fit a third of 335px without breaking. */
+  .reviews-page .ratings {
+    column-gap: var(--space-2);
+  }
+  .reviews-page .ratings-platform {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    overflow-wrap: normal;
   }
 }

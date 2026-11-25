@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: Props) {
 export default async function GroupsPage({ params }: Props) {
   const { locale } = await params;
   return (
-    <ContentPage locale={locale} slug="groups" maxPhotos={3}>
+    <ContentPage locale={locale} slug="groups">
       <InquiryForm hotelEmail={CONTACT.email} />
     </ContentPage>
   );

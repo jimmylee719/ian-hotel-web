@@ -25,24 +25,26 @@ export default async function FaqPage({ params }: Props) {
   const [t, faqs] = await Promise.all([getTranslations({ locale, namespace: "faq" }), loadFaqs(locale)]);
 
   return (
-    <main id="main" className="wrap">
+    <main id="main" className="wrap content-page">
       <JsonLd data={faqJsonLd(faqs)} />
       <PageHead title={t("title")} lead={t("intro")} />
-      <div className="faq-list">
-        {faqs.map((f) => (
-          <details key={f.slug} id={f.slug}>
-            <summary>
-              <h2>{f.question}</h2>
-            </summary>
-            <RichText text={f.answer} headingLevel={3} />
-          </details>
-        ))}
+      <div className="reading">
+        <div className="faq-list">
+          {faqs.map((f) => (
+            <details key={f.slug} id={f.slug}>
+              <summary>
+                <h2>{f.question}</h2>
+              </summary>
+              <RichText text={f.answer} headingLevel={3} />
+            </details>
+          ))}
+        </div>
+        <p className="faq-contact">
+          {t("stillQuestions")} <a href={CONTACT.phoneHref}>{CONTACT.phone}</a>
+          {" · "}
+          <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>
+        </p>
       </div>
-      <p className="faq-contact">
-        {t("stillQuestions")} <a href={CONTACT.phoneHref}>{CONTACT.phone}</a>
-        {" · "}
-        <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>
-      </p>
     </main>
   );
 }
