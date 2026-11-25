@@ -22,6 +22,10 @@ const MESSAGES: Record<string, [status: number, message: string]> = {
   OVERPAY: [409, "收款金額不能超過待收金額。"],
   NOT_PAYABLE: [409, "只有已確認的訂單可以登錄櫃檯收款。"],
   NOT_SAME_DAY: [409, "只能作廢今天登錄的櫃檯收款。"],
+  CANCEL_IN_PROGRESS: [409, "這筆訂單正在取消（或有退款待確認），暫時不能登錄或作廢櫃檯收款。"],
+  NOT_VOIDABLE: [409, "這筆訂單已經結案（例如已取消），不能作廢收款。"],
+  INVALID_AUTH_CODE: [400, "授權碼只能是 1 到 12 個英文字母或數字。"],
+  LOOKS_LIKE_CARD_NUMBER: [400, "授權碼或備註看起來像完整卡號，請不要輸入卡號。"],
   ALREADY_VOIDED: [409, "這筆收款已經作廢了。"],
 };
 

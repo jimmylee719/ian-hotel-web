@@ -7,7 +7,7 @@ import {
   CancelReservationAction, RecordFrontDeskPaymentAction, ResendNotificationAction, VoidFrontDeskPaymentAction,
 } from "@/components/admin/StaffActions";
 import { StatusBadge } from "@/components/admin/StatusBadge";
-import { canVoidFrontDesk, voidableOn } from "@/lib/admin/front-desk";
+import { canVoidFrontDesk, frontDeskOpen, voidableOn } from "@/lib/admin/front-desk";
 import { can, type Permission } from "@/lib/admin/permissions";
 import { requirePage } from "@/lib/admin/page-guard";
 import { currentProperty } from "@/lib/admin/property-scope";
@@ -82,9 +82,11 @@ export default async function Page({
   const cancelPreview = can(ctx.staff, "reservations.cancel", propertyId) ? await staffCancelPreview(db, r.id, new Date()) : null;
   const quote = (d.quote ?? {}) as Quote;
   const now = new Date();
-  const mayVoid = canVoidFrontDesk(ctx.staff, propertyId);
+  // Desk money moves only while no cancellation has started (the server enforces the same rule).
+  const deskOpen = await frontDeskOpen(db, r.id);
+  const mayVoid = deskOpen && canVoidFrontDesk(ctx.staff, propertyId);
   const voidable = (p: PaymentRow) => mayVoid && p.kind === "front_desk" && p.status === "succeeded" && voidableOn(p.createdAt, now);
-  const canTakePayment = r.status === "confirmed" && d.money.balanceDue !== null && d.money.balanceDue > 0
+  const canTakePayment = deskOpen && d.money.balanceDue !== null && d.money.balanceDue > 0
     && can(ctx.staff, "payments.front_desk", propertyId);
 
   return (
@@ -136,7 +138,7 @@ export default async function Page({
             <dt>已收（淨額）</dt><dd><Money amount={d.money.paid} /></dd>
             <dt>已退</dt><dd><Money amount={d.money.refunded} /></dd>
             <dt>待收</dt><dd>{d.money.balanceDue !== null ? <Money amount={d.money.balanceDue} /> : <span className="adm-muted">—</span>}</dd>
-            <dt>已收款（退款前）</dt><dd className="adm-muted"><Money amount={d.money.received} /></dd>
+            <dt>已收款（退款前）</dt><dd className="adm-muted"><Money amount={d.money.grossReceived} /></dd>
             {r.status === "cancelled" && r.frontDeskRefundDue > 0 ? (
               <><dt>需由櫃檯退款</dt><dd><Money amount={r.frontDeskRefundDue} /> <span className="adm-muted">（櫃檯收款不會自動退回）</span></dd></>
             ) : null}

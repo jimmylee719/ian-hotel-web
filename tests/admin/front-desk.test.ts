@@ -228,3 +228,117 @@ test("reconciling a lost cancel refund completes the cancellation with the desk'
   expect(await reservation(code)).toMatchObject({ status: "cancelled", refundedAmount: DEPOSIT, frontDeskRefundDue: DEPOSIT });
   expect(email.sent.filter((e) => e.to === STAFF && e.text.includes("需由櫃檯退款：NT$2,480"))).not.toHaveLength(0);
 });
+
+// ── Fix round 1 ──────────────────────────────────────────────────────────────
+
+test("no desk money moves while a cancellation claim is held", async () => {
+  const { db, frontDesk, manager, id, balance } = await depositBooking();
+  const r = await recordFrontDeskPayment(db, frontDesk, id, cash(1000), DAY);
+  if (!r.ok) throw new Error(r.error);
+  await db.update(reservations).set({ cancelledAt: DAY.getTime() }).where(eq(reservations.id, id)); // a cancel just claimed it
+  expect(await recordFrontDeskPayment(db, frontDesk, id, cash(100), DAY)).toEqual({ ok: false, error: "CANCEL_IN_PROGRESS" });
+  expect(await voidFrontDeskPayment(db, manager, r.paymentId, "收錯", DAY)).toEqual({ ok: false, error: "CANCEL_IN_PROGRESS" });
+  expect(await balance()).toBe(DEPOSIT - 1000);
+});
+
+test("no desk money moves while a cancel refund row exists, even after its claim was dropped", async () => {
+  const { db, deps, frontDesk, manager, id, code, reservation, refunds } = await depositBooking({ failRefund: true });
+  const r = await recordFrontDeskPayment(db, frontDesk, id, cash(1000), DAY);
+  if (!r.ok) throw new Error(r.error);
+  expect(await cancelReservation(deps, code, GUEST, EARLY)).toEqual({ ok: false, error: "REFUND_FAILED" });
+  expect(await reservation(code)).toMatchObject({ status: "confirmed", cancelledAt: null }); // claim dropped
+  expect(await refunds()).toMatchObject([{ status: "failed", idempotencyKey: `cancel:${id}` }]); // intent stays
+  expect(await recordFrontDeskPayment(db, frontDesk, id, cash(100), EARLY)).toEqual({ ok: false, error: "CANCEL_IN_PROGRESS" });
+  expect(await voidFrontDeskPayment(db, manager, r.paymentId, "收錯", DAY)).toEqual({ ok: false, error: "CANCEL_IN_PROGRESS" });
+});
+
+test("a cancelled booking's desk payment is NOT_VOIDABLE and stays in the desk's refund", async () => {
+  const { db, deps, frontDesk, manager, id, code, reservation, payment } = await depositBooking();
+  const r = await recordFrontDeskPayment(db, frontDesk, id, cash(DEPOSIT), DAY);
+  if (!r.ok) throw new Error(r.error);
+  expect(await cancelReservation(deps, code, GUEST, DAY)).toMatchObject({ ok: true, frontDeskRefundDue: DEPOSIT });
+  expect(await voidFrontDeskPayment(db, manager, r.paymentId, "收錯", DAY)).toEqual({ ok: false, error: "NOT_VOIDABLE" });
+  expect((await payment(r.paymentId)).status).toBe("succeeded");
+  expect(await reservation(code)).toMatchObject({ frontDeskRefundDue: DEPOSIT });
+});
+
+/** After a cancel at 100%, every dollar held must be accounted for: refunded online or due at the desk. */
+async function expectNoOrphanedMoney(s: Awaited<ReturnType<typeof depositBooking>>) {
+  const res = await s.reservation(s.code);
+  expect(res.status).toBe("cancelled");
+  const held = await receivedAmount(s.db, s.id) + res.refundedAmount; // received is net of the online refund
+  expect(res.refundedAmount + res.frontDeskRefundDue).toBe(held);
+}
+
+test.each([["record first", true], ["cancel first", false]])("record racing a cancel (%s): refused, or included in the split", async (_, recordFirst) => {
+  const s = await depositBooking();
+  const record = () => recordFrontDeskPayment(s.db, s.frontDesk, s.id, cash(1000), EARLY);
+  const cancel = () => cancelReservation(s.deps, s.code, GUEST, EARLY);
+  const [rec, can] = recordFirst ? await Promise.all([record(), cancel()]) : (await Promise.all([cancel(), record()])).reverse() as [
+    Awaited<ReturnType<typeof record>>, Awaited<ReturnType<typeof cancel>>];
+  expect(can).toMatchObject({ ok: true });
+  if (!rec.ok) expect(["CANCEL_IN_PROGRESS", "NOT_PAYABLE"]).toContain(rec.error);
+  else expect(await s.reservation(s.code)).toMatchObject({ frontDeskRefundDue: 1000 });
+  await expectNoOrphanedMoney(s);
+});
+
+test.each([["void first", true], ["cancel first", false]])("void racing a cancel (%s): refused, or left out of the split", async (_, voidFirst) => {
+  const s = await depositBooking();
+  const p = await recordFrontDeskPayment(s.db, s.frontDesk, s.id, cash(1000), DAY);
+  if (!p.ok) throw new Error(p.error);
+  const doVoid = () => voidFrontDeskPayment(s.db, s.manager, p.paymentId, "收錯", DAY);
+  const cancel = () => cancelReservation(s.deps, s.code, GUEST, DAY);
+  const [v, can] = voidFirst ? await Promise.all([doVoid(), cancel()]) : (await Promise.all([cancel(), doVoid()])).reverse() as [
+    Awaited<ReturnType<typeof doVoid>>, Awaited<ReturnType<typeof cancel>>];
+  expect(can).toMatchObject({ ok: true });
+  const status = (await s.payment(p.paymentId)).status;
+  if (v.ok) expect(status).toBe("failed");
+  else { expect(["CANCEL_IN_PROGRESS", "NOT_VOIDABLE"]).toContain(v.error); expect(status).toBe("succeeded"); }
+  await expectNoOrphanedMoney(s);
+});
+
+test("a guest cancel with a desk refund due is audited under the system actor", async () => {
+  const { db, deps, frontDesk, id, code, auditsOf } = await depositBooking();
+  await recordFrontDeskPayment(db, frontDesk, id, cash(DEPOSIT), DAY);
+  await cancelReservation(deps, code, GUEST, EARLY);
+  expect((await auditsOf(id)).filter((a) => a.action === "cancel.front_desk_refund_due")).toMatchObject([{
+    staffEmail: "system:guest", entity: "reservation", after: { refunded: DEPOSIT, frontDeskRefundDue: DEPOSIT },
+  }]);
+  // No desk share, no row.
+  const b = await depositBooking();
+  await cancelReservation(b.deps, b.code, GUEST, EARLY);
+  expect((await b.auditsOf(b.id)).filter((a) => a.action === "cancel.front_desk_refund_due")).toEqual([]);
+});
+
+test("the auth code and the note may not carry a card number; the auth code is 1–12 letters or digits", async () => {
+  const { db, frontDesk, id, balance } = await depositBooking();
+  const edc = (authCode: string, note?: string) => ({ method: "edc" as const, amount: 100, last4: "4242", authCode, ...(note ? { note } : {}) });
+  expect(await recordFrontDeskPayment(db, frontDesk, id, edc("4111111111111111"), DAY)).toEqual({ ok: false, error: "LOOKS_LIKE_CARD_NUMBER" });
+  expect(await recordFrontDeskPayment(db, frontDesk, id, edc("A1B2C3", "卡號 4111-1111-1111-1111"), DAY))
+    .toEqual({ ok: false, error: "LOOKS_LIKE_CARD_NUMBER" });
+  expect(await recordFrontDeskPayment(db, frontDesk, id, cash(100, "4111 1111 1111 1"), DAY)).toEqual({ ok: false, error: "LOOKS_LIKE_CARD_NUMBER" });
+  expect(await recordFrontDeskPayment(db, frontDesk, id, edc("ABC-123"), DAY)).toEqual({ ok: false, error: "INVALID_AUTH_CODE" });
+  expect(await recordFrontDeskPayment(db, frontDesk, id, edc("ABCDEFGHIJKLM"), DAY)).toEqual({ ok: false, error: "INVALID_AUTH_CODE" });
+  expect(await balance()).toBe(DEPOSIT);
+  // A 12-digit transfer reference is fine.
+  expect(await recordFrontDeskPayment(db, frontDesk, id, cash(100, "匯款帳號末碼 123456789012"), DAY)).toMatchObject({ ok: true });
+  expect(await recordFrontDeskPayment(db, frontDesk, id, edc("ABCDEF123456"), DAY)).toMatchObject({ ok: true });
+});
+
+test("a payment or void attempted while the cancel's refund is at the gateway is refused, and the split still holds", async () => {
+  const s = await depositBooking();
+  const p = await recordFrontDeskPayment(s.db, s.frontDesk, s.id, cash(1000), DAY);
+  if (!p.ok) throw new Error(p.error);
+  const real = s.gateway.refund.bind(s.gateway);
+  const during: unknown[] = [];
+  vi.spyOn(s.gateway, "refund").mockImplementationOnce(async (r) => {
+    // The claim is taken and the split stored; the booking is still `confirmed`.
+    during.push(await recordFrontDeskPayment(s.db, s.frontDesk, s.id, cash(500), DAY));
+    during.push(await voidFrontDeskPayment(s.db, s.manager, p.paymentId, "收錯", DAY));
+    return real(r);
+  });
+  expect(await cancelReservation(s.deps, s.code, GUEST, DAY)).toMatchObject({ ok: true, refunded: DEPOSIT, frontDeskRefundDue: 1000 });
+  expect(during).toEqual([{ ok: false, error: "CANCEL_IN_PROGRESS" }, { ok: false, error: "CANCEL_IN_PROGRESS" }]);
+  expect((await s.payment(p.paymentId)).status).toBe("succeeded");
+  await expectNoOrphanedMoney(s);
+});

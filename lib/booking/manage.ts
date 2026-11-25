@@ -1,13 +1,14 @@
 import { and, eq, exists, isNull, lte, notExists, or, sql } from "drizzle-orm";
 import type { CancelResult } from "@/lib/channel/types";
 import { releaseInventory, type HoldItem } from "@/lib/db/inventory-hold";
-import { payments, ratePlans, reservationRooms, reservations, unitTypes, type I18n } from "@/lib/db/schema";
+import { auditLog, payments, ratePlans, reservationRooms, reservations, unitTypes, type I18n } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 import { todayInTaipei, type ISODate } from "@/lib/domain/dates";
 import { refundAmount } from "@/lib/domain/cancellation";
 import type { Quote } from "@/lib/domain/quote";
 import { holdItemsFor, MAX_SYNC_ATTEMPTS, refundOnce, SYNC_LEASE_MS, SYNC_RETRY_MS, type RefundOutcome } from "./confirm";
-import { moneyHeld, notifyGuest, notifyStaff, receivedAmount, refundableCharges, type Deps } from "./notify";
+import { moneyOf, receivedAmount } from "@/lib/admin/money-metrics";
+import { notifyGuest, notifyStaff, refundableCharges, type Deps } from "./notify";
 import { payingChargeId } from "./payment-notice";
 import { transition, type Reservation, type ResStatus } from "./state";
 
@@ -120,7 +121,7 @@ const frontDeskField = (amount: number) => (amount > 0 ? { frontDeskRefundDue: a
 async function cancelRefundPlan(db: Db, res: Reservation, at: Date, override?: number): Promise<CancelRefundPlan> {
   const intent = await cancelIntent(db, res.id);
   if (intent) return { online: intent.amount, frontDesk: res.frontDeskRefundDue };
-  const money = await moneyHeld(db, res.id);
+  const money = await moneyOf(db, res.id);
   let total = override;
   if (total === undefined) {
     const [plan] = await db.select({ policy: ratePlans.cancelPolicy }).from(reservationRooms)
@@ -143,8 +144,18 @@ export async function cancelReservation(deps: Deps, code: string, email: string,
   if (res.status === "cancelled") return alreadyCancelled(res);
   if (res.status !== "confirmed" || !withinCancelWindow(res, now)) return { ok: false, error: "NOT_CANCELLABLE" };
   const r = await cancelConfirmed(deps, res.id, now, { reason: "GUEST_CANCELLED" });
+  // Staff cancels audit the desk's share themselves; a guest's is audited here, under a system actor.
+  if (r.ok && !r.alreadyCancelled && r.frontDeskRefundDue)
+    await deps.db.insert(auditLog).values({
+      id: crypto.randomUUID(), staffEmail: GUEST_ACTOR, action: "cancel.front_desk_refund_due",
+      entity: "reservation", entityId: res.id, before: null,
+      after: { refunded: r.refunded, frontDeskRefundDue: r.frontDeskRefundDue }, at: now.getTime(),
+    });
   return r.ok || r.error !== "PAYMENTS_UNAVAILABLE" ? r : { ok: false, error: "REFUND_FAILED" };
 }
+
+/** The audit log's actor for writes a guest triggered. */
+export const GUEST_ACTOR = "system:guest";
 
 export type CancelCoreOptions = {
   /** Why, as told to the payment gateway with the refund. */

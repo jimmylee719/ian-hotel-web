@@ -1,7 +1,7 @@
 import { and, count, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { guests, payments, ratePlans, reservationRooms, reservations, unitTypes } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
-import { displayMoney, MONEY_KINDS, moneyByReservation } from "./money-metrics";
+import { countsAsReceived, displayMoney, moneyByReservation, receivedSum } from "./money-metrics";
 import { paginate, type Page } from "./paginate";
 import { containsText } from "./search";
 import { nightsBetween, type ResStatus } from "./reservations";
@@ -45,13 +45,13 @@ export async function listGuests(
         }).from(reservations).where(inArray(reservations.guestId, ids)).groupBy(reservations.guestId),
         db.select({
           gid: reservations.guestId,
-          net: sql<number>`sum(case when ${payments.kind} = 'refund' then -${payments.amount} else ${payments.amount} end)`,
+          received: receivedSum,
         }).from(payments).innerJoin(reservations, eq(reservations.id, payments.reservationId))
-          .where(and(inArray(reservations.guestId, ids), eq(payments.status, "succeeded"), inArray(payments.kind, [...MONEY_KINDS])))
+          .where(and(inArray(reservations.guestId, ids), countsAsReceived))
           .groupBy(reservations.guestId),
       ]);
       const c = new Map(counts.map((x) => [x.gid, x]));
-      const m = new Map(money.map((x) => [x.gid, Number(x.net)]));
+      const m = new Map(money.map((x) => [x.gid, Number(x.received)]));
       return page.map((g): GuestListRow => ({
         id: g.id, name: `${g.firstName} ${g.lastName}`, email: g.email, phone: g.phone, country: g.country,
         reservationCount: Number(c.get(g.id)?.n ?? 0), stays: Number(c.get(g.id)?.stays ?? 0), totalSpent: m.get(g.id) ?? 0,
@@ -96,13 +96,13 @@ export async function getGuest(db: Db, propertyId: string, id: string): Promise<
     return {
       id: r.id, code: r.code, status: r.status, checkIn: r.checkIn, checkOut: r.checkOut, nights: nightsBetween(r.checkIn, r.checkOut),
       roomName: [...new Set(names.get(r.id) ?? [])].join("、"), total: r.totalAmount,
-      ...displayMoney(r.status, { total: r.totalAmount, received: m.paid, refunded: m.refunded }),
+      ...displayMoney(r.status, r.totalAmount, m),
     };
   });
   return {
     id: g.id, name: `${g.firstName} ${g.lastName}`, email: g.email, phone: g.phone, country: g.country, locale: g.locale, createdAt: g.createdAt,
     stays: rs.filter((r) => r.status === "confirmed").length,
-    totalSpent: [...money.values()].reduce((s, m) => s + m.net, 0),
+    totalSpent: [...money.values()].reduce((s, m) => s + m.received, 0),
     reservations: history,
   };
 }

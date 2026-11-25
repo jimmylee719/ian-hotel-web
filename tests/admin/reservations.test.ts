@@ -191,7 +191,7 @@ describe("getReservationDetail", () => {
     await pay("p1", "a", "charge", 3000, T(1));
     await pay("p2", "a", "refund", 1000, T(2));
     const d = (await getReservationDetail(db, propertyId, "a"))!;
-    expect(d.money).toEqual({ paid: 2000, refunded: 1000, balanceDue: 2000, received: 3000 });
+    expect(d.money).toEqual({ paid: 2000, refunded: 1000, balanceDue: 2000, grossReceived: 3000 });
   });
 
   it("shows the same paid and balanceDue as the list row, including for a closed booking", async () => {
