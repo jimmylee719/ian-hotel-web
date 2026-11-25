@@ -101,8 +101,8 @@ export async function getDashboard(db: Db, propertyId: string, now: Date): Promi
 async function loadAlerts(db: Db, propertyId: string, nowMs: number): Promise<Alert[]> {
   const own = eq(reservations.propertyId, propertyId);
   const recent = nowMs - RECENT_MS;
-  // How long the desk has owed it: since the cancellation, else since the booking last changed (the modification).
-  const owedSince = sql<number>`coalesce(${reservations.cancelledAt}, ${reservations.updatedAt})`;
+  // How long the desk has owed it: since its desk-due last rose from 0.
+  const owedSince = reservations.deskDueSince;
   const [failed, stale, strays, refunds, emails, events, deskDue] = await Promise.all([
     db.select({ id: reservations.id, code: reservations.code, err: reservations.lastSyncError, at: reservations.updatedAt })
       .from(reservations).where(and(own, eq(reservations.syncState, "failed"))),

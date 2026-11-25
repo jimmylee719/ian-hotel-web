@@ -252,6 +252,8 @@ export async function cancelConfirmed(deps: Deps, reservationId: string, now: Da
   // Only now does the desk owe the cancellation's share: a cancel that failed and dropped its claim changed nothing.
   const cancelled = await transition(db, reservationId, "confirmed", "cancelled", {
     holdExpiresAt: null, frontDeskRefundDue: r.frontDesk, cancelDeskDue: 0,
+    // Desk-due can't move while the claim is held, so the claim's row tells whether it was already owed.
+    deskDueSince: r.frontDesk > 0 ? (claim.frontDeskRefundDue > 0 ? claim.deskDueSince ?? now.getTime() : now.getTime()) : null,
     syncState: "pending", syncAttempts: 0, nextSyncAt: now.getTime(), lastSyncError: null,
   }, now, refundSettled);
   if (!cancelled) return settledElsewhere(db, reservationId);

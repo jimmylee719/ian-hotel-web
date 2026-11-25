@@ -180,6 +180,8 @@ export const reservations = sqliteTable(
      * cancel that fails and drops its claim never changes what the desk owes. 0 otherwise.
      */
     cancelDeskDue: integer("cancel_desk_due").notNull().default(0),
+    /** Epoch ms since when frontDeskRefundDue has been > 0 (set as it rises from 0, kept while > 0); null when 0. */
+    deskDueSince: integer("desk_due_since"),
     /** How many staff modifications this booking has had; the n-th one's refund key is `modify:<id>:<n>`. */
     modCount: integer("mod_count").notNull().default(0),
   },

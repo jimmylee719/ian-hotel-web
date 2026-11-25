@@ -202,6 +202,7 @@ export async function applyModification(
         checkIn: change.checkIn, checkOut: change.checkOut, adults: change.adults, children: change.children,
         quote: pl.newQuote, totalAmount: pl.newQuote.total, modCount: n,
         frontDeskRefundDue: pl.frontDeskRefund,
+        deskDueSince: pl.frontDeskRefund > 0 ? sql`coalesce(${reservations.deskDueSince}, ${at})` : null,
         holdExpiresAt: res.holdExpiresAt ?? at,
         // nextSyncAt = now: from this moment the retry job is the safety net for the channel modify.
         syncState: "pending", syncAttempts: 0, nextSyncAt: at, lastSyncError: null, updatedAt: at,

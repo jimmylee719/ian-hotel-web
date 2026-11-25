@@ -1,11 +1,11 @@
 import { and, eq } from "drizzle-orm";
 import { afterEach, expect, test, vi } from "vitest";
 import { getDashboard } from "@/lib/admin/dashboard";
-import { balanceDueOf, recordFrontDeskRefund } from "@/lib/admin/front-desk";
+import { balanceDueOf, recordFrontDeskRefund, voidFrontDeskPayment } from "@/lib/admin/front-desk";
 import { moneyOf } from "@/lib/admin/money-metrics";
 import { previewModification } from "@/lib/admin/modify";
 import { staffCancel } from "@/lib/admin/staff-cancel";
-import { auditLog, payments } from "@/lib/db/schema";
+import { auditLog, payments, reservations } from "@/lib/db/schema";
 import { minutes } from "@/tests/helpers/booking";
 import { AT, ONE_NIGHT, TWO_NIGHTS, tenK } from "@/tests/helpers/money";
 
@@ -111,4 +111,58 @@ test("the dashboard flags desk-due older than a day", async () => {
   expect(await kinds(later)).toMatchObject([{ reservationId: s.id, code: s.code, detail: expect.stringContaining("3,000") }]);
   expect(await recordFrontDeskRefund(s.db, s.frontDesk, s.id, cash(3000), later)).toMatchObject({ ok: true });
   expect(await kinds(new Date(later.getTime() + DAY_MS * 2))).toEqual([]);
+});
+
+// ── Fix round 3 ──────────────────────────────────────────────────────────────
+
+const deskPayment = async (s: Awaited<ReturnType<typeof tenK>>) =>
+  (await s.db.select().from(payments).where(and(eq(payments.reservationId, s.id), eq(payments.kind, "front_desk"))))[0];
+
+test("a desk payment cannot be voided while the desk still owes the guest money: DESK_DUE_OUTSTANDING", async () => {
+  const s = await owing(); // 3000 online + 7000 desk, lowered to 4000: desk-due 3000
+  const desk = await deskPayment(s);
+  expect(await voidFrontDeskPayment(s.db, s.manager, desk.id, "打錯", minutes(30))).toEqual({ ok: false, error: "DESK_DUE_OUTSTANDING" });
+  expect((await deskPayment(s)).status).toBe("succeeded");
+  expect(await moneyOf(s.db, s.id)).toMatchObject({ received: 7000 });
+  expect(await s.row()).toMatchObject({ frontDeskRefundDue: 3000 });
+});
+
+test("a void with nothing owed still works", async () => {
+  const s = await tenK({ deposit: true, desk: 7000 });
+  expect(await voidFrontDeskPayment(s.db, s.manager, (await deskPayment(s)).id, "打錯", minutes(30))).toMatchObject({ ok: true, balanceDue: 7000 });
+  expect((await deskPayment(s)).status).toBe("failed");
+});
+
+test("no payout can push received below zero, even if desk-due says more is owed", async () => {
+  const s = await owing(); // received 7000
+  await s.db.update(reservations).set({ frontDeskRefundDue: 20000 }).where(eq(reservations.id, s.id)); // a corrupt state
+  expect(await recordFrontDeskRefund(s.db, s.frontDesk, s.id, cash(7001), minutes(30))).toEqual({ ok: false, error: "EXCEEDS_RECEIVED" });
+  expect(await moneyOf(s.db, s.id)).toMatchObject({ received: 7000 });
+  expect(await recordFrontDeskRefund(s.db, s.frontDesk, s.id, cash(7000), minutes(31))).toMatchObject({ ok: true, frontDeskRefundDue: 13000 });
+  expect(await moneyOf(s.db, s.id)).toMatchObject({ received: 0 });
+  expect(await recordFrontDeskRefund(s.db, s.frontDesk, s.id, cash(1), minutes(32))).toEqual({ ok: false, error: "EXCEEDS_RECEIVED" });
+});
+
+test("the desk-due alert ages from when the desk first owed the money, not from the booking's last change", async () => {
+  const s = await owing();
+  expect(await s.row()).toMatchObject({ deskDueSince: AT.getTime() });
+  const at = (h: number) => new Date(AT.getTime() + h * 3_600_000);
+  // A partial payout 23 hours later moves updatedAt, but the rest has still been owed since AT.
+  expect(await recordFrontDeskRefund(s.db, s.frontDesk, s.id, cash(1000), at(23))).toMatchObject({ ok: true, frontDeskRefundDue: 2000 });
+  expect(await s.row()).toMatchObject({ deskDueSince: AT.getTime(), updatedAt: at(23).getTime() });
+  const alerts = async (when: Date) => (await getDashboard(s.db, s.propertyId, when)).alerts.filter((a) => a.kind === "desk_refund_due");
+  expect(await alerts(at(25))).toMatchObject([{ reservationId: s.id, since: AT.getTime() }]);
+  // Paid back in full: nothing owed, no age.
+  expect(await recordFrontDeskRefund(s.db, s.frontDesk, s.id, cash(2000), at(26))).toMatchObject({ ok: true, frontDeskRefundDue: 0 });
+  expect(await s.row()).toMatchObject({ deskDueSince: null });
+  expect(await alerts(at(60))).toEqual([]);
+});
+
+test("deskDueSince follows the desk-due through a raise that clears it and a cancel that sets it", async () => {
+  const s = await owing();
+  expect(await s.modify(TWO_NIGHTS, minutes(20))).toMatchObject({ ok: true, frontDeskRefundDue: 0 });
+  expect(await s.row()).toMatchObject({ deskDueSince: null });
+  // Cancel at 100%: the desk owes its 7000 from the moment of the cancel.
+  expect(await staffCancel(s.deps, s.frontDesk, s.id, { reason: "x", notifyGuest: false }, minutes(40))).toMatchObject({ ok: true, frontDeskRefundDue: 7000 });
+  expect(await s.row()).toMatchObject({ frontDeskRefundDue: 7000, deskDueSince: minutes(40).getTime() });
 });

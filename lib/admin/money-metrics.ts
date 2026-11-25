@@ -94,6 +94,11 @@ export const receivedSum: SQL<number> = sql<number>`coalesce(sum(case when ${pay
 export const receivedOf = (reservationId: string | SQL): SQL<number> =>
   sql<number>`(select ${receivedSum} from ${payments} where ${payments.reservationId} = ${reservationId} and ${countsAsReceived})`;
 
+/** SQL scalar: `received` of one reservation leaving out one payment row (e.g. one being inserted in the same batch). */
+export const receivedWithout = (reservationId: string, paymentId: string): SQL<number> =>
+  sql<number>`(select ${receivedSum} from ${payments} where ${payments.reservationId} = ${reservationId} and ${countsAsReceived}
+    and ${payments.id} <> ${paymentId})`;
+
 /** Statuses whose booking owes nothing, whatever its payment history says. */
 export const CLOSED_STATUSES: readonly string[] = ["cancelled", "expired", "confirm_failed_refunded"];
 

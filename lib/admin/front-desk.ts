@@ -4,7 +4,7 @@ import { auditLog, payments, reservations } from "@/lib/db/schema";
 import { cancelKey } from "@/lib/booking/manage";
 import type { Db } from "@/lib/db/types";
 import { todayInTaipei } from "@/lib/domain/dates";
-import { balanceDue, moneyOf, receivedOf } from "./money-metrics";
+import { balanceDue, moneyOf, receivedOf, receivedWithout } from "./money-metrics";
 import type { AuditEntry } from "./audit";
 import type { StaffContext } from "./auth";
 import { can, type StaffRole } from "./permissions";
@@ -29,7 +29,8 @@ export type VoidFrontDeskResult =
   | { ok: true; balanceDue: number }
   | {
       ok: false;
-      error: "NOT_FOUND" | "FORBIDDEN" | "REASON_REQUIRED" | "NOT_SAME_DAY" | "ALREADY_VOIDED" | "CANCEL_IN_PROGRESS" | "NOT_VOIDABLE";
+      error: "NOT_FOUND" | "FORBIDDEN" | "REASON_REQUIRED" | "NOT_SAME_DAY" | "ALREADY_VOIDED" | "CANCEL_IN_PROGRESS" | "NOT_VOIDABLE"
+        | "DESK_DUE_OUTSTANDING";
     };
 
 const LAST4 = /^\d{4}$/;
@@ -195,9 +196,10 @@ export async function voidFrontDeskPayment(
   const stateError = (s: DeskState) => (s === "closed" ? "NOT_VOIDABLE" as const : "CANCEL_IN_PROGRESS" as const);
   const state = await deskState(db, row.reservationId);
   if (state !== "open") return { ok: false, error: stateError(state) };
+  if (await deskDueOutstanding(db, row.reservationId)) return { ok: false, error: "DESK_DUE_OUTSTANDING" };
 
   const stillSucceeded = exists(db.select({ one: sql`1` }).from(payments).where(and(eq(payments.id, row.id), eq(payments.status, "succeeded"))));
-  const guard = sql`${stillSucceeded} and ${deskOpenSql(row.reservationId)}`;
+  const guard = sql`${stillSucceeded} and ${deskOpenSql(row.reservationId)} and ${noDeskDueSql(row.reservationId)}`;
   const auditId = crypto.randomUUID();
   await runAtomic(db, [
     guardedAudit(db, ctx, auditId, {
@@ -207,27 +209,47 @@ export async function voidFrontDeskPayment(
     }, guard, now),
     // The booking's version moves with its money, so a staff modification planned before this void conflicts.
     db.update(reservations).set({ updatedAt: now.getTime() }).where(and(eq(reservations.id, row.reservationId), guard)),
-    db.update(payments).set({ status: "failed" }).where(and(eq(payments.id, row.id), eq(payments.status, "succeeded"), deskOpenSql(row.reservationId))),
+    db.update(payments).set({ status: "failed" })
+      .where(and(eq(payments.id, row.id), eq(payments.status, "succeeded"), deskOpenSql(row.reservationId), noDeskDueSql(row.reservationId))),
   ]);
   const [won] = await db.select({ id: auditLog.id }).from(auditLog).where(eq(auditLog.id, auditId));
   if (!won) {
     const lost = await deskState(db, row.reservationId);
-    return { ok: false, error: lost === "open" ? "ALREADY_VOIDED" : stateError(lost) };
+    if (lost !== "open") return { ok: false, error: stateError(lost) };
+    return { ok: false, error: await deskDueOutstanding(db, row.reservationId) ? "DESK_DUE_OUTSTANDING" : "ALREADY_VOIDED" };
   }
   return { ok: true, balanceDue: await balanceDueOf(db, row.reservationId) };
 }
 
+/**
+ * SQL: the desk owes this booking's guest nothing, now or for a cancellation in flight. A void would take money
+ * out of `received` that a payout of that debt still has to come from, so voids wait until it is settled (or a
+ * cancel / modification recomputes it).
+ */
+const noDeskDueSql = (reservationId: string): SQL => sql`not exists (select 1 from ${reservations}
+  where ${reservations.id} = ${reservationId} and (${reservations.frontDeskRefundDue} > 0 or ${reservations.cancelDeskDue} > 0))`;
+
+async function deskDueOutstanding(db: Db, reservationId: string): Promise<boolean> {
+  const [r] = await db.select({ due: reservations.frontDeskRefundDue, cancel: reservations.cancelDeskDue })
+    .from(reservations).where(eq(reservations.id, reservationId));
+  return !!r && (r.due > 0 || r.cancel > 0);
+}
+
 export type RecordFrontDeskRefundResult =
   | { ok: true; paymentId: string; frontDeskRefundDue: number }
-  | { ok: false; error: "NOT_FOUND" | "FORBIDDEN" | "EXCEEDS_DESK_DUE" | "CANCEL_IN_PROGRESS" | EntryError };
+  | { ok: false; error: "NOT_FOUND" | "FORBIDDEN" | "EXCEEDS_DESK_DUE" | "EXCEEDS_RECEIVED" | "CANCEL_IN_PROGRESS" | EntryError };
 
 /**
- * SQL: the desk may pay `amount` out on this booking now: it owes at least that much (frontDeskRefundDue), and the
- * booking is either open (see DeskState) or cancelled. Not while a cancellation is in flight: its desk share is
- * still being fixed (it lands in frontDeskRefundDue only as the booking turns cancelled).
+ * SQL: the desk may pay `amount` (payment row `paymentId`, inserted in the same batch) out on this booking now:
+ * - it owes at least that much (frontDeskRefundDue);
+ * - what was received, not counting this payout, covers it: no payout ever drives `received` below zero
+ *   (defence in depth: desk-due should never exceed received);
+ * - the booking is open (see DeskState) or cancelled. Not while a cancellation is in flight: its desk share is
+ *   still being fixed (it lands in frontDeskRefundDue only as the booking turns cancelled).
  */
-const payoutAllowedSql = (reservationId: string, amount: number): SQL => sql`exists (select 1 from ${reservations}
+const payoutAllowedSql = (reservationId: string, paymentId: string, amount: number): SQL => sql`exists (select 1 from ${reservations}
   where ${reservations.id} = ${reservationId} and ${reservations.frontDeskRefundDue} >= ${amount}
+  and ${receivedWithout(reservationId, paymentId)} - ${amount} >= 0
   and (${reservations.status} = 'cancelled' or ${deskOpenSql(reservationId)}))`;
 
 /**
@@ -249,10 +271,11 @@ export async function recordFrontDeskRefund(
   if (!entry.ok) return entry;
   const { last4, authCode, note } = entry;
   if (p.amount > res.frontDeskRefundDue) return { ok: false, error: "EXCEEDS_DESK_DUE" };
+  if (p.amount > (await moneyOf(db, res.id)).received) return { ok: false, error: "EXCEEDS_RECEIVED" };
 
   const paymentId = crypto.randomUUID();
   const auditId = crypto.randomUUID();
-  const guard = payoutAllowedSql(res.id, p.amount);
+  const guard = payoutAllowedSql(res.id, paymentId, p.amount);
   await runAtomic(db, [
     guardedAudit(db, ctx, auditId, {
       action: "payment.front_desk_refund", entity: "payment", entityId: paymentId,
@@ -265,13 +288,18 @@ export async function recordFrontDeskRefund(
     db.insert(payments).select(sql`select ${paymentId}, ${res.id}, 'refund', ${p.method}, ${p.amount}, 'succeeded',
       null, ${authCode}, ${last4}, null, null, ${now.getTime()}, ${note} where ${guard}`),
     db.update(reservations)
-      .set({ frontDeskRefundDue: sql`${reservations.frontDeskRefundDue} - ${p.amount}`, updatedAt: now.getTime() })
+      .set({
+        frontDeskRefundDue: sql`${reservations.frontDeskRefundDue} - ${p.amount}`,
+        deskDueSince: sql`case when ${reservations.frontDeskRefundDue} - ${p.amount} > 0 then ${reservations.deskDueSince} else null end`,
+        updatedAt: now.getTime(),
+      })
       .where(and(eq(reservations.id, res.id), guard)),
   ]);
   const [won] = await db.select({ id: payments.id }).from(payments).where(eq(payments.id, paymentId));
   const [cur] = await db.select().from(reservations).where(eq(reservations.id, res.id));
   if (!won) {
     if (cur.frontDeskRefundDue < p.amount) return { ok: false, error: "EXCEEDS_DESK_DUE" };
+    if ((await moneyOf(db, res.id)).received < p.amount) return { ok: false, error: "EXCEEDS_RECEIVED" };
     return { ok: false, error: "CANCEL_IN_PROGRESS" };
   }
   return { ok: true, paymentId, frontDeskRefundDue: cur.frontDeskRefundDue };
