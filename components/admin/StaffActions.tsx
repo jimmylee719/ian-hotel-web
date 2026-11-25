@@ -96,8 +96,10 @@ export function ReconcileRefundActions({ paymentId, status, amount }: { paymentI
   const { show, view } = useToast();
   const [providerRef, setProviderRef] = useState("");
   const url = `/api/admin/refunds/${encodeURIComponent(paymentId)}/reconcile`;
-  const done = (r: { completed: string | null }, text: string) => {
-    show(r.completed === "cancellation" ? `${text}，訂單已完成取消` : r.completed === "refund_and_fail" ? `${text}，訂單已結案並通知旅客` : text);
+  const done = (r: { completed: string | null; reservationStatus?: string }, text: string) => {
+    show(r.completed === "cancellation" ? `${text}，訂單已完成取消`
+      : r.completed === "refund_and_fail" ? `${text}，訂單已結案並通知旅客`
+      : `${text}（訂單狀態：${r.reservationStatus ?? "未變"}）`);
     router.refresh();
   };
 

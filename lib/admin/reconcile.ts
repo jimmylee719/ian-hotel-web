@@ -29,10 +29,18 @@ export async function listPendingRefunds(db: Db, propertyId: string, status: "pe
     .orderBy(status === "pending" ? payments.createdAt : desc(payments.createdAt), payments.id);
 }
 
+type ReservationStatus = typeof reservations.$inferSelect["status"];
+
 export type ReconcileAction = { kind: "mark_succeeded"; providerRef: string } | { kind: "mark_failed" } | { kind: "retry" };
 
 export type ReconcileResult =
-  | { ok: true; status: "succeeded" | "failed"; completed: "cancellation" | "refund_and_fail" | null }
+  | {
+      ok: true; status: "succeeded" | "failed";
+      /** The flow this refund was waiting on and that this call finished, or null (nothing to finish, or not finishable yet). */
+      completed: "cancellation" | "refund_and_fail" | null;
+      /** The booking's status after the call. */
+      reservationStatus: ReservationStatus;
+    }
   | {
       ok: false;
       error: "NOT_FOUND" | "FORBIDDEN" | "ALREADY_RESOLVED" | "NOT_FAILED" | "PROVIDER_REF_REQUIRED" | "DUPLICATE_PROVIDER_REF" | "REFUND_FAILED";
@@ -45,10 +53,10 @@ const countsAsBookingRefund = (key: string | null) => !!key && (key.startsWith("
  * Settle a refund row by hand (needs `payments.reconcile` at the booking's property; another property's row is NOT_FOUND).
  * - `mark_succeeded` (staff confirmed with the bank): pending → succeeded with the bank's reference, the amount
  *   added to refundedAmount and the audit row, all in one batch and only while the row is still pending; then the
- *   flow it belonged to is finished: a claimed cancellation (`cancel:`) is completed through the cancel core, a
- *   failed booking (`fail:`) through refundAndFail's remaining steps. A second call is ALREADY_RESOLVED.
+ *   flow it belonged to is finished (finishFlow): a still-confirmed booking's cancellation (`cancel:`) through the
+ *   cancel core, a failed booking (`fail:`) through refundAndFail's remaining steps. A second call is ALREADY_RESOLVED.
  * - `mark_failed`: pending → failed, nothing else; it is not retried automatically.
- * - `retry`: only a failed row; refundOnce again under the row's own key (the gateway's idempotency key), then
+ * - `retry`: only a failed row (a succeeded one is ALREADY_RESOLVED); refundOnce again under the row's own key (the gateway's idempotency key), then
  *   finishes the flow as above.
  */
 export async function reconcileRefund(
@@ -67,6 +75,7 @@ export async function reconcileRefund(
   });
 
   if (action.kind === "retry") {
+    if (row.status === "succeeded") return { ok: false, error: "ALREADY_RESOLVED" };
     if (row.status !== "failed") return { ok: false, error: "NOT_FAILED" };
     const charge = (await refundableCharges(db, row.reservationId)).find((c) => c.id === row.refundOf);
     const r = charge && row.idempotencyKey
@@ -74,7 +83,7 @@ export async function reconcileRefund(
       : { ok: false as const, error: "NO_REFUNDABLE_CHARGE" };
     await recordAudit(db, ctx, audit({ outcome: r.ok ? "succeeded" : r.error }), now);
     if (!r.ok) return { ok: false, error: "REFUND_FAILED" };
-    return { ok: true, status: "succeeded", completed: await finishFlow(deps, row.idempotencyKey, row.reservationId, now) };
+    return { ok: true, status: "succeeded", ...await finishFlow(deps, row.idempotencyKey, row.reservationId, now) };
   }
 
   if (row.status !== "pending") return { ok: false, error: "ALREADY_RESOLVED" };
@@ -105,34 +114,63 @@ export async function reconcileRefund(
   }
   const [won] = await db.select({ id: auditLog.id }).from(auditLog).where(eq(auditLog.id, auditId));
   if (!won) return { ok: false, error: "ALREADY_RESOLVED" };
-  if (action.kind === "mark_failed") return { ok: true, status: "failed", completed: null };
-  return { ok: true, status: "succeeded", completed: await finishFlow(deps, row.idempotencyKey, row.reservationId, now) };
+  if (action.kind === "mark_failed") return { ok: true, status: "failed", completed: null, reservationStatus: await statusOf(db, row.reservationId) };
+  return { ok: true, status: "succeeded", ...await finishFlow(deps, row.idempotencyKey, row.reservationId, now) };
+}
+
+async function statusOf(db: Db, reservationId: string): Promise<ReservationStatus> {
+  const [r] = await db.select({ status: reservations.status }).from(reservations).where(eq(reservations.id, reservationId));
+  return r.status;
 }
 
 /**
  * Now that a refund is settled, finish the flow that was waiting on it, if any:
- * - `cancel:<id>` of a claimed cancellation (cancelledAt set, still confirmed) → the cancel core completes it
- *   (transition, release from today on, channel cancel, emails). If the original request still holds a fresh
- *   claim, it finishes the cancellation itself and this returns null.
- * - `fail:<id>:<charge>` of a failed booking (paid_pending_confirm, syncState failed) → refundAndFail's rest.
+ * - `cancel:<id>`: such a refund only ever pays back a cancellation, so a booking still `confirmed` must end
+ *   cancelled, whether or not its claim survived (a definitive gateway refusal drops it) and even inside the
+ *   original request's lease (that request already gave up with an unknown outcome). The cancel core re-takes
+ *   the claim with `cancelledAt = coalesce(cancelledAt, <intent created>)`, so the cancellation keeps its
+ *   original time; the intent fixes the amount; nights are released from today on (the staff rule).
+ * - `fail:<id>:<charge>` of a failed booking (paid_pending_confirm, syncState failed) → refundAndFail's rest,
+ *   with the booking's original failure reason so its emails and any new error keep it.
+ * A booking in any other state is left alone; the result reports its status.
  */
-async function finishFlow(deps: Deps, key: string | null, reservationId: string, now: Date): Promise<"cancellation" | "refund_and_fail" | null> {
-  const [res] = await deps.db.select().from(reservations).where(eq(reservations.id, reservationId));
-  if (key === cancelKey(res.id) && res.status === "confirmed" && res.cancelledAt != null) {
-    const r = await cancelConfirmed(deps, res.id, now, { reason: "RECONCILED", releaseFrom: todayInTaipei(now) });
-    return r.ok && !r.alreadyCancelled ? "cancellation" : null;
+async function finishFlow(
+  deps: Deps, key: string | null, reservationId: string, now: Date,
+): Promise<{ completed: "cancellation" | "refund_and_fail" | null; reservationStatus: ReservationStatus }> {
+  const { db } = deps;
+  const [res] = await db.select().from(reservations).where(eq(reservations.id, reservationId));
+  let completed: "cancellation" | "refund_and_fail" | null = null;
+  if (key === cancelKey(res.id) && res.status === "confirmed") {
+    const [intent] = await db.select().from(payments).where(eq(payments.idempotencyKey, key));
+    if (intent?.status === "succeeded") {
+      const r = await cancelConfirmed(deps, res.id, now, {
+        reason: "RECONCILED", releaseFrom: todayInTaipei(now), takeOverAt: intent.createdAt,
+      });
+      if (r.ok && !r.alreadyCancelled) completed = "cancellation";
+    }
+  } else if (key?.startsWith(`fail:${res.id}:`) && res.status === "paid_pending_confirm" && res.syncState === "failed") {
+    const reason = originalFailReason(res.lastSyncError);
+    if (await finishRefundAndFail(deps, res, reason, now, failKinds(reason))) completed = "refund_and_fail";
   }
-  if (key?.startsWith(`fail:${res.id}:`) && res.status === "paid_pending_confirm" && res.syncState === "failed")
-    return await finishRefundAndFail(deps, res, "RECONCILED", now, failKinds(res.lastSyncError)) ? "refund_and_fail" : null;
-  return null;
+  return { completed, reservationStatus: await statusOf(db, reservationId) };
 }
 
 /**
- * Which emails refundAndFail was going to send, recovered from the reason it recorded (lastSyncError keeps it,
- * e.g. "REFUND_FAILED: … (AMOUNT_MISMATCH: …)"), as confirmWithChannel chooses them.
+ * refundAndFail's own reason (AMOUNT_MISMATCH: …, SOLD_OUT_AFTER_EXPIRY, a channel error), unwrapped from the
+ * "REFUND_FAILED: <error> (<reason>)" it records on each failed refund, however many times it was wrapped.
  */
-function failKinds(lastSyncError: string | null): RefundAndFailKinds {
-  const e = lastSyncError ?? "";
+export function originalFailReason(lastSyncError: string | null): string {
+  let e = lastSyncError ?? "";
+  const wrapped = /^REFUND_FAILED: [^]*? \(([^]*)\)$/;
+  for (let m = wrapped.exec(e); m; m = wrapped.exec(e)) e = m[1];
+  return e || "RECONCILED";
+}
+
+/**
+ * Which emails refundAndFail was going to send, from its original reason, as confirmWithChannel chooses them.
+ */
+function failKinds(reason: string): RefundAndFailKinds {
+  const e = reason;
   if (e.includes("AMOUNT_MISMATCH")) return { guestKind: "payment_refunded", staffKind: "staff_payment_alert" };
   if (e.includes("SOLD_OUT_AFTER_EXPIRY")) return { guestKind: "booking_failed_refunded", staffKind: "staff_payment_alert" };
   return { guestKind: "booking_failed_refunded", staffKind: "staff_sync_failed" };

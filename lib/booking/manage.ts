@@ -131,6 +131,13 @@ export type CancelCoreOptions = {
    * PAYMENTS_UNAVAILABLE before touching the gateway (the claim is dropped); one refunding 0 goes ahead.
    */
   gatewayAvailable?: boolean;
+  /**
+   * Only once the cancellation's refund intent has SUCCEEDED (refund reconciliation): take the claim even if
+   * another request's lease is fresh, stamping `cancelledAt = coalesce(cancelledAt, takeOverAt)`. The settled
+   * refund is the authority; the transition stays guarded by status = confirmed and the succeeded intent, so
+   * of two racing completions only one cancels, releases and emails.
+   */
+  takeOverAt?: number;
 };
 
 export type CoreCancelOutcome = CancelOutcome | { ok: false; error: "PAYMENTS_UNAVAILABLE" };
@@ -151,7 +158,7 @@ export type CoreCancelOutcome = CancelOutcome | { ok: false; error: "PAYMENTS_UN
  */
 export async function cancelConfirmed(deps: Deps, reservationId: string, now: Date, o: CancelCoreOptions): Promise<CoreCancelOutcome> {
   const { db } = deps;
-  const claim = await claimCancellation(db, reservationId, now);
+  const claim = await claimCancellation(db, reservationId, now, o.takeOverAt);
   if (!claim) return settledElsewhere(db, reservationId);
 
   const r = await refundCancellation(deps, claim, now, o);
@@ -222,14 +229,17 @@ async function refundCancellation(deps: Deps, claim: Reservation, now: Date, o: 
 
 /**
  * One conditional UPDATE: own the cancellation of a confirmed booking. `cancelledAt` keeps the time
- * of the first request (the policy is applied at that time); `updatedAt` is the lease.
+ * of the first request (the policy is applied at that time); `updatedAt` is the lease. `takeOverAt`
+ * (settled refund only, see CancelCoreOptions) skips the lease check.
  */
-async function claimCancellation(db: Db, reservationId: string, now: Date): Promise<Reservation | undefined> {
+async function claimCancellation(db: Db, reservationId: string, now: Date, takeOverAt?: number): Promise<Reservation | undefined> {
   const [res] = await db.update(reservations)
-    .set({ cancelledAt: sql`coalesce(${reservations.cancelledAt}, ${now.getTime()})`, updatedAt: now.getTime() })
+    .set({ cancelledAt: sql`coalesce(${reservations.cancelledAt}, ${takeOverAt ?? now.getTime()})`, updatedAt: now.getTime() })
     .where(and(
       eq(reservations.id, reservationId), eq(reservations.status, "confirmed"),
-      or(isNull(reservations.cancelledAt), lte(reservations.updatedAt, now.getTime() - CANCEL_LEASE_MS)),
+      takeOverAt === undefined
+        ? or(isNull(reservations.cancelledAt), lte(reservations.updatedAt, now.getTime() - CANCEL_LEASE_MS))
+        : undefined,
     ))
     .returning();
   return res;

@@ -4,7 +4,7 @@ import type { StaffContext } from "@/lib/admin/auth";
 import { listPendingRefunds, reconcileRefund } from "@/lib/admin/reconcile";
 import { cancelReservation } from "@/lib/booking/manage";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
-import { auditLog, inventoryDaily, notifications, payments, staff } from "@/lib/db/schema";
+import { auditLog, inventoryDaily, notifications, payments, reservations, staff } from "@/lib/db/schema";
 import { fillAri } from "@/tests/helpers/ari";
 import { bookingSetup, minutes, PAY_NOW } from "@/tests/helpers/booking";
 
@@ -56,7 +56,7 @@ test("mark_succeeded on a stuck cancellation refund finishes the cancellation; a
   const { db, deps, email, manager, code, id, row, reservation, avail, refundRows } = await stuckCancellation();
   expect(await avail("2026-12-10")).toBe(2);
   expect(await reconcileRefund(deps, manager, row.id, { kind: "mark_succeeded", providerRef: "BANK-123" }, LATER))
-    .toEqual({ ok: true, status: "succeeded", completed: "cancellation" });
+    .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
 
   expect(await reservation(code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, cancelledAt: EARLY.getTime() });
   expect(await refundRows(id)).toMatchObject([{ status: "succeeded", providerRef: "BANK-123", amount: PAID }]);
@@ -74,30 +74,79 @@ test("mark_failed only marks it failed; retry then calls the gateway with the sa
   const { deps, gateway, manager, code, id, row, reservation, refundRows } = await stuckCancellation();
   const refund = vi.spyOn(gateway, "refund");
   refund.mockClear(); // forget the original attempt's call
-  expect(await reconcileRefund(deps, manager, row.id, { kind: "mark_failed" }, LATER)).toEqual({ ok: true, status: "failed", completed: null });
+  expect(await reconcileRefund(deps, manager, row.id, { kind: "mark_failed" }, LATER)).toEqual({ ok: true, status: "failed", completed: null, reservationStatus: "confirmed" });
   expect(await refundRows(id)).toMatchObject([{ status: "failed" }]);
   expect(refund).not.toHaveBeenCalled();
   expect(await reconcileRefund(deps, manager, row.id, { kind: "mark_failed" }, LATER)).toEqual({ ok: false, error: "ALREADY_RESOLVED" });
 
-  expect(await reconcileRefund(deps, manager, row.id, { kind: "retry" }, LATER)).toEqual({ ok: true, status: "succeeded", completed: "cancellation" });
+  expect(await reconcileRefund(deps, manager, row.id, { kind: "retry" }, LATER)).toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
   expect(refund).toHaveBeenCalledTimes(1);
   expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: `cancel:${id}`, amount: PAID }));
   expect(await reservation(code)).toMatchObject({ status: "cancelled", refundedAmount: PAID });
-  expect(await reconcileRefund(deps, manager, row.id, { kind: "retry" }, LATER)).toEqual({ ok: false, error: "NOT_FAILED" });
+  expect(await reconcileRefund(deps, manager, row.id, { kind: "retry" }, LATER)).toEqual({ ok: false, error: "ALREADY_RESOLVED" });
+  expect(refund).toHaveBeenCalledTimes(1);
+  expect((await reservation(code)).refundedAmount).toBe(PAID);
 });
 
-test("retry on a failed refund (claim dropped) re-sends under the original key", async () => {
+/** A guest cancel whose refund the gateway refused: the intent row is failed and the claim was dropped (cancelledAt null). */
+async function droppedClaim() {
   const s = await setup({ failRefund: true });
   const code = await s.book({ checkIn: "2026-12-10", checkOut: "2026-12-12" });
   await handlePaymentNotice(s.deps, await s.notice(code, { amount: PAID }), minutes(2));
   expect(await cancelReservation(s.deps, code, GUEST, EARLY)).toEqual({ ok: false, error: "REFUND_FAILED" });
   const res = await s.reservation(code);
+  expect(res).toMatchObject({ status: "confirmed", cancelledAt: null });
   const [row] = await s.refundRows(res.id);
   expect(row.status).toBe("failed");
+  return { ...s, code, id: res.id, row };
+}
+
+test("a successful retry of a cancel refund whose claim was dropped completes the cancellation at the refund's time", async () => {
+  const s = await droppedClaim();
+  const cancel = vi.spyOn(s.channel, "cancelReservation");
   const refund = vi.spyOn(s.gateway, "refund").mockResolvedValueOnce({ ok: true, refundRef: "R-RETRY" });
-  expect(await reconcileRefund(s.deps, s.manager, row.id, { kind: "retry" }, LATER)).toEqual({ ok: true, status: "succeeded", completed: null });
-  expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: `cancel:${res.id}` }));
-  expect(await s.reservation(code)).toMatchObject({ status: "confirmed", refundedAmount: PAID });
+  expect(await s.avail("2026-12-10")).toBe(2);
+  expect(await reconcileRefund(s.deps, s.manager, s.row.id, { kind: "retry" }, LATER))
+    .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
+  expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: `cancel:${s.id}` }));
+  expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, cancelledAt: s.row.createdAt, syncState: "synced" });
+  expect(cancel).toHaveBeenCalledWith(s.code);
+  expect(await s.avail("2026-12-10")).toBe(3);
+  expect(await s.avail("2026-12-11")).toBe(3);
+  expect(s.email.sent.filter((e) => e.to === GUEST && e.subject.includes("cancelled"))).toHaveLength(1);
+
+  expect(await reconcileRefund(s.deps, s.manager, s.row.id, { kind: "retry" }, LATER)).toEqual({ ok: false, error: "ALREADY_RESOLVED" });
+  expect(await reconcileRefund(s.deps, s.manager, s.row.id, { kind: "mark_succeeded", providerRef: "X" }, LATER)).toEqual({ ok: false, error: "ALREADY_RESOLVED" });
+  expect(refund).toHaveBeenCalledTimes(1);
+  expect((await s.reservation(s.code)).refundedAmount).toBe(PAID);
+});
+
+test("mark_succeeded on a pending cancel refund whose claim is gone also completes the cancellation", async () => {
+  const s = await stuckCancellation();
+  await s.db.update(reservations).set({ cancelledAt: null }).where(eq(reservations.id, s.id)); // the claim was lost
+  expect(await reconcileRefund(s.deps, s.manager, s.row.id, { kind: "mark_succeeded", providerRef: "BANK-7" }, LATER))
+    .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
+  expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, cancelledAt: s.row.createdAt });
+  expect(await s.avail("2026-12-10")).toBe(3);
+  expect(await reconcileRefund(s.deps, s.manager, s.row.id, { kind: "mark_succeeded", providerRef: "BANK-7" }, LATER))
+    .toEqual({ ok: false, error: "ALREADY_RESOLVED" });
+  expect((await s.reservation(s.code)).refundedAmount).toBe(PAID);
+});
+
+test("mark_succeeded inside the original request's lease still completes the cancellation", async () => {
+  const s = await stuckCancellation();
+  const soon = new Date(EARLY.getTime() + 30_000); // well within CANCEL_LEASE_MS of the claim
+  expect(await reconcileRefund(s.deps, s.manager, s.row.id, { kind: "mark_succeeded", providerRef: "BANK-8" }, soon))
+    .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
+  expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, cancelledAt: EARLY.getTime() });
+  expect(await s.avail("2026-12-10")).toBe(3);
+});
+
+test("settling a cancel refund on a booking that is no longer confirmed only reports its status", async () => {
+  const s = await stuckCancellation();
+  await s.db.update(reservations).set({ status: "cancelled" }).where(eq(reservations.id, s.id));
+  expect(await reconcileRefund(s.deps, s.manager, s.row.id, { kind: "mark_succeeded", providerRef: "BANK-9" }, LATER))
+    .toEqual({ ok: true, status: "succeeded", completed: null, reservationStatus: "cancelled" });
 });
 
 test("reconciling needs payments.reconcile and the payment's property", async () => {
@@ -132,10 +181,40 @@ test("mark_succeeded on a stuck fail: refund finishes the failed booking and ema
   expect(await avail("2026-12-01")).toBe(2);
 
   expect(await reconcileRefund(deps, manager, row.id, { kind: "mark_succeeded", providerRef: "BANK-9" }, minutes(60)))
-    .toEqual({ ok: true, status: "succeeded", completed: "refund_and_fail" });
+    .toEqual({ ok: true, status: "succeeded", completed: "refund_and_fail", reservationStatus: "confirm_failed_refunded" });
   expect(await reservation(code)).toMatchObject({ status: "confirm_failed_refunded", refundedAmount: PAY_NOW - 1 });
   expect(await avail("2026-12-01")).toBe(3);
   expect(email.sent.filter((e) => e.to === GUEST)).toHaveLength(1);
   expect(await db.select().from(notifications).where(and(eq(notifications.reservationId, res.id), eq(notifications.kind, "payment_refunded"))))
     .toHaveLength(1);
+});
+
+test("a reconcile that hits a second refund failure keeps the mismatch reason, so the guest still gets the mismatch email", async () => {
+  const { db, deps, gateway, email, manager, book, notice, reservation, refundRows } = await setup();
+  const code = await book();
+  const res0 = await reservation(code);
+  // A second succeeded charge on the booking, so refundAndFail has two refunds to make.
+  await db.insert(payments).values({
+    id: "extra-charge", reservationId: res0.id, kind: "charge", method: "sinopac_online", amount: 100, status: "succeeded",
+    providerRef: "REF-EXTRA", createdAt: minutes(1).getTime(),
+  });
+  vi.spyOn(gateway, "refund").mockRejectedValueOnce(new Error("timeout")); // first refund: outcome unknown
+  await handlePaymentNotice(deps, await notice(code, { amount: PAY_NOW - 1 }), minutes(2)); // AMOUNT_MISMATCH
+  const [first] = await refundRows(res0.id);
+  expect(first.status).toBe("pending");
+
+  vi.spyOn(gateway, "refund").mockResolvedValueOnce({ ok: false, error: "DECLINED" }); // the other refund fails during completion
+  expect(await reconcileRefund(deps, manager, first.id, { kind: "mark_succeeded", providerRef: "BANK-1" }, minutes(60)))
+    .toEqual({ ok: true, status: "succeeded", completed: null, reservationStatus: "paid_pending_confirm" });
+  const after = await reservation(code);
+  expect(after.lastSyncError).toContain("AMOUNT_MISMATCH");
+  const second = (await refundRows(res0.id)).find((r) => r.id !== first.id)!;
+  expect(second.status).toBe("failed");
+
+  expect(await reconcileRefund(deps, manager, second.id, { kind: "retry" }, minutes(61)))
+    .toEqual({ ok: true, status: "succeeded", completed: "refund_and_fail", reservationStatus: "confirm_failed_refunded" });
+  const kinds = (await db.select().from(notifications).where(eq(notifications.reservationId, res0.id))).map((n) => n.kind);
+  expect(kinds).toContain("payment_refunded");
+  expect(kinds).not.toContain("booking_failed_refunded");
+  expect(email.sent.filter((e) => e.to === GUEST)).toHaveLength(1);
 });

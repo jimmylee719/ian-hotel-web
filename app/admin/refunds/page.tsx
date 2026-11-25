@@ -30,7 +30,8 @@ export default async function Page() {
       <h1 className="adm-h1">退款對帳</h1>
       <p className="adm-muted">
         「處理中」的退款已送出，但系統不知道結果（例如金流逾時）。請先到金流後台或銀行確認，再標記成功或失敗。
-        標記成功後，等著這筆退款的取消或退款流程會自動完成。
+        標記成功或重試成功後，系統會接著完成這筆退款所屬的取消或訂房失敗結案（改狀態、釋放房間、通知旅客）。
+        若同一訂單還有其他退款沒有完成，結案會等那筆退款處理好。
       </p>
       <h2 className="adm-h2">處理中（結果未知）</h2>
       <DataTable columns={columns("pending")} rows={pending} rowKey={(r) => r.id} empty="沒有處理中的退款" />
