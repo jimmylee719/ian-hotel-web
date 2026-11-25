@@ -2,13 +2,13 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { requireStaff } from "@/lib/admin/auth";
+import { requireStaffForAction } from "@/lib/admin/auth";
 import { addReservationNote, NoteError } from "@/lib/admin/reservations";
 import { getDb } from "@/lib/db/client";
 
 /** Append an internal note. A bad note comes back to the page as `?noteError=<code>`. */
 export async function addNoteAction(reservationId: string, formData: FormData): Promise<void> {
-  const ctx = await requireStaff("reservations.view");
+  const ctx = await requireStaffForAction("reservations.view");
   let error: string | null = null;
   try {
     await addReservationNote(await getDb(), ctx, reservationId, String(formData.get("body") ?? ""), new Date());

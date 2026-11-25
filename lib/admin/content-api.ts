@@ -1,3 +1,4 @@
+import { UnsupportedMediaTypeError } from "./auth";
 import { actionError } from "./action-messages";
 import type { ContentError, ContentItemPatch, UnitTypePatch } from "./content";
 
@@ -19,8 +20,14 @@ const ITEM_KEYS = ["slug", "title", "body", "publishedAt", "sortOrder"] as const
 const only = (b: Record<string, unknown>, keys: readonly string[]) =>
   Object.fromEntries(keys.filter((k) => k in b).map((k) => [k, b[k]]));
 
-/** The JSON object body, or null. Values are type-checked by lib/admin/content. */
+/**
+ * The JSON object body, or null. Values are type-checked by lib/admin/content. The body must be sent as
+ * `application/json`: anything else (e.g. the `text/plain` a cross-site form can post without a preflight)
+ * throws UnsupportedMediaTypeError, which withAdmin answers with 415. Every admin route that reads JSON uses this.
+ */
 export async function jsonBody(req: Request): Promise<Record<string, unknown> | null> {
+  const type = (req.headers.get("Content-Type") ?? "").split(";")[0].trim().toLowerCase();
+  if (type !== "application/json") throw new UnsupportedMediaTypeError();
   const b = await req.json().catch(() => null);
   return b && typeof b === "object" && !Array.isArray(b) ? (b as Record<string, unknown>) : null;
 }

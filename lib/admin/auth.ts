@@ -6,6 +6,7 @@ import { staff } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 import { appEnv, type AppEnv } from "@/lib/runtime/env";
 import { verifyAccessJwt } from "./access-jwt";
+import { actionError } from "./action-messages";
 import { can, type Permission, type StaffRow } from "./permissions";
 
 export type StaffContext = { staff: StaffRow; email: string };
@@ -59,13 +60,52 @@ export async function authorize(
   return r.ctx;
 }
 
-/** For Server Components and server actions: the signed-in staff member, or AdminAuthError. */
+/** For Server Components (page renders, GET): the signed-in staff member, or AdminAuthError. */
 export async function requireStaff(p: Permission, propertyId?: string): Promise<StaffContext> {
   return authorize(await getDb(), await appEnv(), await requestHeaders(), p, propertyId);
 }
 
+const SAFE_METHODS = new Set(["GET", "HEAD"]);
+
 /**
- * Wrap an admin route handler: 401 / 403 answer `{ error }` as JSON and the handler is not called.
+ * Is this state-changing admin request from our own pages? Access forwards the JWT for any request that carries
+ * its cookie, so a page elsewhere could otherwise make a signed-in manager's browser write (CSRF). GET and HEAD
+ * pass. Anything else needs `Sec-Fetch-Site: same-origin` or an `Origin` equal to `selfOrigin`; a request with
+ * neither header is refused too (every browser we support sends at least one on a POST).
+ */
+export function isSameOriginRequest(method: string, headers: Headers, selfOrigin: string): boolean {
+  if (SAFE_METHODS.has(method.toUpperCase())) return true;
+  if (headers.get("Sec-Fetch-Site") === "same-origin") return true;
+  const origin = headers.get("Origin");
+  return !!origin && origin === selfOrigin;
+}
+
+/**
+ * For admin server actions: requireStaff plus the same-origin rule (isSameOriginRequest; server actions are always
+ * POST). Next.js 15.5 checks Origin against Host / X-Forwarded-Host itself (app-render/action-handler.js), but lets
+ * a request WITHOUT an Origin header through with only a warning, so the check is repeated here, failing closed.
+ * The request's own origin is X-Forwarded-Proto (default https) + Host.
+ */
+export async function requireStaffForAction(p: Permission, propertyId?: string): Promise<StaffContext> {
+  const h = await requestHeaders();
+  const host = h.get("X-Forwarded-Host") ?? h.get("Host") ?? "";
+  const proto = h.get("X-Forwarded-Proto") ?? "https";
+  if (!isSameOriginRequest("POST", h, `${proto}://${host}`)) throw new AdminAuthError(403, "CSRF_REJECTED");
+  return authorize(await getDb(), await appEnv(), h, p, propertyId);
+}
+
+/** jsonBody's refusal of a body that is not `application/json`: withAdmin answers it with 415. */
+export class UnsupportedMediaTypeError extends Error {
+  constructor() {
+    super("admin API body must be application/json");
+    this.name = "UnsupportedMediaTypeError";
+  }
+}
+
+/**
+ * Wrap an admin route handler: 401 / 403 answer `{ error }` as JSON and the handler is not called. A
+ * state-changing request from another origin is 403 CSRF_REJECTED; a JSON body that is not `application/json`
+ * (jsonBody throws UnsupportedMediaTypeError) is 415 UNSUPPORTED_MEDIA_TYPE.
  * Property-scoped checks that depend on the request are the handler's job (`can(ctx.staff, p, propertyId)`).
  */
 export function withAdmin<R = unknown>(
@@ -73,6 +113,9 @@ export function withAdmin<R = unknown>(
   handler: (ctx: StaffContext, req: Request, route: R) => Promise<Response>,
 ): (req: Request, route?: R) => Promise<Response> {
   return async (req, route) => {
+    // Cross-site writes are refused before anything else (see isSameOriginRequest); multipart uploads included.
+    if (!isSameOriginRequest(req.method, req.headers, new URL(req.url).origin))
+      return actionError("CSRF_REJECTED");
     let ctx: StaffContext;
     try {
       ctx = await authorize(await getDb(), await appEnv(), req.headers, p);
@@ -80,7 +123,13 @@ export function withAdmin<R = unknown>(
       if (e instanceof AdminAuthError) return Response.json({ error: e.code }, { status: e.status });
       throw e;
     }
-    // Next.js always passes the route context ({ params }); it is optional only so tests can omit it.
-    return handler(ctx, req, route as R);
+    try {
+      // Next.js always passes the route context ({ params }); it is optional only so tests can omit it.
+      return await handler(ctx, req, route as R);
+    } catch (e) {
+      if (e instanceof UnsupportedMediaTypeError)
+        return actionError("UNSUPPORTED_MEDIA_TYPE");
+      throw e;
+    }
   };
 }

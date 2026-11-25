@@ -1,4 +1,5 @@
 import { actionError } from "@/lib/admin/action-messages";
+import { jsonBody } from "@/lib/admin/content-api";
 import { withAdmin } from "@/lib/admin/auth";
 import { parseModificationChange, previewModification } from "@/lib/admin/modify";
 import { getDb } from "@/lib/db/client";
@@ -13,7 +14,7 @@ type Route = { params: Promise<{ id: string }> };
  */
 const handle = withAdmin<Route>("reservations.modify", async (ctx, req, { params }) => {
   const { id } = await params;
-  const change = parseModificationChange((await req.json().catch(() => null)) as Record<string, unknown> | null);
+  const change = parseModificationChange((await jsonBody(req)) as Record<string, unknown> | null);
   if (!change) return actionError("BAD_REQUEST");
   const r = await previewModification(await getDb(), ctx, id, change, new Date());
   if (!r.ok) return actionError(r.error, r.detail);

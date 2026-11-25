@@ -16,6 +16,8 @@ const MESSAGES: Record<string, [status: number, message: string]> = {
   DUPLICATE_PROVIDER_REF: [409, "這個交易編號已經用在另一筆紀錄上。"],
   ALREADY_SENT: [409, "這封信已經寄出，不需要重寄。"],
   BAD_REQUEST: [400, "請求格式不正確。"],
+  CSRF_REJECTED: [403, "請求來源不符，請從後台頁面重新操作。"],
+  UNSUPPORTED_MEDIA_TYPE: [415, "請求格式不正確（需要 JSON）。"],
   INVALID_RANGE: [400, "日期區間不正確（起日要在迄日之前，且都要是有效日期）。"],
   RANGE_TOO_LONG: [400, "日期區間最長 366 天。"],
   INVALID_AMOUNT: [400, "收款金額必須是大於 0 的整數。"],

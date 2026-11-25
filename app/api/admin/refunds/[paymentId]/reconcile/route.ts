@@ -1,4 +1,5 @@
 import { actionError } from "@/lib/admin/action-messages";
+import { jsonBody } from "@/lib/admin/content-api";
 import { withAdmin } from "@/lib/admin/auth";
 import { reconcileRefund, type ReconcileAction } from "@/lib/admin/reconcile";
 import { BookingDisabledError, getDeps } from "@/lib/runtime/deps";
@@ -10,7 +11,7 @@ type Route = { params: Promise<{ paymentId: string }> };
 /** Body: `{ kind: "mark_succeeded", providerRef }`, `{ kind: "mark_failed" }` or `{ kind: "retry" }`. Needs online payments (503 otherwise). */
 const handle = withAdmin<Route>("payments.reconcile", async (ctx, req, { params }) => {
   const { paymentId } = await params;
-  const action = parseAction(await req.json().catch(() => null));
+  const action = parseAction(await jsonBody(req));
   if (!action) return actionError("BAD_REQUEST");
   try {
     const r = await reconcileRefund(await getDeps(new URL(req.url).origin), ctx, paymentId, action, new Date());

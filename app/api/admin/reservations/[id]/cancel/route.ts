@@ -1,4 +1,5 @@
 import { actionError } from "@/lib/admin/action-messages";
+import { jsonBody } from "@/lib/admin/content-api";
 import { withAdmin } from "@/lib/admin/auth";
 import { staffCancel } from "@/lib/admin/staff-cancel";
 import type { Deps } from "@/lib/booking/notify";
@@ -15,7 +16,7 @@ type Route = { params: Promise<{ id: string }> };
  */
 const handle = withAdmin<Route>("reservations.cancel", async (ctx, req, { params }) => {
   const { id } = await params;
-  const body = (await req.json().catch(() => null)) as { reason?: unknown; notifyGuest?: unknown; refundOverride?: unknown } | null;
+  const body = (await jsonBody(req)) as { reason?: unknown; notifyGuest?: unknown; refundOverride?: unknown } | null;
   if (!body || typeof body.reason !== "string" || (body.refundOverride !== undefined && typeof body.refundOverride !== "number"))
     return actionError("BAD_REQUEST");
 

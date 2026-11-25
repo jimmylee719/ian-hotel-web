@@ -1,4 +1,5 @@
 import { actionError } from "@/lib/admin/action-messages";
+import { jsonBody } from "@/lib/admin/content-api";
 import { withAdmin } from "@/lib/admin/auth";
 import { applyModification, parseModificationChange } from "@/lib/admin/modify";
 import type { Deps } from "@/lib/booking/notify";
@@ -17,7 +18,7 @@ type Route = { params: Promise<{ id: string }> };
  */
 const handle = withAdmin<Route>("reservations.modify", async (ctx, req, { params }) => {
   const { id } = await params;
-  const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const b = (await jsonBody(req)) as Record<string, unknown> | null;
   const change = parseModificationChange(b);
   if (!change || typeof b?.expectedDifference !== "number" || typeof b.reason !== "string"
     || (b.expectedUpdatedAt !== undefined && typeof b.expectedUpdatedAt !== "number")) return actionError("BAD_REQUEST");

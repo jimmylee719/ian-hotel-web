@@ -1,4 +1,5 @@
 import { actionError } from "@/lib/admin/action-messages";
+import { jsonBody } from "@/lib/admin/content-api";
 import { withAdmin } from "@/lib/admin/auth";
 import { FRONT_DESK_METHODS, recordFrontDeskPayment, type FrontDeskMethod } from "@/lib/admin/front-desk";
 import { getDb } from "@/lib/db/client";
@@ -15,7 +16,7 @@ const optionalString = (v: unknown) => v === undefined || v === null || typeof v
  */
 const handle = withAdmin<Route>("payments.front_desk", async (ctx, req, { params }) => {
   const { id } = await params;
-  const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const b = (await jsonBody(req)) as Record<string, unknown> | null;
   if (!b || !FRONT_DESK_METHODS.includes(b.method as FrontDeskMethod) || typeof b.amount !== "number"
     || !optionalString(b.last4) || !optionalString(b.authCode) || !optionalString(b.note))
     return actionError("BAD_REQUEST");
