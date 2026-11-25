@@ -80,6 +80,27 @@
       ],
       "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "nk-media-staging" }],
       "images": { "binding": "IMAGES" }
+    },
+    // Preview: a public look at the site for the owner, on workers.dev, with booking closed (BOOKING_OPEN "false",
+    // and no PAYMENT_MODE / CHANNEL_MODE, so no gateway or channel is ever called). No crons, no R2 and no Images:
+    // photos ship as static assets (scripts/preview-media.ts writes the WebP variants into .open-next/assets/media
+    // during `npm run deploy:preview`). /admin stays locked (no CF_ACCESS_*). Not staging, not production.
+    "preview": {
+      "name": "nk-booking-preview",
+      "main": "worker.ts",
+      "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+      "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "nk-booking-preview" }],
+      "triggers": { "crons": [] },
+      "workers_dev": true,
+      "vars": { "ENVIRONMENT": "preview", "BOOKING_OPEN": "false", "CF_ACCESS_TEAM_DOMAIN": "", "CF_ACCESS_AUD": "" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "nk-booking-preview",
+          "database_id": "f8de44f7-60fe-44f7-8548-c80b11c6b2fe",
+          "migrations_dir": "drizzle/migrations"
+        }
+      ]
     }
   }
 }

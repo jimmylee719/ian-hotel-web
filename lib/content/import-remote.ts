@@ -12,7 +12,7 @@
 import type { OldSiteContent } from "./types";
 import { LOCALES, type I18n } from "@/lib/db/schema";
 
-export type ImportEnv = "staging" | "production";
+export type ImportEnv = "staging" | "production" | "preview";
 
 export type ImportPlan = {
   /** One SQL statement each, in order. */
@@ -87,7 +87,7 @@ export function parseImportArgs(argv: string[]): ImportArgs {
     const a = argv[i];
     if (a === "--env") {
       const v = argv[++i];
-      if (v !== "staging" && v !== "production") return { ok: false, error: `--env must be staging or production, got ${v ?? "nothing"}` };
+      if (v !== "staging" && v !== "production" && v !== "preview") return { ok: false, error: `--env must be staging, production or preview, got ${v ?? "nothing"}` };
       env = v;
     } else if (a === "--apply") apply = true;
     else if (a === "--yes") yes = true;
