@@ -56,14 +56,15 @@ export function ManageBooking({ code, hotelPhone, hotelEmail }: { code: string; 
     } catch {
       res = null;
     }
-    const json = (await res?.json().catch(() => ({}))) as { refunded?: number; error?: string } | undefined;
+    const json = (await res?.json().catch(() => ({}))) as { refunded?: number; frontDeskRefundDue?: number; error?: string } | undefined;
     // Whatever happened, show the booking as it is now.
     const now = await load(email);
     setCancelling(false);
     setConfirming(false);
     if (res?.ok) {
       const amount = json?.refunded ?? 0;
-      setNotice({ kind: "info", text: amount > 0 ? t("cancelledRefund", { amount: formatPrice(amount) }) : t("cancelledNoRefund") });
+      const desk = json?.frontDeskRefundDue ? ` ${t("frontDeskRefund", { amount: formatPrice(json.frontDeskRefundDue) })}` : "";
+      setNotice({ kind: "info", text: (amount > 0 ? t("cancelledRefund", { amount: formatPrice(amount) }) : t("cancelledNoRefund")) + desk });
     } else if (json?.error === "NOT_CANCELLABLE") {
       // Another request is cancelling it, or it moved on: say where it stands rather than "error".
       if (now?.status === "cancelled") setNotice({ kind: "info", text: t("cancelledNoRefund") });

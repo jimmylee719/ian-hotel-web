@@ -120,6 +120,8 @@ export type ReservationDetail = {
     nights: number; adults: number; children: number; locale: string; totalAmount: number; refundedAmount: number;
     promoCode: string | null; smConfirmation: string | null; lastSyncError: string | null;
     createdAt: number; updatedAt: number; cancelledAt: number | null;
+    /** Of a cancellation's refund, what the front desk must hand back (0 when none). */
+    frontDeskRefundDue: number;
   };
   guest: { id: string; name: string; email: string; phone: string; country: string };
   quote: unknown;
@@ -128,7 +130,7 @@ export type ReservationDetail = {
   money: DisplayMoney & { received: number };
   payments: {
     id: string; kind: string; method: string; status: string; amount: number; last4: string | null; authCode: string | null;
-    providerRef: string | null; idempotencyKey: string | null; refundOf: string | null; createdAt: number;
+    providerRef: string | null; idempotencyKey: string | null; refundOf: string | null; createdAt: number; note: string | null;
   }[];
   /** Payment-provider callbacks. The raw body is never returned, only its length. */
   events: { id: string; provider: string; providerRef: string | null; verdict: string; bodyLength: number; at: number }[];
@@ -193,6 +195,7 @@ export async function getReservationDetail(db: Db, propertyId: string, id: strin
       nights: nightsBetween(r.checkIn, r.checkOut), adults: r.adults, children: r.children, locale: r.locale,
       totalAmount: r.totalAmount, refundedAmount: r.refundedAmount, promoCode: r.promoCode, smConfirmation: r.smConfirmation,
       lastSyncError: r.lastSyncError, createdAt: r.createdAt, updatedAt: r.updatedAt, cancelledAt: r.cancelledAt,
+      frontDeskRefundDue: r.frontDeskRefundDue,
     },
     guest: { id: g.id, name: nameOf(g), email: g.email, phone: g.phone, country: g.country },
     quote: r.quote,
@@ -200,7 +203,7 @@ export async function getReservationDetail(db: Db, propertyId: string, id: strin
     money: { ...displayMoney(r.status, { total: r.totalAmount, received: metrics.paid, refunded: metrics.refunded }), received: metrics.paid },
     payments: pays.map((p) => ({
       id: p.id, kind: p.kind, method: p.method, status: p.status, amount: p.amount, last4: p.last4, authCode: p.authCode,
-      providerRef: p.providerRef, idempotencyKey: p.idempotencyKey, refundOf: p.refundOf, createdAt: p.createdAt,
+      providerRef: p.providerRef, idempotencyKey: p.idempotencyKey, refundOf: p.refundOf, createdAt: p.createdAt, note: p.note,
     })),
     events: eventRows,
     notifications: notifs.map((n) => ({ id: n.id, kind: n.kind, to: n.to, status: n.status, at: n.at })),

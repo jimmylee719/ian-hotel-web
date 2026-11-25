@@ -89,7 +89,10 @@ export async function handleCancelBooking(deps: Deps, code: string, req: Request
   const email = typeof body?.email === "string" ? body.email : "";
   if (!email) return json(404, { error: "NOT_FOUND" });
   const r = await cancelReservation(deps, code, email, now);
-  if (r.ok) return json(200, { refunded: r.refunded, alreadyCancelled: r.alreadyCancelled });
+  if (r.ok) {
+    const desk = r.frontDeskRefundDue ? { frontDeskRefundDue: r.frontDeskRefundDue } : {};
+    return json(200, { refunded: r.refunded, ...desk, alreadyCancelled: r.alreadyCancelled });
+  }
   const status = r.error === "NOT_FOUND" ? 404 : r.error === "NOT_CANCELLABLE" ? 409 : 502;
   return json(status, { error: r.error });
 }

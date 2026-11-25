@@ -3,7 +3,7 @@ import type { ChannelReservation } from "@/lib/channel/types";
 import { addons, guests, properties, ratePlans, reservationRooms, reservations, unitTypes } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 import type { Quote } from "@/lib/domain/quote";
-import { paidAmount } from "./notify";
+import { receivedAmount } from "./notify";
 
 /** Add-on names go to the PMS in Chinese, the front desk's language. */
 const PMS_LOCALE = "zh-TW";
@@ -38,7 +38,7 @@ export async function toChannelReservation(db: Db, reservationId: string): Promi
     rooms: rooms.map((r) => ({ smRoomCode: r.smRoomCode ?? "", smRatePlanCode: r.smRatePlanCode ?? "", nightlyPrices: r.nightlyPrices })),
     guest: { firstName: guest.firstName, lastName: guest.lastName, email: guest.email, phone: guest.phone },
     total: res.totalAmount,
-    paidAmount: await paidAmount(db, reservationId),
+    paidAmount: await receivedAmount(db, reservationId), // total received, so the PMS sees front-desk money too
     addons: q.addonLines.map((l) => ({ name: names.find((n) => n.id === l.addonId)?.name[PMS_LOCALE] ?? l.addonId, amount: l.amount })),
     ...(promoCode ? { promoCode } : {}),
   };

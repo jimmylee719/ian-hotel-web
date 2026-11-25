@@ -3,8 +3,11 @@ import { notFound } from "next/navigation";
 import { DataTable, type Column } from "@/components/admin/DataTable";
 import { DateRange } from "@/components/admin/DateRange";
 import { Money } from "@/components/admin/Money";
-import { CancelReservationAction, ResendNotificationAction } from "@/components/admin/StaffActions";
+import {
+  CancelReservationAction, RecordFrontDeskPaymentAction, ResendNotificationAction, VoidFrontDeskPaymentAction,
+} from "@/components/admin/StaffActions";
 import { StatusBadge } from "@/components/admin/StatusBadge";
+import { canVoidFrontDesk, voidableOn } from "@/lib/admin/front-desk";
 import { can, type Permission } from "@/lib/admin/permissions";
 import { requirePage } from "@/lib/admin/page-guard";
 import { currentProperty } from "@/lib/admin/property-scope";
@@ -18,10 +21,9 @@ export const metadata = { title: "訂單詳情" };
 const taipei = (ms: number) =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Taipei", dateStyle: "short", timeStyle: "medium" }).format(ms);
 
-/** Disabled until Tasks 6-7 wire them; each shows only to staff allowed to do it. */
+/** Disabled until Task 7 wires it; shows only to staff allowed to do it. */
 const PENDING_ACTIONS: { label: string; permission: Permission }[] = [
   { label: "修改", permission: "reservations.modify" },
-  { label: "登錄收款", permission: "payments.front_desk" },
 ];
 
 const NOTE_ERRORS: Record<string, string> = {
@@ -32,7 +34,9 @@ const NOTE_ERRORS: Record<string, string> = {
 
 type Quote = { roomSubtotal?: number; addonSubtotal?: number; discount?: number; total?: number; payNow?: number; payLater?: number; promoCode?: string };
 
-const paymentColumns: Column<ReservationDetail["payments"][number]>[] = [
+type PaymentRow = ReservationDetail["payments"][number];
+
+const paymentColumns = (voidable: (p: PaymentRow) => boolean): Column<PaymentRow>[] => [
   { key: "at", header: "時間", render: (p) => <span className="adm-num">{taipei(p.createdAt)}</span> },
   { key: "kind", header: "類型", render: (p) => p.kind },
   { key: "method", header: "方式", render: (p) => p.method },
@@ -41,6 +45,8 @@ const paymentColumns: Column<ReservationDetail["payments"][number]>[] = [
   { key: "last4", header: "末四碼", render: (p) => p.last4 ?? "—" },
   { key: "auth", header: "授權碼", render: (p) => p.authCode ?? "—" },
   { key: "key", header: "Idempotency key", render: (p) => <code>{p.idempotencyKey ?? "—"}</code> },
+  { key: "note", header: "備註", render: (p) => p.note ?? "—" },
+  { key: "void", header: "", render: (p) => (voidable(p) ? <VoidFrontDeskPaymentAction paymentId={p.id} amount={p.amount} /> : null) },
 ];
 
 const eventColumns: Column<ReservationDetail["events"][number]>[] = [
@@ -75,6 +81,11 @@ export default async function Page({
   const r = d.reservation;
   const cancelPreview = can(ctx.staff, "reservations.cancel", propertyId) ? await staffCancelPreview(db, r.id, new Date()) : null;
   const quote = (d.quote ?? {}) as Quote;
+  const now = new Date();
+  const mayVoid = canVoidFrontDesk(ctx.staff, propertyId);
+  const voidable = (p: PaymentRow) => mayVoid && p.kind === "front_desk" && p.status === "succeeded" && voidableOn(p.createdAt, now);
+  const canTakePayment = r.status === "confirmed" && d.money.balanceDue !== null && d.money.balanceDue > 0
+    && can(ctx.staff, "payments.front_desk", propertyId);
 
   return (
     <>
@@ -85,9 +96,11 @@ export default async function Page({
 
       <div className="adm-actions" role="group" aria-label="訂單操作">
         {cancelPreview ? (
-          <CancelReservationAction reservationId={r.id} refund={cancelPreview.refund} maxOverride={cancelPreview.maxOverride}
+          <CancelReservationAction reservationId={r.id} refund={cancelPreview.refund}
+            frontDeskRefundDue={cancelPreview.frontDeskRefundDue} maxOverride={cancelPreview.maxOverride}
             canOverride={can(ctx.staff, "reservations.refund_override", propertyId)} />
         ) : null}
+        {canTakePayment ? <RecordFrontDeskPaymentAction reservationId={r.id} balanceDue={d.money.balanceDue!} /> : null}
         {PENDING_ACTIONS.filter((a) => can(ctx.staff, a.permission, propertyId)).map((a) => (
           <button key={a.label} type="button" className="adm-btn" disabled>{a.label}</button>
         ))}
@@ -124,6 +137,9 @@ export default async function Page({
             <dt>已退</dt><dd><Money amount={d.money.refunded} /></dd>
             <dt>待收</dt><dd>{d.money.balanceDue !== null ? <Money amount={d.money.balanceDue} /> : <span className="adm-muted">—</span>}</dd>
             <dt>已收款（退款前）</dt><dd className="adm-muted"><Money amount={d.money.received} /></dd>
+            {r.status === "cancelled" && r.frontDeskRefundDue > 0 ? (
+              <><dt>需由櫃檯退款</dt><dd><Money amount={r.frontDeskRefundDue} /> <span className="adm-muted">（櫃檯收款不會自動退回）</span></dd></>
+            ) : null}
           </dl>
         </section>
       </div>
@@ -145,7 +161,7 @@ export default async function Page({
       </dl>
 
       <h2 className="adm-h2">付款紀錄</h2>
-      <DataTable columns={paymentColumns} rows={d.payments} rowKey={(p) => p.id} empty="沒有付款紀錄" />
+      <DataTable columns={paymentColumns(voidable)} rows={d.payments} rowKey={(p) => p.id} empty="沒有付款紀錄" />
       <h2 className="adm-h2">收款回呼</h2>
       <DataTable columns={eventColumns} rows={d.events} rowKey={(e) => e.id} empty="沒有收款回呼" />
       <h2 className="adm-h2">通知信</h2>

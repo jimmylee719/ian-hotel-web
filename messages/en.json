@@ -351,6 +351,7 @@
     "keep": "Keep my booking",
     "cancelling": "Cancelling…",
     "cancelledRefund": "Your booking is cancelled. {amount} is being refunded to your card; banks usually take 7 to 14 working days to show it.",
+    "frontDeskRefund": "The remaining {amount} was paid at the front desk and will be returned by the front desk; please contact the hotel.",
     "cancelledNoRefund": "Your booking is cancelled.",
     "inProgress": "A cancellation of this booking is already in progress. Check back in a few minutes.",
     "notCancellable": "This booking can't be cancelled online while it is: {status}.",

@@ -125,22 +125,51 @@ export async function emailContext(
     addonSubtotal: q.addonSubtotal,
     discount: q.discount,
     total: q.total,
-    paid: await paidAmount(db, reservationId),
+    paid: await receivedAmount(db, reservationId),
     cancellationText: rooms[0] ? cancellationText(rooms[0].policy, loc) : "",
     hotelPhone: property.phone,
     hotelEmail: property.email,
     hotelAddress: property.address[loc],
     manageUrl: `${base}/${loc}/manage/${res.code}`,
     ...(res.refundedAmount > 0 ? { refundAmount: res.refundedAmount } : {}),
+    ...(res.status === "cancelled" && res.frontDeskRefundDue > 0 ? { frontDeskRefundDue: res.frontDeskRefundDue } : {}),
   };
   return { data, guestEmail: guest.email, locale: loc };
 }
 
-/** Money currently held for the reservation: succeeded charges minus succeeded refunds. */
-export async function paidAmount(db: Db, reservationId: string): Promise<number> {
+/**
+ * The money vocabulary, one meaning each, used everywhere:
+ * - online net: succeeded online charges minus succeeded refunds. The only money the gateway can refund.
+ * - front-desk net: succeeded front_desk payments (card terminal, cash, transfer; a voided one is failed).
+ *   Never refunded through the gateway: the desk hands it back.
+ * - received: online net + front-desk net. What guests, staff and SiteMinder are shown as paid, and what
+ *   the balance due and the cancellation policy are computed from.
+ */
+export type MoneyHeld = { onlineNet: number; frontDeskNet: number; received: number };
+
+export async function moneyHeld(db: Db, reservationId: string): Promise<MoneyHeld> {
   const rows = await db.select({ kind: payments.kind, amount: payments.amount }).from(payments)
-    .where(and(eq(payments.reservationId, reservationId), eq(payments.status, "succeeded"), inArray(payments.kind, ["charge", "refund"])));
-  return rows.reduce((s, r) => s + (r.kind === "charge" ? r.amount : -r.amount), 0);
+    .where(and(
+      eq(payments.reservationId, reservationId), eq(payments.status, "succeeded"),
+      inArray(payments.kind, ["charge", "refund", "front_desk"]),
+    ));
+  let onlineNet = 0;
+  let frontDeskNet = 0;
+  for (const r of rows) {
+    if (r.kind === "front_desk") frontDeskNet += r.amount;
+    else onlineNet += r.kind === "charge" ? r.amount : -r.amount;
+  }
+  return { onlineNet, frontDeskNet, received: onlineNet + frontDeskNet };
+}
+
+/** Online net (see MoneyHeld): what the gateway holds and can refund. Payment checks and refunds use this. */
+export async function onlineNetAmount(db: Db, reservationId: string): Promise<number> {
+  return (await moneyHeld(db, reservationId)).onlineNet;
+}
+
+/** Total received (see MoneyHeld): online net + front-desk net. Displays, emails ("已付金額") and SiteMinder use this. */
+export async function receivedAmount(db: Db, reservationId: string): Promise<number> {
+  return (await moneyHeld(db, reservationId)).received;
 }
 
 export type ChargeRow = typeof payments.$inferSelect;

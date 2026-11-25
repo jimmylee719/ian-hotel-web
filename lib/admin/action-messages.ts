@@ -16,6 +16,13 @@ const MESSAGES: Record<string, [status: number, message: string]> = {
   DUPLICATE_PROVIDER_REF: [409, "這個交易編號已經用在另一筆紀錄上。"],
   ALREADY_SENT: [409, "這封信已經寄出，不需要重寄。"],
   BAD_REQUEST: [400, "請求格式不正確。"],
+  INVALID_AMOUNT: [400, "收款金額必須是大於 0 的整數。"],
+  INVALID_LAST4: [400, "卡號末四碼必須是 4 位數字（刷卡機收款必填）。"],
+  AUTH_CODE_REQUIRED: [400, "刷卡機收款請填寫授權碼。"],
+  OVERPAY: [409, "收款金額不能超過待收金額。"],
+  NOT_PAYABLE: [409, "只有已確認的訂單可以登錄櫃檯收款。"],
+  NOT_SAME_DAY: [409, "只能作廢今天登錄的櫃檯收款。"],
+  ALREADY_VOIDED: [409, "這筆收款已經作廢了。"],
 };
 
 /** The JSON error response for `code`, `{ error, message }`. */

@@ -6,7 +6,7 @@ import { payments, promoCodes, reservationRooms, reservations, type Notification
 import type { Db } from "@/lib/db/types";
 import { parseStay } from "@/lib/domain/dates";
 import type { Quote } from "@/lib/domain/quote";
-import { notifyGuest, notifyStaff, paidAmount, refundableCharges, type ChargeRow, type Deps } from "./notify";
+import { notifyGuest, notifyStaff, onlineNetAmount, refundableCharges, type ChargeRow, type Deps } from "./notify";
 import { transition, type Reservation } from "./state";
 import { toChannelReservation } from "./to-channel";
 
@@ -30,7 +30,7 @@ export async function confirmWithChannel(deps: Deps, reservationId: string, now:
   if (!res) return;
 
   const payNow = (res.quote as Quote).payNow;
-  const paid = await paidAmount(db, reservationId);
+  const paid = await onlineNetAmount(db, reservationId); // what the gateway took, against what it should have
   if (paid !== payNow) {
     await refundAndFail(deps, reservationId, `AMOUNT_MISMATCH: expected ${payNow}, got ${paid}`, now, {
       guestKind: "payment_refunded", staffKind: "staff_payment_alert",

@@ -19,6 +19,8 @@ export type EmailData = {
   hotelAddress: string;
   manageUrl: string;
   refundAmount?: number;
+  /** Of a cancellation's refund, the part the front desk hands back (front-desk money is not refunded online). */
+  frontDeskRefundDue?: number;
 };
 
 type CustomerKind = "booking_confirmed" | "booking_failed_refunded" | "payment_refunded" | "cancelled" | "pre_arrival";
@@ -26,7 +28,7 @@ type CustomerKind = "booking_confirmed" | "booking_failed_refunded" | "payment_r
 type Copy = {
   labels: {
     code: string; stay: string; room: string; rooms: string; nights: string; roomSubtotal: string;
-    addons: string; discount: string; total: string; paid: string; refund: string; cancellation: string;
+    addons: string; discount: string; total: string; paid: string; refund: string; frontDeskRefund: string; cancellation: string;
     contact: string; manage: string; checkInTime: string; directions: string;
   };
   /** Pre-arrival only: the property's check-in/out times and how to get there. */
@@ -39,7 +41,7 @@ const copy: Record<Locale, Copy> = {
   "zh-TW": {
     labels: {
       code: "訂單代碼", stay: "入住期間", room: "房型", rooms: "間數", nights: "晚數", roomSubtotal: "房費",
-      addons: "加購項目", discount: "優惠折抵", total: "訂單總額", paid: "已付金額", refund: "退款金額",
+      addons: "加購項目", discount: "優惠折抵", total: "訂單總額", paid: "已付金額", refund: "退款金額", frontDeskRefund: "其餘款項將由櫃檯退還",
       cancellation: "取消規則", contact: "聯絡我們", manage: "查看或管理訂單", checkInTime: "入住時間", directions: "交通方式",
     },
     arrival: {
@@ -78,7 +80,7 @@ const copy: Record<Locale, Copy> = {
   en: {
     labels: {
       code: "Booking code", stay: "Stay", room: "Room", rooms: "Rooms", nights: "Nights", roomSubtotal: "Room charges",
-      addons: "Add-ons", discount: "Discount", total: "Total", paid: "Paid", refund: "Refund",
+      addons: "Add-ons", discount: "Discount", total: "Total", paid: "Paid", refund: "Refund", frontDeskRefund: "Returned at the front desk",
       cancellation: "Cancellation policy", contact: "Contact us", manage: "View or manage your booking",
       checkInTime: "Check-in", directions: "Getting here",
     },
@@ -118,7 +120,7 @@ const copy: Record<Locale, Copy> = {
   ja: {
     labels: {
       code: "ご予約番号", stay: "ご宿泊期間", room: "お部屋タイプ", rooms: "室数", nights: "泊数", roomSubtotal: "宿泊料金",
-      addons: "オプション", discount: "割引", total: "合計金額", paid: "お支払い済み金額", refund: "ご返金額",
+      addons: "オプション", discount: "割引", total: "合計金額", paid: "お支払い済み金額", refund: "ご返金額", frontDeskRefund: "残額はフロントにてご返金",
       cancellation: "キャンセルポリシー", contact: "お問い合わせ", manage: "ご予約の確認・変更",
       checkInTime: "チェックイン", directions: "アクセス",
     },
@@ -158,7 +160,7 @@ const copy: Record<Locale, Copy> = {
   ko: {
     labels: {
       code: "예약 번호", stay: "숙박 기간", room: "객실 유형", rooms: "객실 수", nights: "숙박 일수", roomSubtotal: "객실 요금",
-      addons: "추가 옵션", discount: "할인", total: "총 금액", paid: "결제 금액", refund: "환불 금액",
+      addons: "추가 옵션", discount: "할인", total: "총 금액", paid: "결제 금액", refund: "환불 금액", frontDeskRefund: "나머지 금액은 프런트에서 환불",
       cancellation: "취소 규정", contact: "문의", manage: "예약 확인 및 관리",
       checkInTime: "체크인", directions: "오시는 길",
     },
@@ -223,6 +225,7 @@ function rows(kind: CustomerKind, c: Copy, d: EmailData): [string, string][] {
   if ((kind === "cancelled" || kind === "booking_failed_refunded" || kind === "payment_refunded") && d.refundAmount !== undefined) {
     r.push([l.refund, formatTwd(d.refundAmount)]);
   }
+  if (kind === "cancelled" && d.frontDeskRefundDue) r.push([l.frontDeskRefund, formatTwd(d.frontDeskRefundDue)]);
   if (kind === "booking_confirmed" || kind === "pre_arrival" || kind === "cancelled") {
     r.push([l.cancellation, d.cancellationText]);
   }
@@ -280,6 +283,7 @@ function renderStaff(kind: keyof typeof STAFF_TITLE, d: EmailData) {
     `房型：${d.roomTypeName} × ${d.rooms}`,
     `入住：${d.checkIn} → ${d.checkOut}（${d.nights} 晚）`,
     `總額：${formatTwd(d.total)}，已付：${formatTwd(d.paid)}`,
+    ...(d.frontDeskRefundDue ? [`需由櫃檯退款：${formatTwd(d.frontDeskRefundDue)}（櫃檯收款不會自動退回）`] : []),
     `管理：${d.manageUrl}`,
   ];
   const html = `<!doctype html><html lang="zh-TW"><body style="${STYLE.body}"><div style="${STYLE.card}"><h1 style="${STYLE.h1}">${esc(title)}</h1>${lines

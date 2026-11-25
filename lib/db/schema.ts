@@ -165,6 +165,11 @@ export const reservations = sqliteTable(
     guestEmailLower: text("guest_email_lower").notNull(),
     createdAt: ms("created_at"),
     updatedAt: ms("updated_at"),
+    /**
+     * Of the cancellation refund, the part the front desk must hand back (front-desk money never goes back
+     * through the gateway). Fixed when the cancellation's refund is first planned; meaningful once cancelled.
+     */
+    frontDeskRefundDue: integer("front_desk_refund_due").notNull().default(0),
   },
   (t) => [
     index("reservations_property_checkin").on(t.propertyId, t.checkIn),
@@ -202,6 +207,8 @@ export const payments = sqliteTable(
      */
     idempotencyKey: text("idempotency_key"),
     createdAt: ms("created_at"),
+    /** Front-desk payments: the staff's free-text note (e.g. transfer reference); null otherwise. */
+    note: text("note"),
   },
   (t) => [
     uniqueIndex("payments_provider_ref_unique").on(t.providerRef), // NULLs never collide

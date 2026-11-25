@@ -22,8 +22,8 @@ function useToast() {
 
 /** The 取消 button on a reservation: reason (required), optional refund override, and whether to email the guest. */
 export function CancelReservationAction({
-  reservationId, refund, maxOverride, canOverride,
-}: { reservationId: string; refund: number; maxOverride: number; canOverride: boolean }) {
+  reservationId, refund, frontDeskRefundDue, maxOverride, canOverride,
+}: { reservationId: string; refund: number; frontDeskRefundDue: number; maxOverride: number; canOverride: boolean }) {
   const router = useRouter();
   const { show, view } = useToast();
   const [reason, setReason] = useState("");
@@ -38,11 +38,12 @@ export function CancelReservationAction({
       if (!Number.isInteger(n) || n < 0 || n > maxOverride) throw new Error(`退款金額必須是 0 到 ${formatMoney(maxOverride)} 之間的整數`);
       body.refundOverride = n;
     }
-    const r = await post<{ refunded: number; alreadyCancelled: boolean; overrideIgnored?: boolean }>(
+    const r = await post<{ refunded: number; frontDeskRefundDue?: number; alreadyCancelled: boolean; overrideIgnored?: boolean }>(
       `/api/admin/reservations/${encodeURIComponent(reservationId)}/cancel`, body);
+    const desk = r.frontDeskRefundDue ? `，另需由櫃檯退款 ${formatMoney(r.frontDeskRefundDue)}` : "";
     show(r.alreadyCancelled
-      ? `這筆訂單已經取消過了（已退 ${formatMoney(r.refunded)}）`
-      : `已取消，退款 ${formatMoney(r.refunded)}${r.overrideIgnored ? "（先前已建立退款，依原金額處理，自訂金額未套用）" : ""}`);
+      ? `這筆訂單已經取消過了（線上已退 ${formatMoney(r.refunded)}${desk}）`
+      : `已取消，線上退款 ${formatMoney(r.refunded)}${desk}${r.overrideIgnored ? "（先前已建立退款，依原金額處理，自訂金額未套用）" : ""}`);
     router.refresh();
   }
 
@@ -50,12 +51,16 @@ export function CancelReservationAction({
     <>
       <ConfirmDialog triggerLabel="取消" title="取消這筆訂單？" confirmLabel="確定取消" danger onConfirm={confirm}>
         <div className="adm-dialog-form">
-          <p>依取消規則退款 <strong>{formatMoney(refund)}</strong>。入住後取消只釋放今天以後的晚數。</p>
+          <p>
+            依取消規則退款 <strong>{formatMoney(refund)}</strong>
+            {frontDeskRefundDue > 0 ? <>，其中 <strong>{formatMoney(frontDeskRefundDue)}</strong> 是櫃檯收的款項，需由櫃檯退還（系統不會自動退）</> : null}
+            。入住後取消只釋放今天以後的晚數。
+          </p>
           <label htmlFor="cancel-reason">取消原因（必填）</label>
           <textarea id="cancel-reason" rows={3} required aria-required="true" value={reason} onChange={(e) => setReason(e.target.value)} />
           {canOverride ? (
             <>
-              <label htmlFor="cancel-override">自訂退款金額（選填，0 到 {formatMoney(maxOverride)}；留空依規則）</label>
+              <label htmlFor="cancel-override">自訂退款總額（選填，0 到 {formatMoney(maxOverride)}；超過線上已收的部分由櫃檯退還；留空依規則）</label>
               <input id="cancel-override" type="number" inputMode="numeric" min={0} max={maxOverride} step={1}
                 value={override} onChange={(e) => setOverride(e.target.value)} />
             </>
@@ -129,6 +134,87 @@ export function ReconcileRefundActions({ paymentId, status, amount }: { paymentI
       <ConfirmDialog triggerLabel="標記失敗" title="確認這筆退款沒有成功？" confirmLabel="標記失敗" danger
         onConfirm={async () => done(await post(url, { kind: "mark_failed" }), "已標記為失敗，可以重試")}>
         <p>只會把狀態改成失敗，不會自動重試。之後可以在這裡按「重試退款」。</p>
+      </ConfirmDialog>
+      {view}
+    </>
+  );
+}
+
+const METHOD_LABEL = { edc: "刷卡機", cash: "現金", transfer: "匯款" } as const;
+type Method = keyof typeof METHOD_LABEL;
+
+/** 登錄收款: money taken at the desk (card terminal, cash, transfer), at most the balance due. */
+export function RecordFrontDeskPaymentAction({ reservationId, balanceDue }: { reservationId: string; balanceDue: number }) {
+  const router = useRouter();
+  const { show, view } = useToast();
+  const [method, setMethod] = useState<Method>("cash");
+  const [amount, setAmount] = useState(String(balanceDue));
+  const [last4, setLast4] = useState("");
+  const [authCode, setAuthCode] = useState("");
+  const [note, setNote] = useState("");
+
+  async function confirm() {
+    const n = Number(amount);
+    if (!Number.isInteger(n) || n <= 0 || n > balanceDue) throw new Error(`收款金額必須是 1 到 ${formatMoney(balanceDue)} 之間的整數`);
+    if (method === "edc" && !/^\d{4}$/.test(last4.trim())) throw new Error("請填寫卡號末四碼（4 位數字）");
+    if (method === "edc" && !authCode.trim()) throw new Error("請填寫授權碼");
+    const r = await post<{ balanceDue: number }>(`/api/admin/reservations/${encodeURIComponent(reservationId)}/payments`, {
+      method, amount: n, note,
+      ...(method === "edc" ? { last4, authCode } : {}),
+    });
+    show(`已登錄${METHOD_LABEL[method]}收款 ${formatMoney(n)}，待收 ${formatMoney(r.balanceDue)}`);
+    router.refresh();
+  }
+
+  return (
+    <>
+      <ConfirmDialog triggerLabel="登錄收款" title="登錄櫃檯收款" confirmLabel="登錄" onConfirm={confirm}>
+        <div className="adm-dialog-form">
+          <p>待收 <strong>{formatMoney(balanceDue)}</strong>。櫃檯收款不經過線上金流，取消時也不會自動退款。</p>
+          <label htmlFor="fd-method">收款方式</label>
+          <select id="fd-method" value={method} onChange={(e) => setMethod(e.target.value as Method)}>
+            {(Object.keys(METHOD_LABEL) as Method[]).map((m) => <option key={m} value={m}>{METHOD_LABEL[m]}</option>)}
+          </select>
+          <label htmlFor="fd-amount">金額</label>
+          <input id="fd-amount" type="number" inputMode="numeric" min={1} max={balanceDue} step={1} required
+            value={amount} onChange={(e) => setAmount(e.target.value)} />
+          {method === "edc" ? (
+            <>
+              <label htmlFor="fd-last4">卡號末四碼（必填）</label>
+              <input id="fd-last4" inputMode="numeric" pattern="\d{4}" maxLength={4} required aria-required="true"
+                value={last4} onChange={(e) => setLast4(e.target.value)} />
+              <label htmlFor="fd-auth">授權碼（必填）</label>
+              <input id="fd-auth" maxLength={32} required aria-required="true" value={authCode} onChange={(e) => setAuthCode(e.target.value)} />
+            </>
+          ) : null}
+          <label htmlFor="fd-note">備註（選填，例如匯款末五碼）</label>
+          <input id="fd-note" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+      </ConfirmDialog>
+      {view}
+    </>
+  );
+}
+
+/** 作廢 on a front-desk payment taken today (owner or manager): the row is kept as failed. */
+export function VoidFrontDeskPaymentAction({ paymentId, amount }: { paymentId: string; amount: number }) {
+  const router = useRouter();
+  const { show, view } = useToast();
+  const [reason, setReason] = useState("");
+  async function confirm() {
+    if (!reason.trim()) throw new Error("請填寫作廢原因");
+    const r = await post<{ balanceDue: number }>(`/api/admin/payments/${encodeURIComponent(paymentId)}/void`, { reason });
+    show(`已作廢，待收 ${formatMoney(r.balanceDue)}`);
+    router.refresh();
+  }
+  return (
+    <>
+      <ConfirmDialog triggerLabel="作廢" title="作廢這筆櫃檯收款？" confirmLabel="作廢" danger onConfirm={confirm}>
+        <div className="adm-dialog-form">
+          <p>{formatMoney(amount)} 會改為失敗，不再算入已收；紀錄會保留。只能作廢今天登錄的收款。</p>
+          <label htmlFor={`void-${paymentId}`}>作廢原因（必填）</label>
+          <textarea id={`void-${paymentId}`} rows={2} required aria-required="true" value={reason} onChange={(e) => setReason(e.target.value)} />
+        </div>
       </ConfirmDialog>
       {view}
     </>

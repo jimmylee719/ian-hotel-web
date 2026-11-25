@@ -1,6 +1,6 @@
 import { and, eq, lt } from "drizzle-orm";
 import { holdItemsFor } from "@/lib/booking/confirm";
-import { paidAmount, type Deps } from "@/lib/booking/notify";
+import { onlineNetAmount, type Deps } from "@/lib/booking/notify";
 import { transition } from "@/lib/booking/state";
 import { releaseInventory } from "@/lib/db/inventory-hold";
 import { reservations } from "@/lib/db/schema";
@@ -16,7 +16,7 @@ export async function runExpireHolds(deps: Pick<Deps, "db">, now: Date): Promise
     .where(and(eq(reservations.status, "pending_payment"), lt(reservations.holdExpiresAt, now.getTime())));
   let expired = 0;
   for (const res of lapsed) {
-    if (await paidAmount(db, res.id) > 0) {
+    if (await onlineNetAmount(db, res.id) > 0) {
       await transition(db, res.id, "pending_payment", "paid_pending_confirm",
         { syncState: "pending", nextSyncAt: now.getTime(), lastSyncError: null }, now);
       continue;

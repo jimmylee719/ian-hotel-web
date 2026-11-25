@@ -351,6 +351,7 @@
     "keep": "保留訂房",
     "cancelling": "取消中…",
     "cancelledRefund": "訂房已取消，{amount} 將退回原付款卡片，通常需要 7 到 14 個工作天入帳。",
+    "frontDeskRefund": "其餘款項 {amount} 將由櫃檯退還，請與飯店聯繫。",
     "cancelledNoRefund": "訂房已取消。",
     "inProgress": "這筆訂房的取消正在處理中，請幾分鐘後再查看。",
     "notCancellable": "目前的狀態無法在線上取消：{status}。",

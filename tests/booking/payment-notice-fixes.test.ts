@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
-import { notifyStaff, paidAmount } from "@/lib/booking/notify";
+import { notifyStaff, onlineNetAmount } from "@/lib/booking/notify";
 import { handlePaymentNotice, refundStray } from "@/lib/booking/payment-notice";
 import { MockChannelManager } from "@/lib/channel/mock";
 import type { ChannelReservation } from "@/lib/channel/types";
@@ -37,7 +37,7 @@ test("a second, different charge on a confirmed booking is refunded against its 
   const [stray] = await db.select().from(payments).where(eq(payments.providerRef, "REF-STRAY-1"));
   expect(await db.select().from(payments).where(eq(payments.refundOf, stray.id)))
     .toMatchObject([{ kind: "refund", status: "succeeded", amount: PAY_NOW }]);
-  expect(await paidAmount(db, res.id)).toBe(PAY_NOW);
+  expect(await onlineNetAmount(db, res.id)).toBe(PAY_NOW);
   expect((await reservation(code)).status).toBe("confirmed");
   expect((await reservation(code)).refundedAmount).toBe(0);
   expect(channel.pushed).toHaveLength(1);
@@ -48,7 +48,7 @@ test("a second, different charge on a confirmed booking is refunded against its 
   await handlePaymentNotice(deps, await notice(code, { providerRef: "REF-STRAY-2", amount: 50 }), minutes(4));
   expect(refund).toHaveBeenLastCalledWith(expect.objectContaining({ providerRef: "REF-STRAY-2", amount: 50 }));
   expect(email.sent.filter((e) => e.to === STAFF && e.subject.includes("付款異常"))).toHaveLength(2);
-  expect(await paidAmount(db, res.id)).toBe(PAY_NOW);
+  expect(await onlineNetAmount(db, res.id)).toBe(PAY_NOW);
 });
 
 test("a stray charge whose refund fails stays recorded, flagged and alerted", async () => {
@@ -125,7 +125,7 @@ test("a resend of the paying charge on a cancelled, partly refunded booking is a
   expect(await handlePaymentNotice(deps, n, minutes(61))).toEqual({ status: 200, verdict: "duplicate" });
   expect(refund).not.toHaveBeenCalled();
   expect((await reservation(code)).status).toBe("cancelled");
-  expect(await paidAmount(db, res.id)).toBe(PAY_NOW - 1000);
+  expect(await onlineNetAmount(db, res.id)).toBe(PAY_NOW - 1000);
 });
 
 test("refundStray does nothing when the stray charge is already refunded", async () => {

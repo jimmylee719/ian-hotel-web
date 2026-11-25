@@ -71,6 +71,13 @@
       "when": 1795568598596,
       "tag": "0009_pale_hawkeye",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1795570439229,
+      "tag": "0010_mysterious_mentallo",
+      "breakpoints": true
     }
   ]
 }
