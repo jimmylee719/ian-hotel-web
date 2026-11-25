@@ -1,5 +1,5 @@
 import { bookingTerms } from "./terms";
-import { and, eq, exists, isNull, lte, notExists, or, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, isNull, lte, notExists, or, sql } from "drizzle-orm";
 import type { CancelResult } from "@/lib/channel/types";
 import { releaseInventory, type HoldItem } from "@/lib/db/inventory-hold";
 import { auditLog, payments, reservationRooms, reservations, unitTypes, type I18n } from "@/lib/db/schema";
@@ -361,34 +361,40 @@ async function settledElsewhere(db: Db, reservationId: string): Promise<CancelOu
 }
 
 /**
- * Tell the channel a `cancelled` booking is gone. Lease-guarded like confirmWithChannel, so the
- * cancel request and the retry job never call it at the same time. Success → synced; a retryable
- * failure retries in 5 minutes; a non-retryable one, or one after MAX_SYNC_ATTEMPTS retries, → failed
- * and staff are alerted.
+ * Tell the channel a booking is gone: a `cancelled` one, or a `confirm_failed_refunded` one whose pushes all
+ * failed here (any of them may have landed, its answer lost). The latter is looked up first and cancelled only
+ * if the channel holds it as active; not there, or already cancelled there, counts as success.
+ * Lease-guarded like confirmWithChannel, so a request and the retry job never call it at the same time.
+ * Success → synced; a retryable failure retries in 5 minutes; a non-retryable one, or one after
+ * MAX_SYNC_ATTEMPTS retries, → failed and staff are alerted.
  */
 export async function cancelWithChannel(deps: Deps, reservationId: string, now: Date): Promise<void> {
   const { db } = deps;
   const [res] = await db.update(reservations)
     .set({ nextSyncAt: now.getTime() + SYNC_LEASE_MS })
     .where(and(
-      eq(reservations.id, reservationId), eq(reservations.status, "cancelled"), eq(reservations.syncState, "pending"),
-      or(isNull(reservations.nextSyncAt), lte(reservations.nextSyncAt, now.getTime())),
+      eq(reservations.id, reservationId), inArray(reservations.status, ["cancelled", "confirm_failed_refunded"]),
+      eq(reservations.syncState, "pending"), or(isNull(reservations.nextSyncAt), lte(reservations.nextSyncAt, now.getTime())),
     ))
     .returning();
   if (!res) return;
+  const refunded = res.status === "confirm_failed_refunded";
 
   let r: CancelResult;
   try {
-    r = await deps.channel.cancelReservation(res.code);
+    r = refunded ? await cancelIfActive(deps, res.code) : await deps.channel.cancelReservation(res.code);
   } catch (e) {
     r = { ok: false, retryable: true, error: e instanceof Error ? e.message : String(e) };
   }
   const mine = and(
-    eq(reservations.id, reservationId), eq(reservations.status, "cancelled"),
+    eq(reservations.id, reservationId), eq(reservations.status, res.status),
     eq(reservations.syncState, "pending"), eq(reservations.syncAttempts, res.syncAttempts),
   );
   if (r.ok) {
-    await db.update(reservations).set({ syncState: "synced", nextSyncAt: null, lastSyncError: null, updatedAt: now.getTime() }).where(mine);
+    // A refunded booking keeps lastSyncError: its failure reason (or the error of a channel check that failed since).
+    await db.update(reservations)
+      .set({ syncState: "synced", nextSyncAt: null, ...(refunded ? {} : { lastSyncError: null }), updatedAt: now.getTime() })
+      .where(mine);
     return;
   }
   const error = r.error ?? "CHANNEL_CANCEL_FAILED";
@@ -403,4 +409,12 @@ export async function cancelWithChannel(deps: Deps, reservationId: string, now: 
     .set({ syncState: "failed", syncAttempts: attempts, nextSyncAt: null, lastSyncError: error, updatedAt: now.getTime() })
     .where(mine).returning({ id: reservations.id });
   if (failed.length) await notifyStaff(deps, reservationId, "staff_sync_failed", now, {}, "cancel");
+}
+
+/** Cancel `code` at the channel only if the channel holds it as active. */
+async function cancelIfActive(deps: Deps, code: string): Promise<CancelResult> {
+  const l = await deps.channel.lookupReservation(code);
+  if ("error" in l) return { ok: false, retryable: l.retryable, error: `LOOKUP_FAILED: ${l.error}` };
+  if (!l.found || l.state === "cancelled") return { ok: true, retryable: false };
+  return deps.channel.cancelReservation(code);
 }

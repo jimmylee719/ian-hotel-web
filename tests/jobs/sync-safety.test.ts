@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { refundAndFail } from "@/lib/booking/confirm";
+import { refundAndFail, SYNC_LEASE_MS } from "@/lib/booking/confirm";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { MockChannelManager } from "@/lib/channel/mock";
 import type { PushResult } from "@/lib/channel/types";
@@ -57,7 +57,8 @@ test("a push that succeeds after a refund claimed the booking never confirms it"
 
   const res = await reservation(code);
   expect(res.status).toBe("confirm_failed_refunded");
-  expect(res.syncState).toBe("failed");
+  expect(res.syncState).toBe("pending"); // the late push landed: the retry job checks the channel and cancels it there
+  expect(res.nextSyncAt).toBe(minutes(3).getTime() + SYNC_LEASE_MS);
   expect(res.smConfirmation).toBeNull();
   expect(res.refundedAmount).toBe(PAY_NOW);
 });

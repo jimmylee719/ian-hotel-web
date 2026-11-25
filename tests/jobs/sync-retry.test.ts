@@ -48,7 +48,7 @@ test("after the 6th failed retry the booking is refunded", async () => {
   expect(await runSyncRetry(deps, minutes(30))).toEqual({ attempted: 1 });
   const res = await reservation(code);
   expect(res.status).toBe("confirm_failed_refunded");
-  expect(res.syncState).toBe("failed");
+  expect(res.syncState).toBe("pending"); // channel check queued
   expect(res.refundedAmount).toBe(PAY_NOW);
   expect(refund).toHaveBeenCalledTimes(1);
   expect(channel.pushed).toHaveLength(0);
@@ -59,7 +59,11 @@ test("after the 6th failed retry the booking is refunded", async () => {
   expect(refund).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: `fail:${res.id}:${rows[0].refundOf}` }));
   expect(email.sent.map((e) => e.to).sort()).toEqual(["mei@example.com", STAFF]);
 
-  expect(await runSyncRetry(deps, minutes(60))).toEqual({ attempted: 0 });
+  // The channel check finds nothing there (no push landed), so nothing is cancelled and no one is emailed.
+  expect(await runSyncRetry(deps, minutes(60))).toEqual({ attempted: 1 });
+  expect(await reservation(code)).toMatchObject({ status: "confirm_failed_refunded", syncState: "synced" });
+  expect(email.sent).toHaveLength(2);
+  expect(await runSyncRetry(deps, minutes(90))).toEqual({ attempted: 0 });
 });
 
 test("the retry job handles at most 20 bookings per run", async () => {

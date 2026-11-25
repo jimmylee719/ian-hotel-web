@@ -23,6 +23,9 @@ export const SYNC_LEASE_MS = 2 * 60_000;
  * - No inventory held (paid after expiry) → take it again, or refund if sold out.
  * - Otherwise push to SiteMinder: success confirms; a retryable failure retries in 5 minutes;
  *   a non-retryable failure, or one after MAX_SYNC_ATTEMPTS retries, refunds.
+ *   A retry first looks the code up: if the channel already holds it (a push that timed out but landed),
+ *   its smConfirmation is the success and nothing is pushed. A failed lookup just falls back to the push,
+ *   which is idempotent by code.
  */
 export async function confirmWithChannel(deps: Deps, reservationId: string, now: Date): Promise<void> {
   const { db } = deps;
@@ -42,11 +45,14 @@ export async function confirmWithChannel(deps: Deps, reservationId: string, now:
     return;
   }
 
-  let result: PushResult;
-  try {
-    result = await deps.channel.pushReservation(await toChannelReservation(db, reservationId));
-  } catch (e) {
-    result = { ok: false, retryable: true, error: e instanceof Error ? e.message : String(e) };
+  // After a retryable failure the push may have landed with its answer lost: ask before pushing again.
+  let result = res.syncAttempts > 0 ? await activeOnChannel(deps, res.code) : undefined;
+  if (!result) {
+    try {
+      result = await deps.channel.pushReservation(await toChannelReservation(db, reservationId));
+    } catch (e) {
+      result = { ok: false, retryable: true, error: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   if (result.ok) {
@@ -76,6 +82,17 @@ export async function confirmWithChannel(deps: Deps, reservationId: string, now:
   await refundAndFail(deps, reservationId, result.error, now, {
     guestKind: "booking_failed_refunded", staffKind: "staff_sync_failed", patch: { syncAttempts: attempts },
   });
+}
+
+/** A successful push result if the channel already holds `code` as active; otherwise (or if the lookup fails) undefined. */
+async function activeOnChannel(deps: Deps, code: string): Promise<PushResult | undefined> {
+  try {
+    const l = await deps.channel.lookupReservation(code);
+    if ("found" in l && l.found && l.state === "active") return { ok: true, smConfirmation: l.smConfirmation };
+  } catch {
+    // The push decides.
+  }
+  return undefined;
 }
 
 /** One conditional UPDATE: own the booking for SYNC_LEASE_MS if it is due and nobody else owns it. */
@@ -109,7 +126,8 @@ async function reHold(db: Db, res: Reservation, now: Date): Promise<boolean> {
 
 /**
  * Refund what is left on every succeeded charge and move a `paid_pending_confirm` reservation to
- * `confirm_failed_refunded`, releasing its inventory if it still holds any.
+ * `confirm_failed_refunded`, releasing its inventory if it still holds any, and queues a channel check
+ * (syncState → "pending"; the retry job cancels it at the channel if a push landed after all).
  * It first claims the reservation (syncState → "failed"); after that no push can confirm it.
  * If a refund fails, the status is left alone, the error is recorded and staff are alerted.
  * Returns true when the reservation ended refunded.
@@ -131,8 +149,9 @@ export type RefundAndFailKinds = { guestKind?: NotificationKind; staffKind: Noti
 
 /**
  * The steps of refundAndFail after its claim (`res` is the claimed row, syncState "failed"): refund what
- * is left on every charge, then `confirm_failed_refunded`, release, emails. Refund reconciliation calls it
- * again once a stuck refund is settled by hand; refunds already settled are skipped.
+ * is left on every charge, then `confirm_failed_refunded` (channel check queued: syncState pending), release,
+ * emails. Refund reconciliation calls it again once a stuck refund is settled by hand; refunds already settled
+ * are skipped.
  */
 export async function finishRefundAndFail(
   deps: Deps, res: Reservation, reason: string, now: Date, o: RefundAndFailKinds,
@@ -156,7 +175,11 @@ export async function finishRefundAndFail(
   const refundedAmount = res.refundedAmount + refunded;
 
   const held = res.holdExpiresAt != null;
-  if (!await transition(db, reservationId, "paid_pending_confirm", "confirm_failed_refunded", { holdExpiresAt: null }, now))
+  // A push may have reached the channel even though none succeeded here (answer lost, or one still in flight):
+  // queue a channel check for the retry job (cancelWithChannel), due once any in-flight push is past its lease.
+  if (!await transition(db, reservationId, "paid_pending_confirm", "confirm_failed_refunded", {
+    holdExpiresAt: null, syncState: "pending", syncAttempts: 0, nextSyncAt: now.getTime() + SYNC_LEASE_MS,
+  }, now))
     return false;
   if (held) await releaseInventory(db, await holdItemsFor(db, res));
   if (o.guestKind) await notifyGuest(deps, reservationId, o.guestKind, now, { refundAmount: refundedAmount });

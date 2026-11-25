@@ -139,6 +139,8 @@ const disabledChannel: ChannelManager = {
   async pushReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
   async modifyReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
   async cancelReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
+  async lookupReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
+  timeoutMs: 1,
 };
 
 function paymentGateway(env: AppEnv, baseUrl: string): PaymentGateway {
