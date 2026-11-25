@@ -221,11 +221,12 @@ test("reconciling a lost cancel refund completes the cancellation with the desk'
   expect(await cancelReservation(deps, code, GUEST, EARLY)).toEqual({ ok: false, error: "REFUND_FAILED" });
   const [row] = await refunds();
   expect(row).toMatchObject({ status: "pending", amount: DEPOSIT });
-  expect(await reservation(code)).toMatchObject({ status: "confirmed", frontDeskRefundDue: DEPOSIT });
+  // The desk's share is fixed with the intent but owed only once the cancellation completes.
+  expect(await reservation(code)).toMatchObject({ status: "confirmed", cancelDeskDue: DEPOSIT, frontDeskRefundDue: 0 });
 
   expect(await reconcileRefund(deps, manager, row.id, { kind: "mark_succeeded", providerRef: "BANK-1" }, HALF))
     .toMatchObject({ ok: true, completed: "cancellation", reservationStatus: "cancelled" });
-  expect(await reservation(code)).toMatchObject({ status: "cancelled", refundedAmount: DEPOSIT, frontDeskRefundDue: DEPOSIT });
+  expect(await reservation(code)).toMatchObject({ status: "cancelled", refundedAmount: DEPOSIT, frontDeskRefundDue: DEPOSIT, cancelDeskDue: 0 });
   expect(email.sent.filter((e) => e.to === STAFF && e.text.includes("需由櫃檯退款：NT$2,480"))).not.toHaveLength(0);
 });
 

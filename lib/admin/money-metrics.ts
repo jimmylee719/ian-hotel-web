@@ -5,12 +5,12 @@ import type { Db } from "@/lib/db/types";
 /**
  * THE money vocabulary. Every figure about a reservation's money comes from here, with one meaning each:
  * - onlineNet: succeeded online charges minus succeeded refunds. The only money the gateway can refund.
- * - frontDeskNet: succeeded front_desk payments (card terminal, cash, transfer; a voided one is failed).
- *   Never refunded through the gateway: the desk hands it back.
+ * - frontDeskNet: succeeded front_desk payments (card terminal, cash, transfer; a voided one is failed) minus
+ *   refunds the desk paid out (refund rows with a desk method). Never refunded through the gateway.
  * - received: onlineNet + frontDeskNet (NET of refunds). What guests, staff and SiteMinder see as paid, and
  *   what the balance due and the cancellation policy are computed from.
  * - grossReceived: charges + front-desk payments before refunds. Display only (已收款（退款前）).
- * - refunded: succeeded refunds.
+ * - refunded: succeeded refunds, online and paid out at the desk.
  * Only succeeded rows of MONEY_KINDS count; preauth/capture and pending/failed rows never do.
  */
 
@@ -33,15 +33,25 @@ export type MoneyMetrics = {
 
 export const EMPTY_METRICS: MoneyMetrics = { onlineNet: 0, frontDeskNet: 0, received: 0, grossReceived: 0, refunded: 0 };
 
-/** The one fold: succeeded MONEY_KINDS rows (of one reservation; amounts may be per-kind sums) into metrics. */
-export function summarizeMoney(rows: { kind: string; amount: number }[]): MoneyMetrics {
+/** Payment methods of money that moves at the front desk (in as front_desk, out as a desk-paid refund). */
+export const DESK_METHODS: readonly string[] = ["edc", "cash", "transfer"];
+
+/**
+ * The one fold: succeeded MONEY_KINDS rows (of one reservation; amounts may be per-kind-and-method sums) into
+ * metrics. A refund's `method` says where the money went back from: a desk method → the desk; else online.
+ */
+export function summarizeMoney(rows: { kind: string; amount: number; method?: string }[]): MoneyMetrics {
   let onlineNet = 0;
   let frontDeskNet = 0;
   let refunded = 0;
   for (const r of rows) {
     if (r.kind === "front_desk") frontDeskNet += r.amount;
     else if (r.kind === "charge") onlineNet += r.amount;
-    else if (r.kind === "refund") { onlineNet -= r.amount; refunded += r.amount; }
+    else if (r.kind === "refund") {
+      if (r.method && DESK_METHODS.includes(r.method)) frontDeskNet -= r.amount;
+      else onlineNet -= r.amount;
+      refunded += r.amount;
+    }
   }
   const received = onlineNet + frontDeskNet;
   return { onlineNet, frontDeskNet, received, grossReceived: received + refunded, refunded };
@@ -105,12 +115,12 @@ export async function moneyByReservation(db: Db, ids: string[]): Promise<Map<str
   const out = new Map<string, MoneyMetrics>(ids.map((id) => [id, EMPTY_METRICS]));
   if (ids.length === 0) return out;
   const rows = await db.select({
-    id: payments.reservationId, kind: payments.kind, amount: sql<number>`sum(${payments.amount})`,
+    id: payments.reservationId, kind: payments.kind, method: payments.method, amount: sql<number>`sum(${payments.amount})`,
   }).from(payments)
     .where(and(inArray(payments.reservationId, ids), countsAsReceived))
-    .groupBy(payments.reservationId, payments.kind);
-  const byId = new Map<string, { kind: string; amount: number }[]>();
-  for (const r of rows) byId.set(r.id, [...(byId.get(r.id) ?? []), { kind: r.kind, amount: Number(r.amount) }]);
+    .groupBy(payments.reservationId, payments.kind, payments.method);
+  const byId = new Map<string, { kind: string; method: string; amount: number }[]>();
+  for (const r of rows) byId.set(r.id, [...(byId.get(r.id) ?? []), { kind: r.kind, method: r.method, amount: Number(r.amount) }]);
   for (const [id, list] of byId) out.set(id, summarizeMoney(list));
   return out;
 }

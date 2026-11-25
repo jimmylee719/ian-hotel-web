@@ -119,7 +119,7 @@ const frontDeskField = (amount: number) => (amount > 0 ? { frontDeskRefundDue: a
 
 /**
  * What cancelling refunds. Once an attempt has created the cancellation's refund row, its amount (online) and
- * the booking's stored `frontDeskRefundDue` are fixed and every later attempt reuses them. Before that:
+ * the booking's stored `cancelDeskDue` (its desk share) are fixed and every later attempt reuses them. Before that:
  * - money the guest is already owed back (`owedBack`: received beyond the total, left by a price-lowering
  *   modification for the desk to hand back) is not the cancel's to judge: it stays due at the front desk in full;
  * - the cancel's own refund is `override` if given, else the rate plan's policy applied at `at`, both on the
@@ -129,7 +129,7 @@ const frontDeskField = (amount: number) => (amount > 0 ? { frontDeskRefundDue: a
  */
 async function cancelRefundPlan(db: Db, res: Reservation, at: Date, override?: number): Promise<CancelRefundPlan> {
   const intent = await cancelIntent(db, res.id);
-  if (intent) return { online: intent.amount, frontDesk: res.frontDeskRefundDue };
+  if (intent) return { online: intent.amount, frontDesk: res.cancelDeskDue };
   const money = await moneyOf(db, res.id);
   const owed = owedBack(res.totalAmount, money);
   let own = override;
@@ -215,7 +215,7 @@ async function refusedForModifyRefund(db: Db, reservationId: string): Promise<Ca
  *    The policy is applied at the first request's time.
  * 2. Plan the refund on the total received (cancelRefundPlan): the online part goes back against the paying
  *    charge through ONE intent row keyed `cancel:<id>` (refundOnce), the rest is stored as the booking's
- *    `frontDeskRefundDue` just before that row is created. Both are then fixed: every later attempt reuses
+ *    `cancelDeskDue` just before that row is created. Both are then fixed: every later attempt reuses
  *    them, so retries never refund twice or change the split.
  *    - Outcome unknown (row pending: another attempt in flight, or it died) → staff alert, REFUND_FAILED,
  *      the claim is kept so that a slow first attempt can still finish.
@@ -249,8 +249,9 @@ export async function cancelConfirmed(deps: Deps, reservationId: string, now: Da
     notExists(db.select({ one: sql`1` }).from(payments).where(eq(payments.idempotencyKey, key))),
     exists(db.select({ one: sql`1` }).from(payments).where(and(eq(payments.idempotencyKey, key), eq(payments.status, "succeeded")))),
   );
+  // Only now does the desk owe the cancellation's share: a cancel that failed and dropped its claim changed nothing.
   const cancelled = await transition(db, reservationId, "confirmed", "cancelled", {
-    holdExpiresAt: null,
+    holdExpiresAt: null, frontDeskRefundDue: r.frontDesk, cancelDeskDue: 0,
     syncState: "pending", syncAttempts: 0, nextSyncAt: now.getTime(), lastSyncError: null,
   }, now, refundSettled);
   if (!cancelled) return settledElsewhere(db, reservationId);
@@ -299,8 +300,8 @@ async function refundCancellation(deps: Deps, claim: Reservation, now: Date, o: 
   const amount = plan.online;
   // Fixed alongside the intent: stored before refundOnce creates it, never rewritten once it exists.
   // updatedAt (the claim's lease) is left alone.
-  if (!intent && plan.frontDesk !== claim.frontDeskRefundDue)
-    await db.update(reservations).set({ frontDeskRefundDue: plan.frontDesk })
+  if (!intent && plan.frontDesk !== claim.cancelDeskDue)
+    await db.update(reservations).set({ cancelDeskDue: plan.frontDesk })
       .where(and(eq(reservations.id, claim.id), eq(reservations.status, "confirmed")));
   if (amount <= 0) return { ok: true, amount: 0, frontDesk: plan.frontDesk };
   if (o.gatewayAvailable === false) return { ok: false, error: "PAYMENTS_UNAVAILABLE" };

@@ -120,7 +120,7 @@ export type ReservationDetail = {
     nights: number; adults: number; children: number; locale: string; totalAmount: number; refundedAmount: number;
     promoCode: string | null; smConfirmation: string | null; lastSyncError: string | null;
     createdAt: number; updatedAt: number; cancelledAt: number | null;
-    /** What the front desk must hand back: of a cancellation's refund, or of staff modifications that lowered the price (0 when none). */
+    /** What the front desk still owes the guest (after a price-lowering modification or a cancellation, less desk payouts). */
     frontDeskRefundDue: number;
     /** How many staff modifications the booking has had. */
     modCount: number;

@@ -196,6 +196,59 @@ export function RecordFrontDeskPaymentAction({ reservationId, balanceDue }: { re
   );
 }
 
+/** 登錄櫃檯退款: money the desk handed back (card terminal, cash, transfer), at most what the desk owes. */
+export function RecordFrontDeskRefundAction({ reservationId, deskDue }: { reservationId: string; deskDue: number }) {
+  const router = useRouter();
+  const { show, view } = useToast();
+  const [method, setMethod] = useState<Method>("cash");
+  const [amount, setAmount] = useState(String(deskDue));
+  const [last4, setLast4] = useState("");
+  const [authCode, setAuthCode] = useState("");
+  const [note, setNote] = useState("");
+
+  async function confirm() {
+    const n = Number(amount);
+    if (!Number.isInteger(n) || n <= 0 || n > deskDue) throw new Error(`退款金額必須是 1 到 ${formatMoney(deskDue)} 之間的整數`);
+    if (method === "edc" && !/^\d{4}$/.test(last4.trim())) throw new Error("請填寫卡號末四碼（4 位數字）");
+    if (method === "edc" && !authCode.trim()) throw new Error("請填寫授權碼");
+    const r = await post<{ frontDeskRefundDue: number }>(`/api/admin/reservations/${encodeURIComponent(reservationId)}/desk-refunds`, {
+      method, amount: n, note,
+      ...(method === "edc" ? { last4, authCode } : {}),
+    });
+    show(`已登錄${METHOD_LABEL[method]}退款 ${formatMoney(n)}，櫃檯尚需退還 ${formatMoney(r.frontDeskRefundDue)}`);
+    router.refresh();
+  }
+
+  return (
+    <>
+      <ConfirmDialog triggerLabel="登錄櫃檯退款" title="登錄櫃檯退款" confirmLabel="登錄" onConfirm={confirm}>
+        <div className="adm-dialog-form">
+          <p>櫃檯待退 <strong>{formatMoney(deskDue)}</strong>。只登錄已經實際退給旅客的金額。</p>
+          <label htmlFor="fr-method">退款方式</label>
+          <select id="fr-method" value={method} onChange={(e) => setMethod(e.target.value as Method)}>
+            {(Object.keys(METHOD_LABEL) as Method[]).map((m) => <option key={m} value={m}>{METHOD_LABEL[m]}</option>)}
+          </select>
+          <label htmlFor="fr-amount">金額</label>
+          <input id="fr-amount" type="number" inputMode="numeric" min={1} max={deskDue} step={1} required
+            value={amount} onChange={(e) => setAmount(e.target.value)} />
+          {method === "edc" ? (
+            <>
+              <label htmlFor="fr-last4">卡號末四碼（必填）</label>
+              <input id="fr-last4" inputMode="numeric" pattern="\d{4}" maxLength={4} required aria-required="true"
+                value={last4} onChange={(e) => setLast4(e.target.value)} />
+              <label htmlFor="fr-auth">授權碼（必填）</label>
+              <input id="fr-auth" maxLength={32} required aria-required="true" value={authCode} onChange={(e) => setAuthCode(e.target.value)} />
+            </>
+          ) : null}
+          <label htmlFor="fr-note">備註（選填，例如匯款帳號末五碼）</label>
+          <input id="fr-note" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+      </ConfirmDialog>
+      {view}
+    </>
+  );
+}
+
 /** 作廢 on a front-desk payment taken today (owner or manager): the row is kept as failed. */
 export function VoidFrontDeskPaymentAction({ paymentId, amount }: { paymentId: string; amount: number }) {
   const router = useRouter();

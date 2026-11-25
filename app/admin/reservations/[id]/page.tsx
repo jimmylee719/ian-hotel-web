@@ -4,7 +4,8 @@ import { DataTable, type Column } from "@/components/admin/DataTable";
 import { DateRange } from "@/components/admin/DateRange";
 import { Money } from "@/components/admin/Money";
 import {
-  CancelReservationAction, ModifyReservationAction, RecordFrontDeskPaymentAction, ResendNotificationAction,
+  CancelReservationAction, ModifyReservationAction, RecordFrontDeskPaymentAction, RecordFrontDeskRefundAction,
+  ResendNotificationAction,
   VoidFrontDeskPaymentAction,
 } from "@/components/admin/StaffActions";
 import { StatusBadge } from "@/components/admin/StatusBadge";
@@ -87,6 +88,8 @@ export default async function Page({
   const canTakePayment = deskOpen && d.money.balanceDue !== null && d.money.balanceDue > 0
     && can(ctx.staff, "payments.front_desk", propertyId);
   // The server re-checks everything (including no other modification in flight); this only hides a button that cannot work.
+  // The desk pays money back on an open or a cancelled booking (not mid-cancel; the server enforces the same rule).
+  const canPayOut = r.frontDeskRefundDue > 0 && (deskOpen || r.status === "cancelled") && can(ctx.staff, "payments.front_desk", propertyId);
   // OTA bookings are changed through the OTA / SiteMinder, not here.
   const modifyOptions = deskOpen && r.channel !== "siteminder_ota" && todayInTaipei(now) <= r.checkIn
     && can(ctx.staff, "reservations.modify", propertyId)
@@ -111,6 +114,7 @@ export default async function Page({
             canOverride={can(ctx.staff, "reservations.refund_override", propertyId)} />
         ) : null}
         {canTakePayment ? <RecordFrontDeskPaymentAction reservationId={r.id} balanceDue={d.money.balanceDue!} /> : null}
+        {canPayOut ? <RecordFrontDeskRefundAction reservationId={r.id} deskDue={r.frontDeskRefundDue} /> : null}
         {modifyOptions ? (
           <ModifyReservationAction reservationId={r.id} options={modifyOptions}
             stay={{ checkIn: r.checkIn, checkOut: r.checkOut, adults: r.adults, children: r.children }} />
@@ -148,7 +152,7 @@ export default async function Page({
             <dt>已退</dt><dd><Money amount={d.money.refunded} /></dd>
             <dt>待收</dt><dd>{d.money.balanceDue !== null ? <Money amount={d.money.balanceDue} /> : <span className="adm-muted">—</span>}</dd>
             <dt>已收款（退款前）</dt><dd className="adm-muted"><Money amount={d.money.grossReceived} /></dd>
-            {(r.status === "cancelled" || r.modCount > 0) && r.frontDeskRefundDue > 0 ? (
+            {r.frontDeskRefundDue > 0 ? (
               <><dt>需由櫃檯退款</dt><dd><Money amount={r.frontDeskRefundDue} /> <span className="adm-muted">（櫃檯收款不會自動退回）</span></dd></>
             ) : null}
           </dl>

@@ -32,6 +32,7 @@ const MESSAGES: Record<string, [status: number, message: string]> = {
   NOT_AVAILABLE: [409, "新的日期或房型沒有空房。"],
   PRICE_CHANGED: [409, "價格在試算後變動了，請重新試算再確認。"],
   CONFLICT: [409, "這筆訂單剛被其他人修改過（或剛登錄了櫃檯收款），請重新試算後再試。"],
+  EXCEEDS_DESK_DUE: [409, "退款金額不能超過櫃檯待退款金額。"],
   MODIFICATION_REFUND_PENDING: [409, "這筆訂單有修改產生的退款尚未完成，請先到退款對帳頁（/admin/refunds）處理後再取消。"],
 };
 

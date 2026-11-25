@@ -1,5 +1,6 @@
 import { and, eq, gte, inArray, like, lte, sql } from "drizzle-orm";
 import { addDaysISO, todayInTaipei, type ISODate } from "@/lib/domain/dates";
+import { formatTwd } from "@/lib/email/templates";
 import { guests, notifications, paymentEvents, payments, reservationRooms, reservations } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 import { MONEY_KINDS, netDelta } from "./money-metrics";
@@ -9,6 +10,8 @@ const DAY = 24 * 60 * MIN;
 export const SYNC_STALE_MS = 15 * MIN;
 export const REFUND_STALE_MS = 10 * MIN;
 export const RECENT_MS = 7 * DAY;
+/** Money the desk owes a guest should be handed back within a day. */
+export const DESK_REFUND_STALE_MS = DAY;
 
 export type ReservationRow = {
   id: string;
@@ -23,7 +26,8 @@ export type ReservationRow = {
 };
 
 export type AlertKind =
-  | "sync_failed" | "sync_pending_stale" | "refund_pending" | "stray_refund_failed" | "email_failed" | "payment_alert";
+  | "sync_failed" | "sync_pending_stale" | "refund_pending" | "stray_refund_failed" | "email_failed" | "payment_alert"
+  | "desk_refund_due";
 
 export type Alert = { kind: AlertKind; reservationId?: string; code?: string; detail: string; since: number };
 
@@ -46,7 +50,7 @@ export function alertHref(a: Alert): string {
 
 /** Most urgent first. */
 const SEVERITY: AlertKind[] = [
-  "stray_refund_failed", "payment_alert", "refund_pending", "sync_failed", "sync_pending_stale", "email_failed",
+  "stray_refund_failed", "payment_alert", "refund_pending", "desk_refund_due", "sync_failed", "sync_pending_stale", "email_failed",
 ];
 
 const ROW = {
@@ -97,7 +101,9 @@ export async function getDashboard(db: Db, propertyId: string, now: Date): Promi
 async function loadAlerts(db: Db, propertyId: string, nowMs: number): Promise<Alert[]> {
   const own = eq(reservations.propertyId, propertyId);
   const recent = nowMs - RECENT_MS;
-  const [failed, stale, strays, refunds, emails, events] = await Promise.all([
+  // How long the desk has owed it: since the cancellation, else since the booking last changed (the modification).
+  const owedSince = sql<number>`coalesce(${reservations.cancelledAt}, ${reservations.updatedAt})`;
+  const [failed, stale, strays, refunds, emails, events, deskDue] = await Promise.all([
     db.select({ id: reservations.id, code: reservations.code, err: reservations.lastSyncError, at: reservations.updatedAt })
       .from(reservations).where(and(own, eq(reservations.syncState, "failed"))),
     db.select({ id: reservations.id, code: reservations.code, at: reservations.nextSyncAt })
@@ -113,6 +119,9 @@ async function loadAlerts(db: Db, propertyId: string, nowMs: number): Promise<Al
     db.select({ verdict: paymentEvents.verdict, code: paymentEvents.reservationCode, ref: paymentEvents.providerRef, at: paymentEvents.at })
       .from(paymentEvents)
       .where(and(eq(paymentEvents.propertyId, propertyId), inArray(paymentEvents.verdict, ["amount_mismatch", "stray_charge"]), gte(paymentEvents.at, recent))),
+    db.select({ id: reservations.id, code: reservations.code, amount: reservations.frontDeskRefundDue, at: owedSince })
+      .from(reservations)
+      .where(and(own, sql`${reservations.frontDeskRefundDue} > 0`, lte(owedSince, nowMs - DESK_REFUND_STALE_MS))),
   ]);
 
   // A payment event carries the reservation code, not its id.
@@ -129,6 +138,9 @@ async function loadAlerts(db: Db, propertyId: string, nowMs: number): Promise<Al
     ...stale.map((r): Alert => ({ kind: "sync_pending_stale", reservationId: r.id, code: r.code, detail: "同步逾時未完成", since: r.at ?? 0 })),
     ...strays.map((r): Alert => ({ kind: "stray_refund_failed", reservationId: r.id, code: r.code, detail: r.err ?? "", since: r.at })),
     ...refunds.map((r): Alert => ({ kind: "refund_pending", reservationId: r.id, code: r.code, detail: `退款 NT$${r.amount} 處理中逾 10 分鐘`, since: r.at })),
+    ...deskDue.map((r): Alert => ({
+      kind: "desk_refund_due", reservationId: r.id, code: r.code, detail: `櫃檯尚未退還 ${formatTwd(r.amount)}，已超過 1 天`, since: Number(r.at),
+    })),
     ...emails.map((r): Alert => ({ kind: "email_failed", reservationId: r.id, code: r.code, detail: `通知信寄送失敗（${r.kind}）`, since: r.at })),
     ...events.map((e): Alert => ({
       kind: "payment_alert",

@@ -169,10 +169,17 @@ export const reservations = sqliteTable(
     /**
      * What the front desk must hand back to the guest (front-desk money never goes back through the gateway).
      * Live booking: set by each staff modification to the overpayment its online refund could not cover (0 once
-     * a raise uses it up). Cancelled: that owed money plus the cancellation's own desk share, fixed when the
-     * cancellation's refund is first planned.
+     * a raise uses it up). Cancelled: that owed money plus the cancellation's own desk share, written as the
+     * booking turns cancelled. Every desk payout (recordFrontDeskRefund) takes its amount off, so it is always
+     * what the desk still owes right now.
      */
     frontDeskRefundDue: integer("front_desk_refund_due").notNull().default(0),
+    /**
+     * The desk share of a cancellation whose refund intent exists but which has not completed yet: fixed with that
+     * intent (every attempt reuses it), copied into frontDeskRefundDue only when the booking turns cancelled, so a
+     * cancel that fails and drops its claim never changes what the desk owes. 0 otherwise.
+     */
+    cancelDeskDue: integer("cancel_desk_due").notNull().default(0),
     /** How many staff modifications this booking has had; the n-th one's refund key is `modify:<id>:<n>`. */
     modCount: integer("mod_count").notNull().default(0),
   },
