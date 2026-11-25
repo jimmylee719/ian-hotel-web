@@ -1,7 +1,8 @@
+import { bookingTerms } from "./terms";
 import { and, eq, exists, isNull, lte, notExists, or, sql } from "drizzle-orm";
 import type { CancelResult } from "@/lib/channel/types";
 import { releaseInventory, type HoldItem } from "@/lib/db/inventory-hold";
-import { auditLog, payments, ratePlans, reservationRooms, reservations, unitTypes, type I18n } from "@/lib/db/schema";
+import { auditLog, payments, reservationRooms, reservations, unitTypes, type I18n } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 import { todayInTaipei, type ISODate } from "@/lib/domain/dates";
 import { refundAmount } from "@/lib/domain/cancellation";
@@ -59,10 +60,9 @@ async function lookup(db: Db, code: string, email: string): Promise<Reservation 
 export async function findReservation(db: Db, code: string, email: string, now: Date = new Date()): Promise<ReservationView | null> {
   const res = await lookup(db, code, email);
   if (!res) return null;
-  const rooms = await db.select({ unitName: unitTypes.name, planName: ratePlans.name })
+  const rooms = await db.select({ unitName: unitTypes.name })
     .from(reservationRooms)
     .innerJoin(unitTypes, eq(unitTypes.id, reservationRooms.unitTypeId))
-    .innerJoin(ratePlans, eq(ratePlans.id, reservationRooms.ratePlanId))
     .where(eq(reservationRooms.reservationId, res.id));
   const room = rooms[0];
   const changePending = res.status === "confirmed" && await modifyRefundPending(db, res.id);
@@ -77,7 +77,7 @@ export async function findReservation(db: Db, code: string, email: string, now: 
     children: res.children,
     rooms: rooms.length,
     roomTypeName: room.unitName,
-    ratePlanName: room.planName,
+    ratePlanName: bookingTerms(res).ratePlanName,
     quote: res.quote as Quote,
     paid: money.received,
     refunded: money.refunded,
@@ -134,11 +134,7 @@ async function cancelRefundPlan(db: Db, res: Reservation, at: Date, override?: n
   const owed = owedBack(res.totalAmount, money);
   let own = override;
   if (own === undefined) {
-    const [plan] = await db.select({ policy: ratePlans.cancelPolicy }).from(reservationRooms)
-      .innerJoin(ratePlans, eq(ratePlans.id, reservationRooms.ratePlanId))
-      .where(eq(reservationRooms.reservationId, res.id))
-      .limit(1);
-    own = refundAmount(plan.policy, money.received - owed, res.checkIn, at);
+    own = refundAmount(bookingTerms(res).cancelPolicy, money.received - owed, res.checkIn, at);
   }
   const online = Math.max(0, Math.min(own, money.onlineNet));
   return { online, frontDesk: owed + own - online };

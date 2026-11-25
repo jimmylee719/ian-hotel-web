@@ -99,7 +99,7 @@ test("while a modification refund is unsettled neither guests nor staff can canc
 test("a cancel keeps what the desk already owes from a modification: non-refundable plan", async () => {
   const s = await tenK({ deposit: true, desk: 7000 });
   expect(await s.modify(ONE_NIGHT)).toMatchObject({ ok: true, frontDeskRefundDue: 3000 });
-  await s.db.update(ratePlans).set({ cancelPolicy: { rules: [] } }).where(eq(ratePlans.id, s.ids.ratePlanId));
+  await s.db.update(reservations).set({ cancelPolicy: { rules: [] } }).where(eq(reservations.id, s.id));
   expect(await staffCancel(s.deps, s.frontDesk, s.id, { reason: "x", notifyGuest: false }, HALF))
     .toEqual({ ok: true, refunded: 0, frontDeskRefundDue: 3000, alreadyCancelled: false });
   expect(await s.row()).toMatchObject({ status: "cancelled", frontDeskRefundDue: 3000 });

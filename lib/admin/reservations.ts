@@ -1,8 +1,9 @@
+import { bookingTerms } from "@/lib/booking/terms";
 import { and, count, desc, eq, gte, inArray, lt, lte, or, sql, type SQL } from "drizzle-orm";
 import { addDaysISO, type ISODate } from "@/lib/domain/dates";
 import { runAtomic } from "@/lib/db/atomic";
 import {
-  auditLog, guests, notifications, paymentEvents, payments, ratePlans, reservationNotes, reservationRooms, reservations,
+  auditLog, guests, notifications, paymentEvents, payments, reservationNotes, reservationRooms, reservations,
   unitTypes,
 } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
@@ -151,10 +152,9 @@ export async function getReservationDetail(db: Db, propertyId: string, id: strin
   const { r, g } = row;
 
   const [rooms, pays, events, notifs, notes] = await Promise.all([
-    db.select({ unit: unitTypes.name, plan: ratePlans.name, nightlyPrices: reservationRooms.nightlyPrices })
+    db.select({ unit: unitTypes.name, nightlyPrices: reservationRooms.nightlyPrices })
       .from(reservationRooms)
       .innerJoin(unitTypes, eq(unitTypes.id, reservationRooms.unitTypeId))
-      .innerJoin(ratePlans, eq(ratePlans.id, reservationRooms.ratePlanId))
       .where(eq(reservationRooms.reservationId, id)).orderBy(reservationRooms.id),
     db.select().from(payments).where(eq(payments.reservationId, id)).orderBy(payments.createdAt, payments.id),
     db.select({
@@ -201,7 +201,7 @@ export async function getReservationDetail(db: Db, propertyId: string, id: strin
     },
     guest: { id: g.id, name: nameOf(g), email: g.email, phone: g.phone, country: g.country },
     quote: r.quote,
-    rooms: rooms.map((x) => ({ unitTypeName: x.unit["zh-TW"], ratePlanName: x.plan["zh-TW"], nightlyPrices: x.nightlyPrices })),
+    rooms: rooms.map((x) => ({ unitTypeName: x.unit["zh-TW"], ratePlanName: bookingTerms(r).ratePlanName["zh-TW"], nightlyPrices: x.nightlyPrices })),
     money: { ...displayMoney(r.status, r.totalAmount, metrics), grossReceived: metrics.grossReceived },
     payments: pays.map((p) => ({
       id: p.id, kind: p.kind, method: p.method, status: p.status, amount: p.amount, last4: p.last4, authCode: p.authCode,

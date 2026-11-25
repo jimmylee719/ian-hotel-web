@@ -199,6 +199,8 @@ export async function applyModification(
       db.insert(auditLog).select(sql`select ${auditId}, ${ctx.email}, 'reservation.modify', 'reservation', ${res.id},
         ${JSON.stringify(before)}, ${JSON.stringify(after)}, ${at} where ${guard}`),
       db.update(reservations).set({
+        // The booked terms follow the plan: a different plan brings its own (as of now), the same plan keeps them.
+        ...(pl.offer.ratePlanId !== pl.oldItem.ratePlanId ? { cancelPolicy: pl.offer.ratePlan.cancelPolicy, ratePlanName: pl.offer.ratePlan.name } : {}),
         checkIn: change.checkIn, checkOut: change.checkOut, adults: change.adults, children: change.children,
         quote: pl.newQuote, totalAmount: pl.newQuote.total, modCount: n,
         frontDeskRefundDue: pl.frontDeskRefund,

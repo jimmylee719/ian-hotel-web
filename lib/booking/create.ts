@@ -87,6 +87,7 @@ export async function createReservation(deps: Deps, raw: CreateInput, now: Date)
         id: reservationId, propertyId, code, guestId, status: "pending_payment", channel: "direct",
         checkIn: input.checkIn, checkOut: input.checkOut, adults: input.adults, children: input.children,
         locale: input.locale, quote: q, totalAmount: q.total, promoCode: promo?.code ?? null,
+        cancelPolicy: offer.ratePlan.cancelPolicy, ratePlanName: offer.ratePlan.name,
         syncState: "not_required", holdExpiresAt: at + HOLD_MINUTES * 60_000, idempotencyKey: input.idempotencyKey,
         guestEmailLower: email.toLowerCase(), createdAt: at, updatedAt: at,
       }),

@@ -1,8 +1,9 @@
+import { bookingTerms } from "./terms";
 import { and, eq, inArray } from "drizzle-orm";
 import type { ChannelManager } from "@/lib/channel/types";
 import { hasSqliteError } from "@/lib/db/inventory-hold";
 import {
-  guests, notifications, payments, properties, ratePlans, reservationRooms, reservations, unitTypes,
+  guests, notifications, payments, properties, reservationRooms, reservations, unitTypes,
   type CancelPolicy, type Locale, type NotificationKind,
 } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
@@ -108,10 +109,9 @@ export async function emailContext(
   const loc = locale ?? (res.locale as Locale);
   const [property] = await db.select().from(properties).where(eq(properties.id, res.propertyId));
   const [guest] = await db.select({ email: guests.email }).from(guests).where(eq(guests.id, res.guestId));
-  const rooms = await db.select({ unitName: unitTypes.name, policy: ratePlans.cancelPolicy })
+  const rooms = await db.select({ unitName: unitTypes.name })
     .from(reservationRooms)
     .innerJoin(unitTypes, eq(unitTypes.id, reservationRooms.unitTypeId))
-    .innerJoin(ratePlans, eq(ratePlans.id, reservationRooms.ratePlanId))
     .where(eq(reservationRooms.reservationId, reservationId));
   const q = res.quote as Quote;
   const base = deps.baseUrl.replace(/\/+$/, "");
@@ -128,7 +128,7 @@ export async function emailContext(
     discount: q.discount,
     total: q.total,
     paid: await receivedAmount(db, reservationId),
-    cancellationText: rooms[0] ? cancellationText(rooms[0].policy, loc) : "",
+    cancellationText: rooms[0] ? cancellationText(bookingTerms(res).cancelPolicy, loc) : "",
     hotelPhone: property.phone,
     hotelEmail: property.email,
     hotelAddress: property.address[loc],

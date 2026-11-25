@@ -157,6 +157,13 @@ export const reservations = sqliteTable(
     quote: text("quote", { mode: "json" }).$type<unknown>().notNull(),
     totalAmount: integer("total_amount").notNull(),
     promoCode: text("promo_code"),
+    /**
+     * The rate plan's cancellation policy and name AS BOOKED. Editing the plan later never changes them; only a
+     * modification onto a different plan replaces them (with that plan's, at modification time). Read through
+     * lib/booking/terms.ts, never from `rate_plans`.
+     */
+    cancelPolicy: text("cancel_policy", { mode: "json" }).$type<CancelPolicy>().notNull().default(sql`'{"rules":[]}'`),
+    ratePlanName: text("rate_plan_name", { mode: "json" }).$type<I18n>().notNull().default(sql`'{"zh-TW":"","en":"","ja":"","ko":""}'`),
     syncState: text("sync_state", { enum: ["not_required", "pending", "synced", "failed"] }).notNull(),
     /** Epoch ms when the inventory hold lapses; null = no inventory currently held. */
     holdExpiresAt: integer("hold_expires_at"),
