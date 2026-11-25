@@ -37,6 +37,13 @@ export type StaffCancelResult =
       frontDeskRefundDue?: number;
       alreadyCancelled: boolean;
       overrideIgnored?: true;
+      /**
+       * The override was more than the cancel base by the time the cancellation was planned (a modification
+       * refunded in between): `overrideApplied` (that base) was refunded instead of `overrideRequested`.
+       */
+      overrideClamped?: true;
+      overrideRequested?: number;
+      overrideApplied?: number;
     }
   | { ok: false; error: StaffCancelError };
 
@@ -74,6 +81,8 @@ export async function staffCancel(
       reason, refundOverride: override ?? null, notifyGuest: opts.notifyGuest, refunded, frontDeskRefundDue,
       outcome: result.ok ? (result.alreadyCancelled ? "already_cancelled" : "cancelled") : result.error,
       ...(result.ok && result.overrideIgnored ? { overrideIgnored: true } : {}),
+      ...(result.ok && result.overrideClamped
+        ? { overrideClamped: true, overrideRequested: result.overrideRequested, overrideApplied: result.overrideApplied } : {}),
     },
   }, now);
   return result;
@@ -86,14 +95,18 @@ export async function staffCancel(
     // Only the online part needs the gateway; front-desk money is handed back at the desk.
     if (opts.paymentsUnavailable && (await plannedCancelRefund(db, res, now, override)).online > 0)
       return { ok: false, error: "PAYMENTS_UNAVAILABLE" };
-    const r = await cancelConfirmed(deps, res.id, now, {
+    const c = await cancelConfirmed(deps, res.id, now, {
       reason: "STAFF_CANCELLED", // the free-text reason stays in the audit log, not at the gateway
       refundOverride: override,
       releaseFrom: todayInTaipei(now),
       notifyGuest: opts.notifyGuest,
       gatewayAvailable: !opts.paymentsUnavailable,
     });
-    return r.ok ? withOverride(r) : r;
+    if (!c.ok) return c;
+    const { overrideClamped: clamp, ...r } = c;
+    return clamp
+      ? { ...r, overrideClamped: true, overrideRequested: clamp.requested, overrideApplied: clamp.applied }
+      : withOverride(r);
   }
 }
 

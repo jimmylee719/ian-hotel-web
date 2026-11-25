@@ -46,8 +46,13 @@ export type CancelOutcome =
       /** Present (> 0) when part of the refund is front-desk money the desk must hand back. */
       frontDeskRefundDue?: number;
       alreadyCancelled: boolean;
+      /** A staff override was more than the cancel base when the cancellation was planned; `applied` was used. */
+      overrideClamped?: OverrideClamp;
     }
   | { ok: false; error: "NOT_FOUND" | "NOT_CANCELLABLE" | "REFUND_FAILED" | "MODIFICATION_REFUND_PENDING" };
+
+/** The override asked for and the amount actually used (the cancel base at planning time). */
+export type OverrideClamp = { requested: number; applied: number };
 
 /** A reservation by code (any case) and guest email (any case); both must match. */
 async function lookup(db: Db, code: string, email: string): Promise<Reservation | undefined> {
@@ -110,6 +115,8 @@ export type CancelRefundPlan = {
   online: number;
   /** The rest, which the front desk hands back (front-desk money cannot go back online). */
   frontDesk: number;
+  /** Set when the override exceeded the cancel base and was cut down to it. */
+  overrideClamped?: OverrideClamp;
 };
 
 export const refundTotal = (p: CancelRefundPlan) => p.online + p.frontDesk;
@@ -125,6 +132,9 @@ const frontDeskField = (amount: number) => (amount > 0 ? { frontDeskRefundDue: a
  * - the cancel's own refund is `override` if given, else the rate plan's policy applied at `at`, both on the
  *   rest (`cancelBase`: received minus that owed money); its online part is capped at the online net, the rest
  *   is due at the front desk too.
+ * - An override is clamped to that base HERE, against the money as it is now: the caller checked it earlier,
+ *   and a modification refunding in between (before the claim) would otherwise make the cancel hand back more
+ *   than was paid, as an unpayable desk-due. `overrideClamped` then says what was asked and what was used.
  * The preview and the actual cancel share this.
  */
 async function cancelRefundPlan(db: Db, res: Reservation, at: Date, override?: number): Promise<CancelRefundPlan> {
@@ -132,12 +142,17 @@ async function cancelRefundPlan(db: Db, res: Reservation, at: Date, override?: n
   if (intent) return { online: intent.amount, frontDesk: res.cancelDeskDue };
   const money = await moneyOf(db, res.id);
   const owed = owedBack(res.totalAmount, money);
-  let own = override;
-  if (own === undefined) {
-    own = refundAmount(bookingTerms(res).cancelPolicy, money.received - owed, res.checkIn, at);
+  const base = money.received - owed;
+  let own: number;
+  let overrideClamped: OverrideClamp | undefined;
+  if (override === undefined) {
+    own = refundAmount(bookingTerms(res).cancelPolicy, base, res.checkIn, at);
+  } else {
+    own = Math.max(0, Math.min(override, base));
+    if (own !== override) overrideClamped = { requested: override, applied: own };
   }
   const online = Math.max(0, Math.min(own, money.onlineNet));
-  return { online, frontDesk: owed + own - online };
+  return { online, frontDesk: owed + own - online, ...(overrideClamped ? { overrideClamped } : {}) };
 }
 
 /** What a cancel's policy (or a staff override) is applied to: received, minus money already owed back. */
@@ -260,10 +275,11 @@ export async function cancelConfirmed(deps: Deps, reservationId: string, now: Da
   }
   await cancelWithChannel(deps, reservationId, now);
   const mail = { refundAmount: r.amount, ...frontDeskField(r.frontDesk) };
+  const clamp = r.overrideClamped ? { overrideClamped: r.overrideClamped } : {};
   if (o.notifyGuest !== false) await notifyGuest(deps, reservationId, "cancelled", now, mail);
   await notifyStaff(deps, reservationId, "cancelled", now, mail);
   if (r.frontDesk > 0) await notifyStaff(deps, reservationId, "staff_payment_alert", now, mail, "front-desk-refund");
-  return { ok: true, refunded: r.amount, ...frontDeskField(r.frontDesk), alreadyCancelled: false };
+  return { ok: true, refunded: r.amount, ...frontDeskField(r.frontDesk), alreadyCancelled: false, ...clamp };
 }
 
 /** The hold items limited to nights on or after `from` (all of them when `from` is unset); empty items dropped. */
@@ -285,7 +301,9 @@ export function alreadyCancelled(res: Reservation): CancelOutcome {
   return { ok: true, refunded: res.refundedAmount, ...frontDeskField(res.frontDeskRefundDue), alreadyCancelled: true };
 }
 
-type CancellationRefund = (RefundOutcome & { ok: false }) | { ok: true; amount: number; frontDesk: number };
+type CancellationRefund =
+  | (RefundOutcome & { ok: false })
+  | { ok: true; amount: number; frontDesk: number; overrideClamped?: OverrideClamp };
 
 /**
  * Run (or finish, or join) the cancellation's refund. `amount` is what went back online, `frontDesk` what the
@@ -301,14 +319,15 @@ async function refundCancellation(deps: Deps, claim: Reservation, now: Date, o: 
   if (!intent && plan.frontDesk !== claim.cancelDeskDue)
     await db.update(reservations).set({ cancelDeskDue: plan.frontDesk })
       .where(and(eq(reservations.id, claim.id), eq(reservations.status, "confirmed")));
-  if (amount <= 0) return { ok: true, amount: 0, frontDesk: plan.frontDesk };
+  const clamp = plan.overrideClamped ? { overrideClamped: plan.overrideClamped } : {};
+  if (amount <= 0) return { ok: true, amount: 0, frontDesk: plan.frontDesk, ...clamp };
   if (o.gatewayAvailable === false) return { ok: false, error: "PAYMENTS_UNAVAILABLE" };
   const chargeId = intent?.refundOf ?? await payingChargeId(db, claim.id);
   const charge = (await refundableCharges(db, claim.id)).find((c) => c.id === chargeId);
   if (!charge) return { ok: false, error: "NO_PAYING_CHARGE" };
   if (!intent && charge.remaining < amount) return { ok: false, error: `REFUNDABLE_${charge.remaining}_LT_${amount}` };
   const r = await refundOnce(deps, cancelKey(claim.id), charge, amount, o.reason, now, { countsAsBookingRefund: true });
-  return r.ok ? { ...r, frontDesk: plan.frontDesk } : r;
+  return r.ok ? { ...r, frontDesk: plan.frontDesk, ...clamp } : r;
 }
 
 /**

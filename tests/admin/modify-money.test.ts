@@ -4,8 +4,8 @@ import { balanceDueOf, recordFrontDeskPayment, voidFrontDeskPayment } from "@/li
 import { applyModification, previewModification } from "@/lib/admin/modify";
 import { reconcileRefund } from "@/lib/admin/reconcile";
 import { staffCancel } from "@/lib/admin/staff-cancel";
-import { cancelReservation, findReservation } from "@/lib/booking/manage";
-import { ratePlans, reservations } from "@/lib/db/schema";
+import { cancelConfirmed, cancelReservation, findReservation } from "@/lib/booking/manage";
+import { auditLog, ratePlans, reservations } from "@/lib/db/schema";
 import { minutes } from "@/tests/helpers/booking";
 import { AT, ONE_NIGHT, REASON, TWO_NIGHTS, tenK } from "@/tests/helpers/money";
 
@@ -112,4 +112,53 @@ test("a cancel applies its policy only to money not already owed back: 50% of 40
   expect(await staffCancel(s.deps, s.frontDesk, s.id, { reason: "x", notifyGuest: false }, HALF))
     .toEqual({ ok: true, refunded: 0, frontDeskRefundDue: 5000, alreadyCancelled: false });
   expect(await s.row()).toMatchObject({ status: "cancelled", frontDeskRefundDue: 5000 });
+});
+
+/**
+ * `db`, except that the first `db.update(...)` statement runs `before()` just before it executes: a write that
+ * lands between a request's checks and its first update (here, between staffCancel's override check and its claim).
+ */
+function beforeFirstUpdate<T extends object>(db: T, before: () => Promise<unknown>): T {
+  let fired = false;
+  const defer = (b: object): object => new Proxy(b, {
+    get(t, k, r) {
+      const v = Reflect.get(t, k, r);
+      if (k === "then") return (ok: (x: unknown) => unknown, ko: (e: unknown) => unknown) => before().then(() => (v as Function).call(t, ok, ko), ko);
+      return typeof v === "function" ? (...a: unknown[]) => { const out = v.apply(t, a); return out && typeof out === "object" ? defer(out) : out; } : v;
+    },
+  });
+  return new Proxy(db, {
+    get(t, k, r) {
+      const v = Reflect.get(t, k, r);
+      if (k !== "update" || fired) return typeof v === "function" ? v.bind(t) : v;
+      return (...a: unknown[]) => { fired = true; return defer((v as Function).apply(t, a)); };
+    },
+  });
+}
+
+test("an override checked before a concurrent price-lowering modification is clamped to what is left: never more back than paid (I-2)", async () => {
+  const s = await tenK();
+  // Staff A asks to refund 10000 (all of it, valid now); staff B's modification to one night refunds 6000 first.
+  const raced = { ...s.deps, db: beforeFirstUpdate(s.db, () => s.modify(ONE_NIGHT)) };
+  const r = await staffCancel(raced, s.manager, s.id, { reason: "x", notifyGuest: true, refundOverride: 10000 }, AT);
+  expect(r).toEqual({
+    ok: true, refunded: 4000, alreadyCancelled: false, overrideClamped: true, overrideRequested: 10000, overrideApplied: 4000,
+  });
+  const row = await s.row();
+  expect(row).toMatchObject({ status: "cancelled", totalAmount: 4000, frontDeskRefundDue: 0 });
+  // Handed back in all: 6000 (modification) + 4000 (cancel) = the 10000 paid, and the desk owes nothing.
+  expect((await s.refunds()).filter((p) => p.status === "succeeded").reduce((a, p) => a + p.amount, 0)).toBe(10000);
+  const [audit] = (await s.db.select().from(auditLog).where(eq(auditLog.entityId, s.id))).filter((a) => a.action === "reservation.cancel");
+  expect(audit.after).toMatchObject({ refundOverride: 10000, overrideClamped: true, overrideRequested: 10000, overrideApplied: 4000, refunded: 4000, frontDeskRefundDue: 0 });
+});
+
+test("the cancel core clamps an override above the cancel base itself, keeping money already owed back at the desk (I-2)", async () => {
+  const s = await tenK({ deposit: true, desk: 7000 });
+  // Received 10000 (3000 online + 7000 desk); the modification refunds the 3000 online and the desk owes 3000 back.
+  expect(await s.modify(ONE_NIGHT)).toMatchObject({ ok: true, refunded: 3000, frontDeskRefundDue: 3000 });
+  // cancelBase is now 4000 (7000 received − 3000 owed); an override of 9000 slipped past a stale check.
+  const r = await cancelConfirmed(s.deps, s.id, AT, { reason: "STAFF_CANCELLED", refundOverride: 9000 });
+  expect(r).toMatchObject({ ok: true, refunded: 0, frontDeskRefundDue: 7000, overrideClamped: { requested: 9000, applied: 4000 } });
+  // The desk owes exactly the 7000 it holds (3000 owed back + the 4000 cancel refund), not 12000.
+  expect(await s.row()).toMatchObject({ status: "cancelled", frontDeskRefundDue: 7000 });
 });
