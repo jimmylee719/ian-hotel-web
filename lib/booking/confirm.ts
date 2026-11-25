@@ -13,8 +13,12 @@ import { toChannelReservation } from "./to-channel";
 /** Retries after the first failed push; the next failure after this many refunds the guest. */
 export const MAX_SYNC_ATTEMPTS = 6;
 export const SYNC_RETRY_MS = 5 * 60_000;
-/** How long one worker owns a booking while it pushes; after that the retry job may take over. */
-export const SYNC_LEASE_MS = 2 * 60_000;
+/**
+ * How long one worker owns a booking while it pushes; after that the retry job may take over. A lease covers up to
+ * two channel calls (a lookup, then a push / modify / cancel), each at most CHANNEL_MAX_TIMEOUT_MS (60 s): 2 × 60 s
+ * plus a minute of margin for our own work around them.
+ */
+export const SYNC_LEASE_MS = 3 * 60_000;
 
 /**
  * Drive a `paid_pending_confirm` booking to its end state. Safe to call from any number of workers:

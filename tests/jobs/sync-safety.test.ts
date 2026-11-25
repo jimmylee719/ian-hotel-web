@@ -2,7 +2,7 @@ import { expect, test, vi } from "vitest";
 import { refundAndFail, SYNC_LEASE_MS } from "@/lib/booking/confirm";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { MockChannelManager } from "@/lib/channel/mock";
-import type { PushResult } from "@/lib/channel/types";
+import { CHANNEL_MAX_TIMEOUT_MS, type PushResult } from "@/lib/channel/types";
 import { runExpireHolds } from "@/lib/jobs/expire-holds";
 import { runSyncRetry } from "@/lib/jobs/sync-retry";
 import { bookingSetup, minutes, PAY_NOW } from "@/tests/helpers/booking";
@@ -17,6 +17,11 @@ const crashAfterClaim = (db: TestDb) => rawSqlite(db).exec(`CREATE TRIGGER boom 
 const crashBeforeClaim = (db: TestDb) => rawSqlite(db).exec(`CREATE TRIGGER boom BEFORE UPDATE OF status ON reservations
   BEGIN SELECT RAISE(ABORT, 'crash'); END`);
 const recover = (db: TestDb) => rawSqlite(db).exec(`DROP TRIGGER boom`);
+
+test("a sync lease outlasts the two channel calls made under it (lookup, then push or cancel), with margin", () => {
+  expect(CHANNEL_MAX_TIMEOUT_MS).toBe(60_000);
+  expect(SYNC_LEASE_MS).toBeGreaterThanOrEqual(2 * CHANNEL_MAX_TIMEOUT_MS + 30_000);
+});
 
 test("overlapping retry runs push a booking exactly once", async () => {
   const { deps, channel, book, reservation, notice } = await bookingSetup({

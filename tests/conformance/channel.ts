@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { ChannelManager, ChannelReservation } from "@/lib/channel/types";
+import { CHANNEL_MAX_TIMEOUT_MS, type ChannelManager, type ChannelReservation } from "@/lib/channel/types";
 
 /**
  * The rules every ChannelManager must keep, shared by the mock and the real SiteMinder adapter.
@@ -75,7 +75,7 @@ export function channelConformance(make: () => ChannelManager, opts: ChannelConf
       const { timeoutMs } = make();
       expect(Number.isFinite(timeoutMs)).toBe(true);
       expect(timeoutMs).toBeGreaterThan(0);
-      expect(timeoutMs).toBeLessThanOrEqual(60_000);
+      expect(timeoutMs).toBeLessThanOrEqual(CHANNEL_MAX_TIMEOUT_MS);
     });
 
     test("5. lookupReservation finds a pushed reservation, active, with its smConfirmation", async () => {

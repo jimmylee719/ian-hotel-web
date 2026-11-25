@@ -34,11 +34,15 @@ export type LookupResult =
   | { found: false }
   | { error: string; retryable: boolean };
 
+/** The longest any ChannelManager's timeoutMs may be (conformance rule 4). */
+export const CHANNEL_MAX_TIMEOUT_MS = 60_000;
+
 /**
  * SiteMinder (SiteConnect) in production; MockChannelManager until certification.
  * Rules (tests/conformance/channel.ts): pushing a code again gives the same smConfirmation; modify and cancel carry
- * that smConfirmation, and fail (not retryable) for an unknown code or a smConfirmation that does not match it; a timeout is retryable; timeoutMs ≤ 60000 (below SYNC_LEASE_MS, so a push
- * never outlives its lease); lookup finds what a push left.
+ * that smConfirmation, and fail (not retryable) for an unknown code or a smConfirmation that does not match it; a timeout is retryable; timeoutMs ≤ 60000
+ * (CHANNEL_MAX_TIMEOUT_MS: one lease runs at most two calls, a lookup then a push / modify / cancel, and SYNC_LEASE_MS
+ * is set above twice this, so the calls of one lease end before another worker may take it); lookup finds what a push left.
  */
 export interface ChannelManager {
   pushReservation(r: ChannelReservation): Promise<PushResult>;
