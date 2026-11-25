@@ -192,3 +192,10 @@
 .adm-faq[open] summary { margin-bottom: 12px; }
 .adm-faq-list li + li { margin-top: 8px; }
 .adm-faq-list { margin-top: 12px; }
+
+/* Reports */
+.adm-tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--a-line); margin: 0 0 16px; }
+.adm-body .adm-tabs a { padding: 6px 16px; color: var(--a-muted); text-decoration: none; border: 1px solid transparent; border-bottom: none; border-radius: 3px 3px 0 0; }
+.adm-body .adm-tabs a[aria-current="page"] { background: var(--a-surface); border-color: var(--a-line); color: var(--a-ink); font-weight: 600; margin-bottom: -1px; }
+.adm-bar { display: block; min-width: 120px; height: 10px; background: #e4ddd0; border-radius: 2px; overflow: hidden; }
+.adm-bar > span { display: block; height: 100%; background: var(--a-accent); }
