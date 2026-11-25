@@ -118,20 +118,22 @@ test("a cancel applies its policy only to money not already owed back: 50% of 40
  * `db`, except that its `nth` `db.update(...)` statement (1-based) runs `before()` just before it executes: a write
  * that lands between a request's reads and that update (e.g. between staffCancel's override check and its claim).
  */
+type AnyFn = (...a: unknown[]) => unknown;
+
 function beforeUpdate<T extends object>(db: T, nth: number, before: () => Promise<unknown>): T {
   let count = 0;
   const defer = (b: object): object => new Proxy(b, {
     get(t, k, r) {
       const v = Reflect.get(t, k, r);
-      if (k === "then") return (ok: (x: unknown) => unknown, ko: (e: unknown) => unknown) => before().then(() => (v as Function).call(t, ok, ko), ko);
-      return typeof v === "function" ? (...a: unknown[]) => { const out = v.apply(t, a); return out && typeof out === "object" ? defer(out) : out; } : v;
+      if (k === "then") return (ok: (x: unknown) => unknown, ko: (e: unknown) => unknown) => before().then(() => (v as AnyFn).call(t, ok, ko), ko);
+      return typeof v === "function" ? (...a: unknown[]) => { const out = (v as AnyFn).apply(t, a); return out && typeof out === "object" ? defer(out) : out; } : v;
     },
   });
   return new Proxy(db, {
     get(t, k, r) {
       const v = Reflect.get(t, k, r);
       if (k !== "update") return typeof v === "function" ? v.bind(t) : v;
-      return (...a: unknown[]) => { const b = (v as Function).apply(t, a); return ++count === nth ? defer(b) : b; };
+      return (...a: unknown[]) => { const b = (v as AnyFn).apply(t, a) as object; return ++count === nth ? defer(b) : b; };
     },
   });
 }
