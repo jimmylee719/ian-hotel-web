@@ -12,7 +12,8 @@
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "nk-booking" }],
-  "triggers": { "crons": ["*/5 * * * *"] },
+  // */5: holds, sync retry, pre-arrival; */15: gateway reconcile; 0 20 (04:00 Taipei): channel reconcile (lib/jobs/cron.ts).
+  "triggers": { "crons": ["*/5 * * * *", "*/15 * * * *", "0 20 * * *"] },
   "workers_dev": false,
   // CF_ACCESS_* are left empty locally: the admin then uses DEV_STAFF_EMAIL from .dev.vars instead of a JWT.
   "vars": {
@@ -36,7 +37,7 @@
       "main": "worker.ts",
       "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
       "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "nk-booking-production" }],
-      "triggers": { "crons": ["*/5 * * * *"] },
+      "triggers": { "crons": ["*/5 * * * *", "*/15 * * * *", "0 20 * * *"] },
       "workers_dev": false,
       // Set both CF_ACCESS_* to the Zero Trust team domain and the admin Access application's AUD tag
       // before deploying; while either is empty every /admin request is 401 (fails closed).

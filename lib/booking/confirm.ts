@@ -248,7 +248,7 @@ export async function refundOnce(
 
   const pending = row;
   const markFailed = async (error: string): Promise<RefundOutcome> => {
-    await db.update(payments).set({ status: "failed" }).where(and(eq(payments.id, pending.id), eq(payments.status, "pending")));
+    await markRefundFailed(db, pending.id);
     return { ok: false, error, refundId: pending.id };
   };
   let refundRef: string | null;
@@ -266,18 +266,37 @@ export async function refundOnce(
     if (q.status !== "succeeded") return markFailed(`${r.error}; query ${q.status}`);
     refundRef = q.refundRef ?? null;
   }
-  // Only the first writer to settle the row counts it: staff may have marked it succeeded by hand
-  // (refund reconciliation) while this call was in flight. The bump runs first, while the row is unsettled.
+  await settleRefundRow(db, row, refundRef, !!o.countsAsBookingRefund);
+  return { ok: true, amount: row.amount };
+}
+
+/**
+ * Mark a refund row the gateway confirmed as made `succeeded` (with its refund ref), and with
+ * `countsAsBookingRefund` add its amount to the booking's refundedAmount, in one batch.
+ * Only the first writer to settle the row counts it: staff may have marked it succeeded by hand
+ * (refund reconciliation) while a call was in flight. The bump runs first, while the row is unsettled.
+ * Used by refundOnce and by the gateway reconcile job (a pending row whose queryRefund says succeeded).
+ */
+export async function settleRefundRow(
+  db: Db, row: Pick<PaymentRow, "id" | "amount" | "reservationId">, refundRef: string | null, countsAsBookingRefund: boolean,
+): Promise<void> {
   const unsettled = and(eq(payments.id, row.id), ne(payments.status, "succeeded"));
   await runAtomic(db, [
-    ...(o.countsAsBookingRefund
+    ...(countsAsBookingRefund
       ? [db.update(reservations).set({ refundedAmount: sql`${reservations.refundedAmount} + ${row.amount}` })
-        .where(and(eq(reservations.id, charge.reservationId), exists(db.select({ one: sql`1` }).from(payments).where(unsettled))))]
+        .where(and(eq(reservations.id, row.reservationId), exists(db.select({ one: sql`1` }).from(payments).where(unsettled))))]
       : []),
     db.update(payments).set({ status: "succeeded", providerRef: refundRef }).where(unsettled),
   ]);
-  return { ok: true, amount: row.amount };
 }
+
+/** A refund row the gateway definitely did not make: pending → failed (only while still pending), so it may be retried. */
+export async function markRefundFailed(db: Db, refundId: string): Promise<void> {
+  await db.update(payments).set({ status: "failed" }).where(and(eq(payments.id, refundId), eq(payments.status, "pending")));
+}
+
+/** Refunds that count toward the booking's refundedAmount (cancellations and failed bookings); stray-charge and modification refunds do not. */
+export const countsAsBookingRefund = (key: string | null) => !!key && (key.startsWith("cancel:") || key.startsWith("fail:"));
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 

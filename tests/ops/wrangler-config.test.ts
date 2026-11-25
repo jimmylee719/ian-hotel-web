@@ -1,13 +1,18 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
+import { CRON_CHANNEL_RECONCILE, CRON_EVERY_5_MIN, CRON_GATEWAY_RECONCILE } from "@/lib/jobs/cron";
+
+/** The 5-minute cron, the 15-minute gateway reconcile and the daily (04:00 Taipei) channel reconcile. */
+const CRONS = [CRON_EVERY_5_MIN, CRON_GATEWAY_RECONCILE, CRON_CHANNEL_RECONCILE];
 
 const cfg = JSON.parse(readFileSync(path.resolve(__dirname, "../../wrangler.jsonc"), "utf8")
   .split("\n").filter((l) => !l.trim().startsWith("//")).join("\n"));
 
-test("the worker entry is worker.ts and it runs every 5 minutes", () => {
+test("the worker entry is worker.ts and it runs every 5 and 15 minutes and daily at 04:00 Taipei", () => {
   expect(cfg.main).toBe("worker.ts");
-  expect(cfg.triggers.crons).toEqual(["*/5 * * * *"]);
+  expect(CRONS).toEqual(["*/5 * * * *", "*/15 * * * *", "0 20 * * *"]);
+  expect(cfg.triggers.crons).toEqual(CRONS);
 });
 
 test("local/preview vars use the mock payment and channel modes", () => {
@@ -28,7 +33,7 @@ test("production is a separate env that never sets PAYMENT_MODE=mock (/dev/pay w
   expect(JSON.stringify(prod.vars ?? {})).not.toContain("mock");
   // Wrangler does not inherit bindings or triggers into an env, so each must be repeated.
   expect(prod.main ?? cfg.main).toBe("worker.ts");
-  expect(prod.triggers.crons).toEqual(["*/5 * * * *"]);
+  expect(prod.triggers.crons).toEqual(CRONS);
   expect(prod.d1_databases[0]).toMatchObject({ binding: "DB", database_name: "nk-booking" });
   expect(prod.r2_buckets[0]).toMatchObject({ binding: "MEDIA", bucket_name: "nk-media" });
   expect(prod.images).toEqual({ binding: "IMAGES" }); // photo upload variants (lib/admin/uploads.ts)

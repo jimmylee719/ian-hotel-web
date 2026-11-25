@@ -415,7 +415,7 @@ export async function cancelWithChannel(deps: Deps, reservationId: string, now: 
 }
 
 /** Cancel `code` at the channel, under the smConfirmation the channel reports, only if it holds it as active. */
-async function cancelIfActive(deps: Deps, code: string): Promise<CancelResult> {
+export async function cancelIfActive(deps: Deps, code: string): Promise<CancelResult> {
   const l = await deps.channel.lookupReservation(code);
   if ("error" in l) return { ok: false, retryable: l.retryable, error: `LOOKUP_FAILED: ${l.error}` };
   if (!l.found || l.state === "cancelled") return { ok: true, retryable: false };

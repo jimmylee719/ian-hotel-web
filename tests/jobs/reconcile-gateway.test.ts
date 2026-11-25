@@ -1,0 +1,152 @@
+import { and, eq } from "drizzle-orm";
+import { expect, test, vi } from "vitest";
+import { cancelReservation } from "@/lib/booking/manage";
+import { handlePaymentNotice } from "@/lib/booking/payment-notice";
+import { jobRuns, paymentEvents, payments } from "@/lib/db/schema";
+import {
+  CHANNEL_RECONCILE_JOB, CRON_CHANNEL_RECONCILE, CRON_EVERY_5_MIN, CRON_GATEWAY_RECONCILE, CRON_JOB, GATEWAY_RECONCILE_JOB, recordJob, runCronTrigger,
+} from "@/lib/jobs/cron";
+import { runGatewayReconcile } from "@/lib/jobs/reconcile-gateway";
+import { bookingSetup, minutes, PAY_NOW } from "@/tests/helpers/booking";
+
+const GUEST = "mei@example.com";
+
+/** A confirmed booking whose cancellation refund reached the gateway but whose answer was lost (row stuck pending). */
+async function stuckCancellation() {
+  const s = await bookingSetup({ refundTimeoutNext: 1 });
+  const code = await s.book();
+  await handlePaymentNotice(s.deps, await s.notice(code), minutes(1));
+  expect((await s.reservation(code)).status).toBe("confirmed");
+  // The refund is made but times out, and the follow-up query cannot tell yet.
+  vi.spyOn(s.gateway, "queryRefund").mockResolvedValueOnce({ status: "pending" });
+  expect(await cancelReservation(s.deps, code, GUEST, minutes(2))).toEqual({ ok: false, error: "REFUND_FAILED" });
+  const res = await s.reservation(code);
+  const refundRows = () => s.db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "refund")));
+  const [row] = await refundRows();
+  expect(row).toMatchObject({ status: "pending", idempotencyKey: `cancel:${res.id}` });
+  expect(res.status).toBe("confirmed");
+  return { ...s, code, id: res.id, row, refundRows };
+}
+
+test("a pending refund the gateway reports succeeded is settled and the cancellation finishes", async () => {
+  const { deps, gateway, email, code, reservation, refundRows, channel } = await stuckCancellation();
+  const refund = vi.spyOn(gateway, "refund");
+  const amount = (await refundRows())[0].amount;
+
+  // Younger than 10 minutes: left alone.
+  expect(await runGatewayReconcile(deps, minutes(5))).toMatchObject({ refundsChecked: 0 });
+  expect((await reservation(code)).status).toBe("confirmed");
+
+  const r = await runGatewayReconcile(deps, minutes(15));
+  expect(r).toMatchObject({ refundsChecked: 1, refundsSettled: 1, refundsFailed: 0, refundsUnresolved: 0 });
+  expect(refund).not.toHaveBeenCalled(); // never refunds again: only asks
+  expect(await refundRows()).toMatchObject([{ status: "succeeded", providerRef: gateway.refunds[0].refundRef }]);
+  const res = await reservation(code);
+  expect(res).toMatchObject({ status: "cancelled", refundedAmount: amount, cancelledAt: minutes(2).getTime() });
+  expect(channel.records).toMatchObject([{ code, state: "cancelled" }]);
+  expect(email.sent.filter((e) => e.to === GUEST && e.subject.includes("cancelled"))).toHaveLength(1);
+
+  // A second run finds nothing to do and counts nothing twice.
+  expect(await runGatewayReconcile(deps, minutes(30))).toMatchObject({ refundsChecked: 0 });
+  expect((await reservation(code)).refundedAmount).toBe(amount);
+});
+
+test("a pending refund the gateway reports failed or not found is marked failed; the booking is left alone", async () => {
+  const { deps, gateway, code, reservation, refundRows } = await stuckCancellation();
+  vi.spyOn(gateway, "queryRefund").mockResolvedValueOnce({ status: "not_found" });
+  expect(await runGatewayReconcile(deps, minutes(15))).toMatchObject({ refundsChecked: 1, refundsFailed: 1 });
+  expect(await refundRows()).toMatchObject([{ status: "failed" }]);
+  expect(await reservation(code)).toMatchObject({ status: "confirmed", refundedAmount: 0 });
+});
+
+test("a refund query that is still pending or fails leaves the row pending", async () => {
+  const { deps, gateway, refundRows } = await stuckCancellation();
+  const q = vi.spyOn(gateway, "queryRefund");
+  q.mockResolvedValueOnce({ status: "pending" });
+  expect(await runGatewayReconcile(deps, minutes(15))).toMatchObject({ refundsChecked: 1, refundsUnresolved: 1 });
+  q.mockResolvedValueOnce({ error: "QUERY_DOWN" });
+  expect(await runGatewayReconcile(deps, minutes(30))).toMatchObject({ refundsChecked: 1, refundsUnresolved: 1 });
+  q.mockRejectedValueOnce(new Error("socket hang up"));
+  expect(await runGatewayReconcile(deps, minutes(45))).toMatchObject({ refundsChecked: 1, refundsUnresolved: 1 });
+  expect(await refundRows()).toMatchObject([{ status: "pending" }]);
+});
+
+test("a payment with no notice that the gateway reports succeeded goes through the notice path and confirms", async () => {
+  const { db, deps, gateway, channel, code, ...s } = await (async () => {
+    const s = await bookingSetup();
+    return { ...s, code: await s.book() };
+  })();
+  const query = vi.spyOn(gateway, "queryTransaction").mockResolvedValue({ status: "succeeded", amount: PAY_NOW, providerRef: "BANK-777" });
+
+  expect(await runGatewayReconcile(deps, minutes(9))).toMatchObject({ chargesChecked: 0 });
+  expect(query).not.toHaveBeenCalled();
+
+  expect(await runGatewayReconcile(deps, minutes(11))).toMatchObject({ chargesChecked: 1, chargesApplied: 1 });
+  expect(query).toHaveBeenCalledWith({ merchantOrderNo: `${code}-1` });
+  const res = await s.reservation(code);
+  expect(res).toMatchObject({ status: "confirmed", syncState: "synced" });
+  expect(channel.pushed.map((p) => p.code)).toEqual([code]);
+  expect(await db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "charge"))))
+    .toMatchObject([{ status: "succeeded", providerRef: "BANK-777", amount: PAY_NOW }]);
+  expect(await db.select().from(paymentEvents)).toMatchObject([{ verdict: "accepted", providerRef: "BANK-777", reservationCode: code }]);
+
+  // Paid now: never asked again; a late real notice is a duplicate.
+  query.mockClear();
+  expect(await runGatewayReconcile(deps, minutes(30))).toMatchObject({ chargesChecked: 0 });
+  expect(query).not.toHaveBeenCalled();
+  expect((await handlePaymentNotice(deps, await s.notice(code, { providerRef: "BANK-777" }), minutes(31))).verdict).toBe("duplicate");
+});
+
+test("a queried charge of the wrong amount is checked like a notice: the booking is refunded, not confirmed", async () => {
+  const s = await bookingSetup();
+  const code = await s.book();
+  vi.spyOn(s.gateway, "queryTransaction").mockResolvedValue({ status: "succeeded", amount: PAY_NOW - 1, providerRef: "BANK-1" });
+  expect(await runGatewayReconcile(s.deps, minutes(11))).toMatchObject({ chargesApplied: 1 });
+  expect(await s.reservation(code)).toMatchObject({ status: "confirm_failed_refunded", refundedAmount: PAY_NOW - 1 });
+  expect(await s.db.select().from(paymentEvents)).toMatchObject([{ verdict: "amount_mismatch" }]);
+  expect(s.channel.pushed).toHaveLength(0);
+});
+
+test("a queried charge that is not succeeded changes nothing", async () => {
+  const s = await bookingSetup();
+  const code = await s.book();
+  const q = vi.spyOn(s.gateway, "queryTransaction");
+  for (const r of [{ status: "pending" as const }, { status: "not_found" as const }, { error: "DOWN" }]) {
+    q.mockResolvedValueOnce(r);
+    expect(await runGatewayReconcile(s.deps, minutes(11))).toMatchObject({ chargesChecked: 1, chargesApplied: 0 });
+  }
+  expect((await s.reservation(code)).status).toBe("pending_payment");
+  expect(await s.db.select().from(paymentEvents)).toHaveLength(0);
+});
+
+test("the job records a job_runs row with its counts, or its error without throwing", async () => {
+  const { db, deps } = await bookingSetup();
+  await recordJob(db, GATEWAY_RECONCILE_JOB, minutes(20), () => runGatewayReconcile(deps, minutes(20)));
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  await recordJob(db, GATEWAY_RECONCILE_JOB, minutes(35), async () => { throw new Error("boom"); });
+  error.mockRestore();
+  const rows = await db.select().from(jobRuns).where(eq(jobRuns.name, GATEWAY_RECONCILE_JOB)).orderBy(jobRuns.startedAt);
+  expect(rows).toMatchObject([
+    { startedAt: minutes(20).getTime(), result: expect.objectContaining({ refundsChecked: 0, chargesChecked: 0 }) },
+    { startedAt: minutes(35).getTime(), result: { error: "boom" } },
+  ]);
+});
+
+test("each cron trigger runs its own job: the reconcile triggers record their own job_runs row, not the 5-minute cron's", async () => {
+  const { db } = await bookingSetup();
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const env = { PAYMENT_MODE: "mock", CHANNEL_MODE: "mock", ENVIRONMENT: "local" } as never;
+  await runCronTrigger(env, CRON_GATEWAY_RECONCILE, minutes(20), db);
+  await runCronTrigger(env, CRON_CHANNEL_RECONCILE, minutes(21), db);
+  await runCronTrigger({ PAYMENT_MODE: "mock", ENVIRONMENT: "local" } as never, CRON_CHANNEL_RECONCILE, minutes(22), db);
+  await runCronTrigger(env, CRON_EVERY_5_MIN, minutes(25), db);
+  log.mockRestore(); warn.mockRestore();
+  const rows = await db.select().from(jobRuns).orderBy(jobRuns.startedAt);
+  expect(rows.map((r) => [r.name, r.result])).toEqual([
+    [GATEWAY_RECONCILE_JOB, expect.objectContaining({ refundsChecked: 0, chargesChecked: 0 })],
+    [CHANNEL_RECONCILE_JOB, expect.objectContaining({ checked: 0, mismatches: [] })],
+    [CHANNEL_RECONCILE_JOB, { skipped: "CHANNEL_MODE_NOT_SET" }],
+    [CRON_JOB, expect.objectContaining({ expired: expect.any(Number) })],
+  ]);
+});

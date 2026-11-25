@@ -1,7 +1,8 @@
-import { and, eq, gte, inArray, like, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, lte, sql } from "drizzle-orm";
 import { addDaysISO, todayInTaipei, type ISODate } from "@/lib/domain/dates";
 import { formatTwd } from "@/lib/email/templates";
-import { guests, notifications, paymentEvents, payments, reservationRooms, reservations } from "@/lib/db/schema";
+import { guests, jobRuns, notifications, paymentEvents, payments, reservationRooms, reservations } from "@/lib/db/schema";
+import { CHANNEL_RECONCILE_JOB, type ChannelMismatch } from "@/lib/jobs/reconcile-channel";
 import type { Db } from "@/lib/db/types";
 import { MONEY_KINDS, netDelta } from "./money-metrics";
 
@@ -27,7 +28,7 @@ export type ReservationRow = {
 
 export type AlertKind =
   | "sync_failed" | "sync_pending_stale" | "refund_pending" | "stray_refund_failed" | "email_failed" | "payment_alert"
-  | "desk_refund_due";
+  | "desk_refund_due" | "channel_mismatch";
 
 export type Alert = { kind: AlertKind; reservationId?: string; code?: string; detail: string; since: number };
 
@@ -50,7 +51,8 @@ export function alertHref(a: Alert): string {
 
 /** Most urgent first. */
 const SEVERITY: AlertKind[] = [
-  "stray_refund_failed", "payment_alert", "refund_pending", "desk_refund_due", "sync_failed", "sync_pending_stale", "email_failed",
+  "stray_refund_failed", "payment_alert", "refund_pending", "desk_refund_due", "sync_failed", "channel_mismatch", "sync_pending_stale",
+  "email_failed",
 ];
 
 const ROW = {
@@ -124,6 +126,13 @@ async function loadAlerts(db: Db, propertyId: string, nowMs: number): Promise<Al
       .where(and(own, sql`${reservations.frontDeskRefundDue} > 0`, lte(owedSince, nowMs - DESK_REFUND_STALE_MS))),
   ]);
 
+  // The latest completed channel reconcile's mismatches (a run that errored or was skipped has none recorded):
+  // they stand until a later run no longer finds them.
+  const [lastReconcile] = await db.select({ result: jobRuns.result, at: jobRuns.startedAt }).from(jobRuns)
+    .where(and(eq(jobRuns.name, CHANNEL_RECONCILE_JOB), sql`json_type(${jobRuns.result}, '$.mismatches') = 'array'`))
+    .orderBy(desc(jobRuns.startedAt), desc(jobRuns.id)).limit(1);
+  const mismatches = ((lastReconcile?.result.mismatches ?? []) as ChannelMismatch[]).filter((m) => m.propertyId === propertyId);
+
   // A payment event carries the reservation code, not its id.
   const codes = [...new Set(events.map((e) => e.code).filter((c): c is string => !!c))];
   const byCode = new Map<string, string>();
@@ -135,6 +144,10 @@ async function loadAlerts(db: Db, propertyId: string, nowMs: number): Promise<Al
 
   const alerts: Alert[] = [
     ...failed.map((r): Alert => ({ kind: "sync_failed", reservationId: r.id, code: r.code, detail: r.err ?? "同步失敗", since: r.at })),
+    ...mismatches.map((m): Alert => ({
+      kind: "channel_mismatch", reservationId: m.reservationId, code: m.code, since: lastReconcile!.at,
+      detail: `通路確認號不一致：本系統 ${m.local ?? "（無）"}，通路 ${m.channel}${m.channelState === "cancelled" ? "（通路已取消）" : ""}`,
+    })),
     ...stale.map((r): Alert => ({ kind: "sync_pending_stale", reservationId: r.id, code: r.code, detail: "同步逾時未完成", since: r.at ?? 0 })),
     ...strays.map((r): Alert => ({ kind: "stray_refund_failed", reservationId: r.id, code: r.code, detail: r.err ?? "", since: r.at })),
     ...refunds.map((r): Alert => ({ kind: "refund_pending", reservationId: r.id, code: r.code, detail: `退款 NT$${r.amount} 處理中逾 10 分鐘`, since: r.at })),

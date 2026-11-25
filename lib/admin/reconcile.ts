@@ -1,5 +1,5 @@
 import { and, desc, eq, exists, sql } from "drizzle-orm";
-import { finishRefundAndFail, refundOnce, type RefundAndFailKinds } from "@/lib/booking/confirm";
+import { countsAsBookingRefund, finishRefundAndFail, refundOnce, type RefundAndFailKinds } from "@/lib/booking/confirm";
 import { cancelConfirmed, cancelKey } from "@/lib/booking/manage";
 import { refundableCharges, type Deps } from "@/lib/booking/notify";
 import { runAtomic } from "@/lib/db/atomic";
@@ -59,8 +59,6 @@ export type ReconcileResult =
         | "REFERENCE_REQUIRED" | "INVALID_REFERENCE" | "LOOKS_LIKE_CARD_NUMBER";
     };
 
-/** Refunds that count toward the booking's refundedAmount (as refundOnce is told for them); stray-charge refunds do not. */
-const countsAsBookingRefund = (key: string | null) => !!key && (key.startsWith("cancel:") || key.startsWith("fail:"));
 
 /**
  * Settle a refund row by hand (needs `payments.reconcile` at the booking's property; another property's row is NOT_FOUND).
@@ -170,8 +168,9 @@ async function statusOf(db: Db, reservationId: string): Promise<ReservationStatu
  * - `fail:<id>:<charge>` of a failed booking (paid_pending_confirm, syncState failed) → refundAndFail's rest,
  *   with the booking's original failure reason so its emails and any new error keep it.
  * A booking in any other state is left alone; the result reports its status.
+ * Also run by the gateway reconcile job after it settles a pending refund the gateway reports made.
  */
-async function finishFlow(
+export async function finishFlow(
   deps: Deps, key: string | null, reservationId: string, now: Date,
 ): Promise<{ completed: "cancellation" | "refund_and_fail" | null; reservationStatus: ReservationStatus }> {
   const { db } = deps;

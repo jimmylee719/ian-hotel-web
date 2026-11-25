@@ -16,6 +16,7 @@ const ALERT_LABEL: Record<AlertKind, string> = {
   refund_pending: "退款未完成",
   desk_refund_due: "櫃檯待退款",
   sync_failed: "通路同步失敗",
+  channel_mismatch: "通路確認號不一致",
   sync_pending_stale: "通路同步逾時",
   email_failed: "通知信寄送失敗",
 };
