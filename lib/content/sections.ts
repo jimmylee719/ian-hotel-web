@@ -58,6 +58,22 @@ export function assignPhotos(photos: string[], chapterCount: number): string[][]
   return Array.from({ length: chapterCount }, (_, i) => photos.slice(i * 2, i * 2 + 2));
 }
 
+/** The first whole number in a text: the floor in "5th floor" or "The NK BAR counter on 5F"; null if none. */
+export function floorOf(text: string): number | null {
+  const m = /\d+/.exec(text);
+  return m ? Number(m[0]) : null;
+}
+
+/**
+ * Photos per chapter by floor: each chapter gets (in order, at most two) the photos whose floor matches its own.
+ * `chapterFloors[i]` is chapter i's floor; `photoFloors` maps a photo key to its floor. When any chapter has no floor
+ * or no photo of its floor (an unknown caption, a staff upload), falls back to `assignPhotos` in order.
+ */
+export function photosByFloor(photos: string[], chapterFloors: (number | null)[], photoFloors: Record<string, number | null | undefined>): string[][] {
+  const groups = chapterFloors.map((floor) => (floor === null ? [] : photos.filter((k) => photoFloors[k] === floor).slice(0, 2)));
+  return groups.some((g) => g.length === 0) ? assignPhotos(photos, chapterFloors.length) : groups;
+}
+
 /*
  * Desktop slots of the section components (keep in sync with components/site/sections/PhotoSplit.tsx and
  * PhotoGrid3.tsx), and the photo slot of the news reading column (app/[locale]/news/[slug]/page.tsx).

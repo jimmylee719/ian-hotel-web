@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { FACILITY_PHOTOS } from "@/lib/content/facility-photos";
 import { oldSiteContent, pageImages } from "@/lib/content/old-site";
 import {
   GRID3_SLOTS,
@@ -6,6 +8,8 @@ import {
   READING_PHOTO,
   SPLIT_SLOTS,
   assignPhotos,
+  floorOf,
+  photosByFloor,
   englishLabels,
   listPhotos,
   splitIntro,
@@ -175,5 +179,33 @@ describe("photos the old-site content pages get", () => {
         sharp(k, READING_PHOTO);
         sharp(k, NEWS_THUMB);
       }
+  });
+});
+
+describe("photosByFloor", () => {
+  it("reads the floor from an English heading or caption", () => {
+    expect(floorOf("8th floor (8th-floor guests only)")).toBe(8);
+    expect(floorOf("The 14F roof terrace, with Taipei 101 in the distance")).toBe(14);
+    expect(floorOf("Self-service laundry on 8F")).toBe(8);
+    expect(floorOf("Rooftop")).toBeNull();
+  });
+
+  it("gives each chapter its own floor's photos, in order, at most two", () => {
+    const floors = { a: 5, b: 14, c: 8, d: 5, e: 5, f: 8 };
+    expect(photosByFloor(["a", "b", "c", "d", "e", "f"], [5, 8, 14], floors)).toEqual([["a", "d"], ["c", "f"], ["b"]]);
+  });
+
+  it("falls back to the plain order when a chapter has no floor or no photo of its floor", () => {
+    expect(photosByFloor(["a", "b", "c"], [5, null], { a: 5, b: 8, c: 5 })).toEqual([["a", "b"], ["c"]]);
+    expect(photosByFloor(["a", "upload"], [5, 8], { a: 5 })).toEqual([["a", "upload"], []]);
+  });
+
+  it("facilities: every floor chapter shows only its own floor's photos", () => {
+    const en = JSON.parse(readFileSync("messages/en.json", "utf8")).facilityPhoto as Record<string, string>;
+    const photoFloors = Object.fromEntries(Object.entries(FACILITY_PHOTOS).map(([k, v]) => [k, floorOf(en[v])]));
+    const page = oldSiteContent().pages.find((p) => p.slug === "facilities")!;
+    const chapterFloors = splitIntro(splitSections(page.body.en)).sections.map((s) => floorOf(s.heading!));
+    const groups = photosByFloor(page.images, chapterFloors, photoFloors);
+    expect(groups.map((g) => g.map((k) => FACILITY_PHOTOS[k]))).toEqual([["bar", "lounge5"], ["laundry", "lounge8"], ["rooftop"]]);
   });
 });
