@@ -1,0 +1,1 @@
+ALTER TABLE `unit_types` ADD `images` text DEFAULT '[]' NOT NULL;

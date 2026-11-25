@@ -9,7 +9,7 @@ import { PageHead } from "@/components/site/PageHead";
 import { Photo } from "@/components/site/Photo";
 import { Link } from "@/i18n/navigation";
 import { defaultStay, nightsBetween } from "@/lib/booking-search";
-import { roomImages } from "@/lib/content/old-site";
+import { photosOf } from "@/lib/content-repo";
 import { searchAvailability, type RichOffer } from "@/lib/db/ari-repo";
 import { getDb } from "@/lib/db/client";
 import type { Locale } from "@/lib/db/schema";
@@ -101,7 +101,7 @@ export default async function BookPage({ params, searchParams }: Props) {
             {ordered.map((offers) => {
               const u = offers[0].unitType;
               const name = u.name[locale];
-              const image = roomImages(u.slug)[0];
+              const image = photosOf(u)[0];
               return (
                 <li key={u.slug} className="offer-room" aria-labelledby={`room-${u.slug}`}>
                   <div className="offer-photo">

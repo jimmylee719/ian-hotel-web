@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, lte, min } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNotNull, lte, min } from "drizzle-orm";
 import { newsImages, pageImages, roomImages } from "@/lib/content/old-site";
 import { contentPages, faqs, inventoryDaily, ariDaily, news, properties, ratePlans, unitTypes, type Locale } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
@@ -7,7 +7,9 @@ import { todayInTaipei } from "@/lib/domain/dates";
 
 /**
  * Read model for the public website. Every function returns null (or []) when nothing matches;
- * pages turn that into notFound().
+ * pages turn that into notFound(). Pages, news and FAQs with no publishedAt are unpublished (the admin's
+ * "delete") and never shown. Every public route is force-dynamic and nothing here is cached, so an admin
+ * edit shows on the next request.
  */
 
 export type Property = typeof properties.$inferSelect;
@@ -81,6 +83,11 @@ function firstParagraph(text: string): string {
   return text.split(/\n\s*\n/).map((s) => s.trim()).find((s) => s && !s.startsWith("【") && !s.startsWith("- ")) ?? "";
 }
 
+/** A room's photos (R2 keys, cover first): the staff-managed list, or the migrated old-site photos while it is empty. */
+export function photosOf(u: { slug: string; images: string[] }): string[] {
+  return u.images.length ? u.images : roomImages(u.slug);
+}
+
 function toCard(u: typeof unitTypes.$inferSelect, locale: Locale, prices: Map<string, number>): RoomCard {
   return {
     slug: u.slug,
@@ -90,7 +97,7 @@ function toCard(u: typeof unitTypes.$inferSelect, locale: Locale, prices: Map<st
     maxOccupancy: u.maxOccupancy,
     bedType: u.bedType[locale],
     sizeSqm: u.sizeSqm,
-    image: roomImages(u.slug)[0] ?? null,
+    image: photosOf(u)[0] ?? null,
     fromPrice: prices.get(u.id) ?? null,
   };
 }
@@ -117,7 +124,7 @@ export async function getRoomType(db: Db, propertySlug: string, slug: string, lo
     ...toCard(row.u, locale, prices),
     description: row.u.description[locale],
     amenities: row.u.amenities,
-    images: roomImages(slug),
+    images: photosOf(row.u),
     maxAdults: row.u.maxAdults,
     currency: row.currency,
   };
@@ -126,27 +133,38 @@ export async function getRoomType(db: Db, propertySlug: string, slug: string, lo
 export async function getPage(db: Db, propertySlug: string, slug: string, locale: Locale): Promise<Page | null> {
   const id = await propertyId(db, propertySlug);
   if (!id) return null;
-  const [p] = await db.select().from(contentPages).where(and(eq(contentPages.propertyId, id), eq(contentPages.slug, slug)));
+  const [p] = await db
+    .select()
+    .from(contentPages)
+    .where(and(eq(contentPages.propertyId, id), eq(contentPages.slug, slug), isNotNull(contentPages.publishedAt)));
   return p ? { slug, title: p.title[locale], body: p.body[locale], images: pageImages(slug) } : null;
 }
 
 export async function listNews(db: Db, propertySlug: string, locale: Locale): Promise<NewsItem[]> {
   const id = await propertyId(db, propertySlug);
   if (!id) return [];
-  const rows = await db.select().from(news).where(eq(news.propertyId, id)).orderBy(desc(news.publishedAt), asc(news.sortOrder));
+  const rows = await db
+    .select()
+    .from(news)
+    .where(and(eq(news.propertyId, id), isNotNull(news.publishedAt)))
+    .orderBy(desc(news.publishedAt), asc(news.sortOrder));
   return rows.map((n) => ({ slug: n.slug, title: n.title[locale], body: n.body[locale], publishedAt: n.publishedAt, images: newsImages(n.slug) }));
 }
 
 export async function getNews(db: Db, propertySlug: string, slug: string, locale: Locale): Promise<NewsItem | null> {
   const id = await propertyId(db, propertySlug);
   if (!id) return null;
-  const [n] = await db.select().from(news).where(and(eq(news.propertyId, id), eq(news.slug, slug)));
+  const [n] = await db.select().from(news).where(and(eq(news.propertyId, id), eq(news.slug, slug), isNotNull(news.publishedAt)));
   return n ? { slug, title: n.title[locale], body: n.body[locale], publishedAt: n.publishedAt, images: newsImages(slug) } : null;
 }
 
 export async function listFaqs(db: Db, propertySlug: string, locale: Locale): Promise<Faq[]> {
   const id = await propertyId(db, propertySlug);
   if (!id) return [];
-  const rows = await db.select().from(faqs).where(eq(faqs.propertyId, id)).orderBy(asc(faqs.sortOrder));
+  const rows = await db
+    .select()
+    .from(faqs)
+    .where(and(eq(faqs.propertyId, id), isNotNull(faqs.publishedAt)))
+    .orderBy(asc(faqs.sortOrder));
   return rows.map((f) => ({ slug: f.slug, question: f.title[locale], answer: f.body[locale] }));
 }

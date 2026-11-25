@@ -21,3 +21,8 @@ export function StatusBadge({ status, kind = "reservation" }: { status: string; 
   const [label, tone] = (kind === "sync" ? SYNC : RESERVATION)[status] ?? [status, "grey" as Tone];
   return <span className={`adm-badge adm-badge-${tone}`}>{label}</span>;
 }
+
+/** Whether a piece of content is public (a room: 上架 / 下架). */
+export function PublishBadge({ on, labels = ["公開", "未公開"] }: { on: boolean; labels?: [string, string] }) {
+  return <span className={`adm-badge adm-badge-${on ? "green" : "grey"}`}>{on ? labels[0] : labels[1]}</span>;
+}

@@ -35,6 +35,13 @@ const MESSAGES: Record<string, [status: number, message: string]> = {
   EXCEEDS_DESK_DUE: [409, "退款金額不能超過櫃檯待退款金額。"],
   EXCEEDS_RECEIVED: [409, "退款金額超過這筆訂單目前的已收（淨額），請先確認收款紀錄。"],
   DESK_DUE_OUTSTANDING: [409, "櫃檯還有應退給旅客的款項，請先登錄櫃檯退款（或重新修改／取消訂單）後再作廢收款。"],
+  I18N_INCOMPLETE: [400, "四種語言都要填寫，不能留空。"],
+  INVALID_FIELD: [400, "有欄位的格式不正確，請檢查後再存檔。"],
+  IMAGE_NOT_FOUND: [400, "有照片在儲存空間裡找不到，請重新上傳。"],
+  SLUG_TAKEN: [409, "這個網址代稱已經有人用了，請換一個。"],
+  TOO_LARGE: [413, "照片太大了，最大 8 MB。"],
+  BAD_TYPE: [415, "只能上傳 JPEG、PNG、WebP 或 AVIF 照片。"],
+  BAD_PREFIX: [400, "上傳位置不正確。"],
   MODIFICATION_REFUND_PENDING: [409, "這筆訂單有修改產生的退款尚未完成，請先到退款對帳頁（/admin/refunds）處理後再取消。"],
 };
 
@@ -43,9 +50,12 @@ const DETAIL_MESSAGES: Record<string, string> = {
   OTA_BOOKING: "這是 OTA 通路的訂單，請到 OTA 或 SiteMinder 修改。",
 };
 
-/** The JSON error response for `code`, `{ error, message }` (plus `detail` when given). */
-export function actionError(code: string, detail?: string): Response {
+/**
+ * The JSON error response for `code`, `{ error, message }` (plus `detail` when given). `extra` adds fields
+ * to the body; its `message`, when set, replaces the standard one.
+ */
+export function actionError(code: string, detail?: string, extra?: Record<string, unknown>): Response {
   const [status, fallback] = MESSAGES[code] ?? [500, "操作失敗，請再試一次。"];
   const message = (detail && DETAIL_MESSAGES[detail]) || fallback;
-  return Response.json({ error: code, message, ...(detail ? { detail } : {}) }, { status, headers: { "Cache-Control": "no-store" } });
+  return Response.json({ error: code, message, ...(detail ? { detail } : {}), ...extra }, { status, headers: { "Cache-Control": "no-store" } });
 }

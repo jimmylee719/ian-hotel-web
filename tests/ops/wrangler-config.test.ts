@@ -31,6 +31,7 @@ test("production is a separate env that never sets PAYMENT_MODE=mock (/dev/pay w
   expect(prod.triggers.crons).toEqual(["*/5 * * * *"]);
   expect(prod.d1_databases[0]).toMatchObject({ binding: "DB", database_name: "nk-booking" });
   expect(prod.r2_buckets[0]).toMatchObject({ binding: "MEDIA", bucket_name: "nk-media" });
+  expect(prod.images).toEqual({ binding: "IMAGES" }); // photo upload variants (lib/admin/uploads.ts)
   expect(prod.services[0].binding).toBe("WORKER_SELF_REFERENCE");
   expect(prod.services[0].service).toBe(prod.name);
   expect(prod.name).not.toBe(cfg.name); // deploying the default env can never overwrite production

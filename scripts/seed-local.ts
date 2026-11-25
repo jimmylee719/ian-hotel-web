@@ -1,5 +1,6 @@
 /**
- * Local dev only: seed NK Hostel, its migrated site content (rooms, pages, FAQs, news) and
+ * Local dev only: seed NK Hostel, its migrated site content (rooms with their photo keys from
+ * content/old-site.json in unit_types.images, pages, FAQs, news) and
  * 14 days of fake ARI, a breakfast add-on and a WELCOME10 promo code (placeholders: the owner sets
  * the real ones in Plan 3) and three local staff (owner@, frontdesk@, marketing@local.test) into the local D1 (`wrangler --local`).
  * Builds the rows in an in-memory SQLite with the real migrations, dumps them as INSERTs,
@@ -33,7 +34,10 @@ async function main() {
   const db = drizzle(sqlite, { schema });
   migrate(db, { migrationsFolder: path.resolve("drizzle/migrations") });
   const { propertyId } = await seedNk(db);
+  // Also writes each room's photo keys (content/old-site.json) into unit_types.images, cover first.
   await seedContent(db, propertyId, oldSiteContent());
+  const unphotographed = (await db.select().from(schema.unitTypes)).filter((u) => u.images.length === 0);
+  if (unphotographed.length) throw new Error(`rooms without photos: ${unphotographed.map((u) => u.slug).join(", ")}`);
 
   const [plan] = await db.select().from(schema.ratePlans);
   const types = await db.select().from(schema.unitTypes);

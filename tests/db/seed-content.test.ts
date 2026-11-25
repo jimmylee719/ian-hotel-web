@@ -25,7 +25,7 @@ const data = (): OldSiteContent => ({
 });
 
 describe("seedContent", () => {
-  test("writes room details onto existing unit types", async () => {
+  test("writes room details and photos onto existing unit types", async () => {
     const db = createTestDb();
     const { propertyId } = await seedNk(db);
     await seedContent(db, propertyId, data());
@@ -34,6 +34,7 @@ describe("seedContent", () => {
     expect(room.bedType.en).toBe("king-en");
     expect(room.sizeSqm).toBe(30);
     expect(room.amenities).toEqual(["wifi", "bathtub"]);
+    expect(room.images).toEqual(["rooms/a.jpg"]);
     expect(room.name.en).toBe("DELUXE ROOM"); // untouched
   });
 
@@ -52,19 +53,43 @@ describe("seedContent", () => {
     expect(await counts()).toEqual(first);
   });
 
-  test("re-running updates text in place by slug and keeps ids", async () => {
+  test("re-running only adds what is missing: existing rows are never overwritten", async () => {
     const db = createTestDb();
     const { propertyId } = await seedNk(db);
     await seedContent(db, propertyId, data());
     const [before] = await db.select().from(faqs).where(eq(faqs.slug, "qa-1"));
     const changed = data();
-    changed.faqs[0].title = t("q1-edited");
+    changed.faqs[0].title = t("q1-from-seed-v2");
+    changed.faqs.push({ slug: "qa-3", title: t("q3"), body: t("a3"), sortOrder: 2 });
     await seedContent(db, propertyId, changed);
     const [after] = await db.select().from(faqs).where(eq(faqs.slug, "qa-1"));
-    expect(after.id).toBe(before.id);
-    expect(after.title.ko).toBe("q1-edited-ko");
-    expect(after.publishedAt).toBe(before.publishedAt);
+    expect(after).toEqual(before);
+    const [added] = await db.select().from(faqs).where(eq(faqs.slug, "qa-3"));
+    expect(added.title.ko).toBe("q3-ko");
     const [n] = await db.select().from(news);
     expect(n.publishedAt).toBe(Date.UTC(2024, 11, 28));
+  });
+
+  test("a FAQ edited after seeding keeps the edit when seedContent runs again", async () => {
+    const db = createTestDb();
+    const { propertyId } = await seedNk(db);
+    await seedContent(db, propertyId, data());
+    await db.update(faqs).set({ title: t("staff-edit"), publishedAt: null }).where(eq(faqs.slug, "qa-1"));
+    await seedContent(db, propertyId, data());
+    const [faq] = await db.select().from(faqs).where(eq(faqs.slug, "qa-1"));
+    expect(faq.title.ja).toBe("staff-edit-ja");
+    expect(faq.publishedAt).toBeNull();
+  });
+
+  test("room details fill only blank fields, so staff edits to a room survive a re-run", async () => {
+    const db = createTestDb();
+    const { propertyId } = await seedNk(db);
+    await seedContent(db, propertyId, data());
+    const where = and(eq(unitTypes.propertyId, propertyId), eq(unitTypes.slug, "deluxe-room"));
+    expect((await db.select().from(unitTypes).where(where))[0].images).toEqual(["rooms/a.jpg"]);
+    await db.update(unitTypes).set({ description: t("staff"), sizeSqm: 33, amenities: ["tv"], images: ["rooms/b.webp"] }).where(where);
+    await seedContent(db, propertyId, data());
+    const [room] = await db.select().from(unitTypes).where(where);
+    expect(room).toMatchObject({ description: t("staff"), bedType: t("king"), sizeSqm: 33, amenities: ["tv"], images: ["rooms/b.webp"] });
   });
 });

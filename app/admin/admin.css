@@ -162,3 +162,33 @@
 .adm-timeline { margin: 0; padding: 0; list-style: none; background: var(--a-surface); border: 1px solid var(--a-line); }
 .adm-timeline li { padding: 8px 12px; overflow-wrap: anywhere; }
 .adm-timeline li + li { border-top: 1px solid var(--a-line); }
+
+/* Content editing (Task 8): four-language fields, photo lists, forms */
+.adm-form { display: flex; flex-direction: column; gap: 14px; max-width: 880px; }
+.adm-form label { display: flex; flex-direction: column; gap: 4px; }
+.adm-form label.adm-check { flex-direction: row; }
+.adm-form input:not([type="checkbox"]):not([type="file"]), .adm-form textarea { font: inherit; width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--a-border); border-radius: 3px; background: #fff; color: var(--a-ink); }
+.adm-form input:disabled { background: var(--a-surface); color: var(--a-muted); }
+.adm-form-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.adm-i18n { border: 1px solid var(--a-line); background: var(--a-surface); margin: 0; padding: 8px 12px 12px; }
+.adm-i18n legend { font-weight: 600; padding: 0 4px; }
+.adm-i18n-missing { font-weight: 400; color: var(--a-danger); margin-left: 4px; }
+.adm-i18n-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--a-line); margin-bottom: 8px; }
+.adm-i18n-tabs button { font: inherit; background: none; border: 1px solid transparent; border-bottom: none; padding: 5px 12px; cursor: pointer; color: var(--a-muted); position: relative; border-radius: 3px 3px 0 0; }
+.adm-i18n-tabs button[aria-selected="true"] { background: #fff; border-color: var(--a-line); color: var(--a-ink); margin-bottom: -1px; }
+.adm-i18n-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--a-danger); margin-left: 5px; vertical-align: 2px; }
+.adm-photos { display: flex; flex-direction: column; gap: 8px; }
+.adm-photo-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.adm-photo { position: relative; background: #fff; border: 1px solid var(--a-line); padding: 6px; cursor: grab; }
+.adm-photo-dragging { opacity: .5; }
+.adm-photo img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--a-bg); }
+.adm-photo-cover { position: absolute; top: 10px; left: 10px; }
+.adm-photo-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.adm-photo-actions .adm-btn { padding: 2px 8px; font-size: 12px; }
+.adm-photo-upload { align-self: flex-start; }
+.adm-form .adm-photo-upload { display: inline-block; }
+.adm-pre { white-space: pre-line; }
+.adm-faq summary { cursor: pointer; font-weight: 600; }
+.adm-faq[open] summary { margin-bottom: 12px; }
+.adm-faq-list li + li { margin-top: 8px; }
+.adm-faq-list { margin-top: 12px; }

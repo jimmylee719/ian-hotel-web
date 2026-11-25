@@ -41,6 +41,8 @@ export const unitTypes = sqliteTable(
     bedType: i18n("bed_type"),
     sizeSqm: integer("size_sqm"),
     amenities: text("amenities", { mode: "json" }).$type<string[]>().notNull(),
+    /** R2 keys of the room's photos, cover first (staff-managed). Empty = the migrated old-site photos. */
+    images: text("images", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
     sortOrder: integer("sort_order").notNull().default(0),
     smRoomCode: text("sm_room_code"),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
