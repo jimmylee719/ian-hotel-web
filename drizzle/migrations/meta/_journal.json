@@ -120,6 +120,13 @@
       "when": 1795575222912,
       "tag": "0016_brave_zuras",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1795576014222,
+      "tag": "0017_same_jetstream",
+      "breakpoints": true
     }
   ]
 }

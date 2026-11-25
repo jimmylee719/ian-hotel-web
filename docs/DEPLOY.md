@@ -48,7 +48,7 @@ by the build; each step is yours to run.
    Set it as a var in `env.production.vars` or as a secret. `.dev.vars.example` lists the local equivalents.
    Do **not** set `PAYMENT_MODE` or `CHANNEL_MODE` yet.
 4. **Migrations.** `npx wrangler d1 migrations apply nk-booking --remote --env production`.
-   - Verified: all 9 migrations apply on a fresh local D1 (`wrangler d1 migrations apply nk-booking --local --persist-to <empty dir>`)
+   - Verified: all 18 migrations (through 0017) apply on a fresh local D1 (`wrangler d1 migrations apply nk-booking --local --persist-to <empty dir>`)
      and on better-sqlite3 with `foreign_keys` both ON and OFF. That includes 0004, which adds
      `property_id text DEFAULT '' NOT NULL REFERENCES properties(id)`; some SQLite builds refuse to add a
      REFERENCES column with a non-NULL default when foreign keys are enforced.
@@ -63,11 +63,14 @@ by the build; each step is yours to run.
    way that script does but without those parts, load them with
    `wrangler d1 execute nk-booking --remote --env production --file <sql>` (staging D1 first), and set
    real availability and promo codes through the admin (Plan 3).
-6. **Photos.** `npm run media:variants -- --remote` (see the checklist).
-7. **Deploy.** `npm run deploy` (runs `vitest run` and `tsc --noEmit`, so a failing test or an unknown
+6. **Photos.** Upload the originals and their variants to the production bucket **before** anyone edits
+   rooms in the admin (see "Photos before admin room edits" in the checklist).
+7. **Cloudflare Access** for `/admin*` and `/api/admin*`: see [Cloudflare Access 設定](#cloudflare-access-設定).
+8. **First owner**: see [建立第一位 owner](#建立第一位-owner). Every later account is added in `/admin/staff`.
+9. **Deploy.** `npm run deploy` (runs `vitest run` and `tsc --noEmit`, so a failing test or an unknown
    translation key stops it; then fetches fonts, builds with OpenNext, deploys `--env production`). The
    cron trigger (`*/5 * * * *`) is part of the same deploy.
-8. **Domain.** Add the custom domain to the Worker (Workers & Routes, Custom Domains), or a route in
+10. **Domain.** Add the custom domain to the Worker (Workers & Routes, Custom Domains), or a route in
    `env.production` if the zone is on Cloudflare.
 
 ## Scheduled worker
@@ -75,7 +78,9 @@ by the build; each step is yours to run.
 `worker.ts` is the Worker entry point: `fetch` goes to OpenNext, `scheduled` runs `lib/jobs/cron.ts`
 every 5 minutes: `runExpireHolds`, `runSyncRetry`, `runPreArrival`, then prunes `rate_limits` rows
 older than a day. Each job runs on its own, so one failing does not stop the others. It logs one line,
-`scheduled: expired=… attempted=… preArrival=… pruned=…`.
+`scheduled: expired=… attempted=… preArrival=… pruned=…`, and writes one `job_runs` row per run (name `cron`,
+start and finish time, the counts or the error as JSON); rows older than 30 days are pruned by the same run.
+`/admin/system` shows the latest one.
 
 - Pre-arrival: confirmed bookings checking in on Taipei today + 3 get one email (directions, check-in
   time, contact details) in the guest's language. `sendOnce` makes it at most once per booking; a send the
@@ -83,6 +88,78 @@ older than a day. Each job runs on its own, so one failing does not stop the oth
 - Try it locally: `npx opennextjs-cloudflare build`, apply migrations to a local D1 with
   `--persist-to <dir>`, `npx wrangler dev --test-scheduled --persist-to <dir>`, then
   `curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"`.
+
+## Cloudflare Access 設定
+
+The admin (`/admin…`) and its API (`/api/admin…`) trust only a Cloudflare Access JWT
+(`Cf-Access-Jwt-Assertion`, verified against `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`). Access decides who
+may sign in; the `staff` table decides what each person may do. While either variable is empty every admin
+request answers 401 (fails closed). Do this before the first deploy that people will use; nothing here is done
+by the build.
+
+1. **Create the application.** Cloudflare dashboard → Zero Trust → Access → Applications → Add an application →
+   **Self-hosted**. Name it e.g. `NK admin`. Add two public hostnames on the **production** hostname (repeat for
+   every hostname that serves the production Worker, such as the apex and `www`):
+   - `www.nkhostel.com` with path `/admin*`
+   - `www.nkhostel.com` with path `/api/admin*`
+   Session duration: 8 to 24 hours. Leave the identity providers you will use enabled (one-time PIN by email,
+   and/or Google Workspace).
+2. **Policy for owners and managers, with MFA.** Add an **Allow** policy, e.g. `owners-managers`:
+   - Include → Emails: every owner's and manager's address.
+   - Require → Authentication method → `mfa` (Google Workspace accounts need 2-Step Verification on;
+     one-time PIN alone does not count as MFA).
+   Keep this list in step with the roles in `/admin/staff`: when someone becomes owner or manager, add them here.
+3. **Policy for the other staff.** Add a second **Allow** policy, e.g. `staff`:
+   - Include → Emails (each front-desk / marketing address) **or** Emails ending in → your Google Workspace domain
+     (e.g. `@nkhostel.com`).
+   - Exclude → Emails: the same owner and manager addresses as policy 2. Without this exclusion an owner who fails
+     the MFA requirement would still get in through this policy (Access allows a user who matches any Allow policy).
+     Simpler alternative: require MFA in this policy too.
+   Being allowed by Access is not enough to use the admin: the address must also be an active row in `staff`.
+4. **Copy the two values into the Worker.** In the application's Overview copy the **Application Audience (AUD)
+   Tag**; the team domain is under Zero Trust → Settings → Custom Pages (`<team>.cloudflareaccess.com`). Put them in
+   `env.production.vars` in `wrangler.jsonc`:
+   `"CF_ACCESS_TEAM_DOMAIN": "<team>.cloudflareaccess.com", "CF_ACCESS_AUD": "<aud tag>"`
+   (or set them with `npx wrangler secret put CF_ACCESS_AUD --env production` and the same for
+   `CF_ACCESS_TEAM_DOMAIN`, after removing the empty vars). Redeploy.
+5. **Check.** In a private window open `https://www.nkhostel.com/admin`: Access must ask you to sign in first.
+   `curl -i https://www.nkhostel.com/api/admin/staff -X POST` must be redirected to Access (or 401/403), never
+   reach the app unauthenticated. After signing in, `/admin/system` must show Cloudflare Access「已設定」.
+
+**`DEV_STAFF_EMAIL` must never be set as a deployed secret** (production or any staging Worker). It is the local
+sign-in shortcut: with `ENVIRONMENT=local` it makes every request that staff member without any Access check. It
+is ignored when `ENVIRONMENT` is anything else, but the default env *is* `ENVIRONMENT=local`, so a staging deploy
+of it with this secret would be an open admin. Check with `npx wrangler secret list --env production` (and without
+`--env` for any staging Worker); `/admin/system` warns when it is set outside local.
+
+## 建立第一位 owner
+
+The first owner cannot be added through the admin (nobody can sign in yet). After the migrations and the content
+import (the `properties` rows must exist), **the owner runs this themselves** against the production D1; the build
+and `scripts/create-owner.ts` never touch a remote database. Replace the email and name (double any `'` inside the
+name, e.g. `'O''Brien'`). The email is stored lowercase and must be the address the owner signs in to Access with.
+
+```sh
+npx wrangler d1 execute nk-booking --remote --env production --command "
+INSERT INTO staff (id, email, name, role, property_ids, active)
+SELECT lower(hex(randomblob(16))), lower(trim('owner@example.com')), '店主姓名', 'owner', json_group_array(id), 1
+FROM properties HAVING count(*) > 0;"
+```
+
+Check it (one row, `role = owner`, `active = 1`, every property id in `property_ids`):
+
+```sh
+npx wrangler d1 execute nk-booking --remote --env production --command "SELECT id, email, role, property_ids, active FROM staff;"
+```
+
+If the INSERT reports `UNIQUE constraint failed`, that address is already a staff row: make it an owner with
+`UPDATE staff SET role = 'owner', active = 1 WHERE email = lower('owner@example.com');`. If it inserts 0 rows, no
+property exists yet: import the content first. Then sign in at `/admin`, add the second owner in `/admin/staff`
+(the system never lets the last active owner be demoted or deactivated, so keep two), and add the rest of the staff
+there. Every change in `/admin/staff` is in `/admin/audit` (owner-only rows).
+
+Locally the same insert is `npx tsx scripts/create-owner.ts <email> <name>` (local D1 only; it refuses flags such
+as `--remote`).
 
 ## Launch checklist
 
@@ -109,6 +186,22 @@ older than a day. Each job runs on its own, so one failing does not stop the oth
   `vars` in `wrangler.jsonc`) until SinoPac is configured; `/dev/pay/x` must answer 404 and
   `POST /api/bookings` must answer 503.
 - [ ] Resend: verify the sending domain (SPF, DKIM) for `EMAIL_FROM`, then send a test inquiry.
-- [ ] Cloudflare Access in front of the staff and admin paths (Plan 3).
+- [ ] Cloudflare Access application for `/admin*` and `/api/admin*` on the production hostname, owner/manager
+  policy requiring MFA, `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` filled in
+  ([Cloudflare Access 設定](#cloudflare-access-設定)).
+- [ ] First owner created by the owner with the `--remote` SQL template ([建立第一位 owner](#建立第一位-owner)),
+  and a second owner added in `/admin/staff`.
+- [ ] `DEV_STAFF_EMAIL` is **not** among the deployed secrets (`npx wrangler secret list --env production`).
+- [ ] Photos before admin room edits: upload every original in `content/images` to the production bucket
+  **before** staff edit rooms in `/admin/content`. Saving a room checks that each of its photo keys exists in R2
+  and refuses the save (`IMAGE_NOT_FOUND`) otherwise, and the public room pages would show broken photos:
+  ```sh
+  (cd content/images && find . -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) \
+    | sed 's|^\./||' | while read -r k; do npx wrangler r2 object put "nk-media/$k" --file "$k" --remote; done)
+  npm run media:variants -- --remote
+  ```
+  Photos uploaded later through the admin go straight to R2 (with their variants when the `IMAGES` binding works).
+- [ ] After deploying, `/admin/system` shows: `ENVIRONMENT` production, Access 已設定, migrations
+  applied = shipped, and a cron run within the last 5 minutes.
 - [ ] Switch to the real modes once their plans land: `PAYMENT_MODE=sinopac` with SinoPac credentials
   (Plan 5) and `CHANNEL_MODE=siteminder` (Plan 4). Both throw `*_NOT_CONFIGURED` until then.

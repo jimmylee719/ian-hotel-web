@@ -199,3 +199,11 @@
 .adm-body .adm-tabs a[aria-current="page"] { background: var(--a-surface); border-color: var(--a-line); color: var(--a-ink); font-weight: 600; margin-bottom: -1px; }
 .adm-bar { display: block; min-width: 120px; height: 10px; background: #e4ddd0; border-radius: 2px; overflow: hidden; }
 .adm-bar > span { display: block; height: 100%; background: var(--a-accent); }
+
+/* Staff, audit log, system status (Task 11) */
+.adm-diff { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px; table-layout: fixed; }
+.adm-diff th, .adm-diff td { border: 1px solid var(--a-line); padding: 4px 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.adm-diff th { background: var(--a-surface); font-family: inherit; font-weight: 600; }
+.adm-diff tr.adm-diff-changed td:nth-child(2) { background: #f6e1dc; }
+.adm-diff tr.adm-diff-changed td:nth-child(3) { background: #e3ecd9; }
+.adm-audit summary { cursor: pointer; }

@@ -27,3 +27,5 @@ CHANNEL_MODE=mock
 # DEV_STAFF_EMAIL=owner@nkhostel.com
 # Seeded local staff (npx tsx scripts/seed-local.ts): owner@local.test (everything), frontdesk@local.test,
 # marketing@local.test. Switch DEV_STAFF_EMAIL between them to check each role's menu.
+# NEVER set DEV_STAFF_EMAIL as a secret on any deployed Worker (docs/DEPLOY.md, Cloudflare Access 設定).
+# Add another local owner: npx tsx scripts/create-owner.ts <email> <name> (local D1 only).

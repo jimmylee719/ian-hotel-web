@@ -46,6 +46,10 @@ const MESSAGES: Record<string, [status: number, message: string]> = {
   TOO_LARGE: [413, "照片太大了，最大 8 MB。"],
   BAD_TYPE: [415, "只能上傳 JPEG、PNG、WebP 或 AVIF 照片。"],
   BAD_PREFIX: [400, "上傳位置不正確。"],
+  EMAIL_TAKEN: [409, "這個 Email 已經是員工帳號了（大小寫視為相同）。"],
+  PROPERTY_NOT_ALLOWED: [403, "只能指派你自己可管理的館別。"],
+  CANNOT_CHANGE_SELF: [409, "不能變更自己的角色、Email 或停用自己，請由另一位店主操作。"],
+  LAST_OWNER: [409, "系統至少要保留一位啟用中的店主，不能停用或降級最後一位店主。"],
   MODIFICATION_REFUND_PENDING: [409, "這筆訂單有修改產生的退款尚未完成，請先到退款對帳頁（/admin/refunds）處理後再取消。"],
 };
 

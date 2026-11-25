@@ -320,14 +320,19 @@ export const promoCodes = sqliteTable(
   (t) => [uniqueIndex("promo_codes_property_code").on(t.propertyId, t.code)],
 );
 
-export const staff = sqliteTable("staff", {
-  id: id(),
-  email: text("email").notNull().unique(),
-  name: text("name").notNull(),
-  role: text("role", { enum: ["owner", "manager", "front_desk", "marketing"] }).notNull(),
-  propertyIds: text("property_ids", { mode: "json" }).$type<string[]>().notNull(),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
-});
+export const staff = sqliteTable(
+  "staff",
+  {
+    id: id(),
+    /** Stored trimmed and lowercase (lib/admin/staff); unique case-insensitively. It is the Access identity. */
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    role: text("role", { enum: ["owner", "manager", "front_desk", "marketing"] }).notNull(),
+    propertyIds: text("property_ids", { mode: "json" }).$type<string[]>().notNull(),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+  },
+  (t) => [uniqueIndex("staff_email_lower_unique").on(sql`lower(${t.email})`)],
+);
 
 export const auditLog = sqliteTable("audit_log", {
   id: id(),
@@ -384,3 +389,16 @@ export const rateLimits = sqliteTable("rate_limits", {
   windowStart: integer("window_start").notNull(),
   count: integer("count").notNull(),
 });
+
+/** One row per cron tick (lib/jobs/cron.ts): its counts, or the error. The cron prunes rows older than 30 days. */
+export const jobRuns = sqliteTable(
+  "job_runs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    startedAt: ms("started_at"),
+    finishedAt: ms("finished_at"),
+    result: text("result", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+  },
+  (t) => [index("job_runs_name_started").on(t.name, t.startedAt)],
+);
