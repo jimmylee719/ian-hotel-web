@@ -220,8 +220,10 @@ export type PaymentRow = typeof payments.$inferSelect;
  *   report `pendingRefundId` so the caller alerts staff.
  * - `failed`: one attempt flips it back to `pending` (conditional UPDATE) and retries.
  * Gateway success marks the row `succeeded` (with `countsAsBookingRefund`, also adds it to the
- * booking's refundedAmount, in the same batch); a definitive failure marks it `failed`; a thrown call
- * leaves it `pending`.
+ * booking's refundedAmount, in the same batch); a definite rejection marks it `failed`. When the outcome is
+ * unknown (the call threw, or the gateway reports `outcomeUnknown`: timeout, network error) the gateway is
+ * asked with queryRefund(key) instead: `succeeded` settles the row as above, `failed` / `not_found` marks
+ * it `failed` (retrying is safe), `pending` or a failed query leaves it `pending` for refund reconciliation.
  */
 export async function refundOnce(
   deps: Deps, key: string, charge: ChargeRow, amount: number, reason: string, now: Date,
@@ -244,15 +246,25 @@ export async function refundOnce(
     if (!row) return refundOnce(deps, key, charge, amount, reason, now, o); // another attempt won the retry
   }
 
-  let r: Awaited<ReturnType<Deps["gateway"]["refund"]>>;
-  try {
-    r = await deps.gateway.refund({ providerRef: charge.providerRef, amount: row.amount, reason, idempotencyKey: key });
-  } catch (e) {
-    return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${e instanceof Error ? e.message : String(e)}`, pendingRefundId: row.id, refundId: row.id };
-  }
-  if (!r.ok) {
-    await db.update(payments).set({ status: "failed" }).where(and(eq(payments.id, row.id), eq(payments.status, "pending")));
-    return { ok: false, error: r.error, refundId: row.id };
+  const pending = row;
+  const markFailed = async (error: string): Promise<RefundOutcome> => {
+    await db.update(payments).set({ status: "failed" }).where(and(eq(payments.id, pending.id), eq(payments.status, "pending")));
+    return { ok: false, error, refundId: pending.id };
+  };
+  let refundRef: string | null;
+  const r = await deps.gateway.refund({ providerRef: charge.providerRef, amount: row.amount, reason, idempotencyKey: key })
+    .catch((e: unknown) => ({ ok: false as const, error: errorText(e), outcomeUnknown: true }));
+  if (r.ok) refundRef = r.refundRef;
+  else if (!r.outcomeUnknown) return markFailed(r.error);
+  else {
+    // The call may have reached the provider (timeout, network): ask it rather than assume either way.
+    const q = await deps.gateway.queryRefund(key).catch((e: unknown) => ({ error: errorText(e) }));
+    if ("error" in q || q.status === "pending") {
+      const why = "error" in q ? `query ${q.error}` : "query pending";
+      return { ok: false, error: `REFUND_OUTCOME_UNKNOWN: ${r.error}; ${why}`, pendingRefundId: row.id, refundId: row.id };
+    }
+    if (q.status !== "succeeded") return markFailed(`${r.error}; query ${q.status}`);
+    refundRef = q.refundRef ?? null;
   }
   // Only the first writer to settle the row counts it: staff may have marked it succeeded by hand
   // (refund reconciliation) while this call was in flight. The bump runs first, while the row is unsettled.
@@ -262,10 +274,12 @@ export async function refundOnce(
       ? [db.update(reservations).set({ refundedAmount: sql`${reservations.refundedAmount} + ${row.amount}` })
         .where(and(eq(reservations.id, charge.reservationId), exists(db.select({ one: sql`1` }).from(payments).where(unsettled))))]
       : []),
-    db.update(payments).set({ status: "succeeded", providerRef: r.refundRef }).where(unsettled),
+    db.update(payments).set({ status: "succeeded", providerRef: refundRef }).where(unsettled),
   ]);
   return { ok: true, amount: row.amount };
 }
+
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** The inventory a reservation holds: its rooms grouped by room type and rate plan, for every night. */
 export async function holdItemsFor(db: Db, res: Pick<Reservation, "id" | "checkIn" | "checkOut">): Promise<HoldItem[]> {

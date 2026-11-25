@@ -174,6 +174,7 @@ test("a cancel attempt that stalls past its lease cannot overwrite the desk shar
   // refund's outcome is lost (row pending), so the booking stays confirmed with B's intent and B's share.
   const b = async () => {
     vi.spyOn(s.gateway, "refund").mockImplementationOnce(async (r) => { await real(r); throw new Error("connection reset"); });
+    vi.spyOn(s.gateway, "queryRefund").mockResolvedValueOnce({ error: "QUERY_DOWN" }); // and the gateway cannot say
     expect(await cancelConfirmed(s.deps, s.id, takeover, { reason: "GUEST_CANCELLED" })).toEqual({ ok: false, error: "REFUND_FAILED" });
     expect(await s.row()).toMatchObject({ status: "confirmed", cancelDeskDue: 2000 });
   };

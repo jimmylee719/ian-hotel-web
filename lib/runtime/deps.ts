@@ -130,9 +130,12 @@ export function buildScheduledDeps(env: AppEnv, db: Db): ScheduledDeps {
 const disabledGateway: PaymentGateway = {
   provider: "mock",
   supportsPreauth: false,
+  timeoutMs: 1,
   async startCharge() { throw new BookingDisabledError(); },
   async verifyNotice() { throw new BookingDisabledError(); },
   async refund() { throw new BookingDisabledError(); },
+  async queryTransaction() { throw new BookingDisabledError(); },
+  async queryRefund() { throw new BookingDisabledError(); },
 };
 
 const disabledChannel: ChannelManager = {

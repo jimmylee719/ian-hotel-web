@@ -38,6 +38,7 @@ async function stuckCancellation() {
   await handlePaymentNotice(s.deps, await s.notice(code, { amount: PAID }), minutes(2));
   const real = s.gateway.refund.bind(s.gateway);
   vi.spyOn(s.gateway, "refund").mockImplementationOnce(async (r) => { await real(r); throw new Error("connection reset"); });
+  vi.spyOn(s.gateway, "queryRefund").mockResolvedValueOnce({ error: "QUERY_DOWN" }); // and the gateway cannot say
   expect(await cancelReservation(s.deps, code, GUEST, EARLY)).toEqual({ ok: false, error: "REFUND_FAILED" });
   const res = await s.reservation(code);
   const [row] = await s.refundRows(res.id);
@@ -175,6 +176,7 @@ test("mark_succeeded on a stuck fail: refund finishes the failed booking and ema
   const { db, deps, gateway, email, manager, book, notice, reservation, refundRows, avail } = await setup();
   const code = await book();
   vi.spyOn(gateway, "refund").mockRejectedValueOnce(new Error("timeout"));
+  vi.spyOn(gateway, "queryRefund").mockResolvedValueOnce({ status: "pending" });
   await handlePaymentNotice(deps, await notice(code, { amount: PAY_NOW - 1 }), minutes(2)); // AMOUNT_MISMATCH, refund outcome unknown
   const res = await reservation(code);
   expect(res).toMatchObject({ status: "paid_pending_confirm", syncState: "failed" });
@@ -201,6 +203,7 @@ test("a reconcile that hits a second refund failure keeps the mismatch reason, s
     providerRef: "REF-EXTRA", createdAt: minutes(1).getTime(),
   });
   vi.spyOn(gateway, "refund").mockRejectedValueOnce(new Error("timeout")); // first refund: outcome unknown
+  vi.spyOn(gateway, "queryRefund").mockResolvedValueOnce({ status: "pending" }); // the gateway cannot say yet
   await handlePaymentNotice(deps, await notice(code, { amount: PAY_NOW - 1 }), minutes(2)); // AMOUNT_MISMATCH
   const [first] = await refundRows(res0.id);
   expect(first.status).toBe("pending");

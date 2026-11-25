@@ -221,6 +221,7 @@ test("a refund whose outcome is unknown (gateway refunded, then the call failed)
   const real = gateway.refund.bind(gateway);
   // The gateway refunds, then the call dies before we can record the result.
   vi.spyOn(gateway, "refund").mockImplementationOnce(async (r) => { await real(r); throw new Error("connection reset"); });
+  vi.spyOn(gateway, "queryRefund").mockResolvedValueOnce({ error: "QUERY_DOWN" }); // and the gateway cannot say
 
   expect(await cancelReservation(deps, code, GUEST, EARLY)).toEqual({ ok: false, error: "REFUND_FAILED" });
   const res = await reservation(code);

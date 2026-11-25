@@ -174,6 +174,8 @@ export const reservations = sqliteTable(
     cancelledAt: integer("cancelled_at"),
     /** Epoch ms of the latest payment start (create, or a retry with the same idempotency key). */
     lastChargeStartedAt: integer("last_charge_started_at"),
+    /** How many payment attempts were started; attempt n's merchantOrderNo is `<code>-<n>`. */
+    chargeAttempt: integer("charge_attempt").notNull().default(0),
     /** Cancellation and failed-booking refunds only; every refund (staff modifications too) is in the money module's `refunded`. */
     refundedAmount: integer("refunded_amount").notNull().default(0),
     /** Lower-cased guest email, for lookups. */
