@@ -4,10 +4,13 @@ import type { Messages } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { loadRoom, loadRooms } from "@/components/site/data";
 import { JsonLd } from "@/components/site/JsonLd";
+import { PageHead } from "@/components/site/PageHead";
 import { formatPrice } from "@/components/site/price";
 import { RichText } from "@/components/site/RichText";
 import { RoomCard } from "@/components/site/RoomCard";
 import { RoomGallery } from "@/components/site/RoomGallery";
+import { Band } from "@/components/site/sections/Band";
+import { Chapter } from "@/components/site/sections/Chapter";
 import { Link } from "@/i18n/navigation";
 import type { Locale } from "@/lib/db/schema";
 import { roomJsonLd } from "@/lib/jsonld";
@@ -42,83 +45,84 @@ export default async function RoomPage({ params }: Props) {
   return (
     <main id="main" className="wrap room-page">
       <JsonLd data={roomJsonLd(room, locale)} />
-      <nav className="crumbs" aria-label={t("allRooms")}>
-        <Link href="/rooms">{t("allRooms")}</Link>
-      </nav>
-      <header className="page-head room-head">
-        <h1>{room.name}</h1>
-        {room.name !== room.nameEn && (
-          <p className="page-sub" lang="en">
-            {room.nameEn}
-          </p>
-        )}
-      </header>
+      <PageHead title={room.name} sub={room.name !== room.nameEn ? room.nameEn : undefined}>
+        <nav className="page-back" aria-label={t("allRooms")}>
+          <Link href="/rooms">{t("allRooms")}</Link>
+        </nav>
+      </PageHead>
 
-      <RoomGallery images={room.images} roomName={room.name} />
-
-      <div className="room-body">
-        <section aria-labelledby="about-room">
-          <h2 id="about-room">{t("aboutTitle")}</h2>
-          <RichText text={room.description} headingLevel={3} />
-        </section>
-
-        <aside className="room-spec" aria-label={room.name}>
-          <dl>
-            <div>
-              <dt>{t("guests")}</dt>
-              <dd>{t("guestsValue", { count: room.maxOccupancy })}</dd>
+      <Band theme="paper">
+        <Chapter num={1} title={t("aboutTitle")}>
+          <RoomGallery images={room.images} roomName={room.name}>
+            <div className="room-about">
+              <RichText text={room.description} headingLevel={3} />
             </div>
-            {room.bedType && (
+          </RoomGallery>
+        </Chapter>
+        <Chapter num={2} title={t("amenitiesTitle")}>
+          <div className="room-spec">
+            <dl>
               <div>
-                <dt>{t("bed")}</dt>
-                <dd>{room.bedType}</dd>
+                <dt>{t("guests")}</dt>
+                <dd>{t("guestsValue", { count: room.maxOccupancy })}</dd>
               </div>
+              {room.bedType && (
+                <div>
+                  <dt>{t("bed")}</dt>
+                  <dd>{room.bedType}</dd>
+                </div>
+              )}
+              {room.sizeSqm && (
+                <div>
+                  <dt>{t("size")}</dt>
+                  <dd>{t("sizeValue", { sqm: room.sizeSqm })}</dd>
+                </div>
+              )}
+            </dl>
+            {room.amenities.length > 0 && (
+              <ul className="room-amenities">
+                {room.amenities.map((k) => (
+                  // Amenity codes come from content data; a code with no label shows as itself.
+                  <li key={k}>{a.has(k as AmenityKey) ? a(k as AmenityKey) : k}</li>
+                ))}
+              </ul>
             )}
-            {room.sizeSqm && (
-              <div>
-                <dt>{t("size")}</dt>
-                <dd>{t("sizeValue", { sqm: room.sizeSqm })}</dd>
-              </div>
-            )}
+          </div>
+        </Chapter>
+      </Band>
+
+      <Band theme="ink" className="room-cta-band">
+        <div className="room-cta">
+          <div>
             {room.fromPrice !== null && (
-              <div>
-                <dt>{t("fromPrice")}</dt>
-                <dd className="price">
+              <p className="room-cta-price">
+                <span className="room-cta-label">{t("fromPrice")}</span>
+                <span className="price">
                   {formatPrice(room.fromPrice)} <small>{t("perNight")}</small>
-                </dd>
-              </div>
+                </span>
+              </p>
             )}
-          </dl>
-          <Link className="cta cta-block" href={bookHref}>
+            <p className="room-cta-note">{t("priceNote")}</p>
+          </div>
+          <Link className="cta" href={bookHref}>
             {t("checkPrices")}
           </Link>
-          <p className="spec-note">{t("priceNote")}</p>
-        </aside>
-      </div>
+        </div>
+      </Band>
 
-      {room.amenities.length > 0 && (
-        <section className="amenities" aria-labelledby="amenities-title">
-          <h2 id="amenities-title">{t("amenitiesTitle")}</h2>
-          <ul>
-            {room.amenities.map((k) => (
-              // Amenity codes come from content data; a code with no label shows as itself.
-              <li key={k}>{a.has(k as AmenityKey) ? a(k as AmenityKey) : k}</li>
+      {others.length > 0 && (
+        <section className="section room-others" aria-labelledby="other-rooms">
+          <div className="section-head">
+            <h2 id="other-rooms">{t("otherRooms")}</h2>
+            <Link href="/rooms">{t("allRooms")}</Link>
+          </div>
+          <div className="room-rows">
+            {others.map((r, i) => (
+              <RoomCard key={r.slug} room={r} locale={locale} flip={i % 2 === 1} />
             ))}
-          </ul>
+          </div>
         </section>
       )}
-
-      <section className="section" aria-labelledby="other-rooms">
-        <div className="section-head">
-          <h2 id="other-rooms">{t("otherRooms")}</h2>
-          <Link href="/rooms">{t("allRooms")}</Link>
-        </div>
-        <div className="room-grid">
-          {others.map((r) => (
-            <RoomCard key={r.slug} room={r} locale={locale} />
-          ))}
-        </div>
-      </section>
     </main>
   );
 }

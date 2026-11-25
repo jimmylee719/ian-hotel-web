@@ -147,6 +147,7 @@
     "intro": "From a capsule for one to a connecting room for a family or a group of friends, every bed is made up with 350-thread-count combed cotton.",
     "perNight": "from, per night",
     "viewRoom": "View room",
+    "bookRoom": "Book this room",
     "guests": "Sleeps",
     "guestsValue": "Up to {count, plural, one {# guest} other {# guests}}",
     "bed": "Beds",
