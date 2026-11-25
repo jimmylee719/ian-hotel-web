@@ -162,3 +162,23 @@ Also: keep `:focus-visible` rings, honour `prefers-reduced-motion`, and do not r
 ## 11. Photography
 
 The old-site photos (`nkhostel.com/upload_image/rooms/*`, `images/index-fancy.jpg`) are at most 1100px wide. That is enough for the 4:3 room cards (about 400px wide at 3 columns) but too small and soft for the full-width or retina hero (the hero photo column is about 700px wide on desktop, so 2x needs 1400px+) and for any full-bleed use. Recommendation: ask the owner for the original camera files, or commission a short reshoot (hero, each room type, public spaces, window view toward Taipei 101) at 2400px on the long edge or larger, landscape 5:4 and 4:3 crops in mind, warm natural light to match the "午後三點的光" tone. Until then, do not upscale; cap displayed hero width so it does not exceed the source resolution, and serve via `next/image` with explicit `sizes`.
+
+## 12. Ink theme (2026-11-25 redesign)
+
+A dark theme used only inside ink bands (`.band-ink`; `.band-paper` is the default paper band). Source: docs/superpowers/specs/2026-11-25-site-visual-redesign-design.md §5.1 and §5.2.
+
+| Token | Value | Use | Contrast on ink #2B241F |
+|---|---|---|---|
+| `--color-ink-surface` | #352D27 | raised panels inside ink bands | n/a |
+| `--color-on-ink` | #EFE6D8 | text on ink | 12.35:1 |
+| `--color-on-ink-muted` | #CBBFAE | secondary text on ink | 8.44:1 |
+| `--color-on-ink-faint` | #A8998A | labels, captions on ink (12px and up) | 5.52:1 |
+| `--color-gold` | #E3C9A6 | numerals, English lines, links and focus ring on ink | 9.58:1 |
+| `--color-ink-line` | #4A3F37 | hairlines on ink | decorative |
+
+Rules:
+
+- Gold-on-ink: on ink, links and focus rings use gold, never accent. The accent CTA button keeps the accent background with on-accent text (5.44:1).
+- Muted text: informational small text on paper uses `--color-muted-text` (#6B5F54, 5.09:1 on paper); `--color-muted` (#7A6D61) is for large or decorative text only. This applies the pending fix from section 10.
+- The one shadow: `--shadow-float` (`0 10px 30px rgba(0,0,0,.18)`), allowed only on the floating booking bar. Section 5 "no shadows" is amended for that single element.
+- Sharpness rule (photos): keep the frame shapes but make frames shorter. Source width >= display width x 1.5 and source height >= display height x 1.5 (>= 1.4x for the hero arch). Sources are short landscapes (1100x440, 960x501; `rooms/rooms_409.jpg` is portrait 703x915), so: arch about 440 wide x 340 tall on desktop (<= 300 tall on mobile); any slot fed by a 1100x440 source <= 290 tall; by a 960x501 source <= 330 tall. Use `photoFits` and `maxSlotHeight` from `lib/design/photo-fit.ts` (sizes in `lib/content/photo-dimensions.json`, regenerate with `npx tsx scripts/photo-dimensions.ts`).

@@ -17,6 +17,15 @@
   --color-accent-hover: #744a28;
   --color-on-accent: #fbf6ee;
 
+  /* Ink theme (2026-11-25 redesign): only used inside .band-ink. */
+  --color-ink-surface: #352d27;
+  --color-on-ink: #efe6d8;
+  --color-on-ink-muted: #cbbfae;
+  --color-on-ink-faint: #a8998a;
+  --color-gold: #e3c9a6;
+  --color-ink-line: #4a3f37;
+  --shadow-float: 0 10px 30px rgba(0, 0, 0, 0.18); /* the floating booking bar only */
+
   --font-zh-stack: var(--font-zh), "Noto Serif TC", "Songti TC", "PMingLiU", serif;
   --font-en-stack: var(--font-en), "Newsreader", Georgia, "Times New Roman", serif;
   --font-ja-stack: var(--font-ja), "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", serif;
@@ -77,6 +86,26 @@ a {
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 3px;
+}
+.band-paper {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+.band-ink {
+  background: var(--color-ink);
+  color: var(--color-on-ink);
+  --color-line: var(--color-ink-line);
+  --color-muted-text: var(--color-on-ink-muted);
+}
+/* Links and focus on ink are gold, never accent; the accent CTA button keeps its own colours. */
+.band-ink a:not(.cta) {
+  color: var(--color-gold);
+}
+.band-ink :focus-visible {
+  outline-color: var(--color-gold);
+}
+.band-ink hr {
+  border-color: var(--color-ink-line);
 }
 .wrap {
   max-width: var(--max);
