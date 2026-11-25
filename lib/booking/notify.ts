@@ -61,14 +61,15 @@ export type SendResult = "sent" | "failed" | "duplicate";
 /**
  * Email the guest in the reservation's language. Never throws: emails run after state has
  * committed, so a failure is logged and the business flow carries on ("failed" is returned).
+ * `ref` as in sendOnce (e.g. the modification number, so each modification emails once).
  */
 export async function notifyGuest(
-  deps: Deps, reservationId: string, kind: NotificationKind, now: Date, extra: Partial<EmailData> = {},
+  deps: Deps, reservationId: string, kind: NotificationKind, now: Date, extra: Partial<EmailData> = {}, ref = "",
 ): Promise<SendResult> {
   try {
     const ctx = await emailContext(deps, reservationId);
     const data = { ...ctx.data, ...extra };
-    return await sendOnce(deps, reservationId, kind, ctx.guestEmail, { to: ctx.guestEmail, ...renderEmail(kind, ctx.locale, data) }, now);
+    return await sendOnce(deps, reservationId, kind, ctx.guestEmail, { to: ctx.guestEmail, ...renderEmail(kind, ctx.locale, data) }, now, ref);
   } catch (e) {
     console.error(`notifyGuest ${kind} failed for reservation ${reservationId}`, e);
     return "failed";

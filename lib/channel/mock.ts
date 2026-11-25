@@ -18,14 +18,19 @@ export class MockChannelManager implements ChannelManager {
   }
 
   async pushReservation(r: ChannelReservation): Promise<PushResult> {
+    return this.upsert(r);
+  }
+
+  /** Like a push: the channel's copy is replaced. Not routed through pushReservation, so spies can tell them apart. */
+  async modifyReservation(r: ChannelReservation): Promise<PushResult> {
+    return this.upsert(r);
+  }
+
+  private upsert(r: ChannelReservation): PushResult {
     const f = this.fail();
     if (f) return f;
     this.pushed = [...this.pushed.filter((p) => p.code !== r.code), r];
     return { ok: true, smConfirmation: `SM-${++this.seq}-${r.code}` };
-  }
-
-  async modifyReservation(r: ChannelReservation): Promise<PushResult> {
-    return this.pushReservation(r);
   }
 
   async cancelReservation(code: string): Promise<CancelResult> {

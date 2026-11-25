@@ -1,0 +1,1 @@
+ALTER TABLE `reservations` ADD `mod_count` integer DEFAULT 0 NOT NULL;

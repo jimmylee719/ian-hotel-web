@@ -62,7 +62,7 @@ export const voidableOn = (createdAt: number, now: Date): boolean => todayInTaip
 type DeskState = "open" | "cancel_in_progress" | "closed";
 
 /** SQL: the booking is `open` (see DeskState), checked inside the same statement as the write it guards. */
-const deskOpenSql = (reservationId: string): SQL => sql`exists (select 1 from ${reservations}
+export const deskOpenSql = (reservationId: string): SQL => sql`exists (select 1 from ${reservations}
   where ${reservations.id} = ${reservationId} and ${reservations.status} = 'confirmed' and ${reservations.cancelledAt} is null
   and not exists (select 1 from ${payments} where ${payments.idempotencyKey} = ${cancelKey(reservationId)}))`;
 

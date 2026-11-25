@@ -21,16 +21,31 @@ export type EmailData = {
   refundAmount?: number;
   /** Of a cancellation's refund, the part the front desk hands back (front-desk money is not refunded online). */
   frontDeskRefundDue?: number;
+  /** booking_modified only: the new total minus the old one, and how that difference is settled. */
+  modification?: ModificationMoney;
 };
 
-type CustomerKind = "booking_confirmed" | "booking_failed_refunded" | "payment_refunded" | "cancelled" | "pre_arrival";
+export type ModificationMoney = {
+  /** New total minus old total: positive = the guest owes more, negative = the guest gets money back. */
+  difference: number;
+  /** Refunded online to the original payment method. */
+  refunded: number;
+  /** Handed back at the front desk (the part the online payment cannot cover). */
+  frontDeskRefundDue: number;
+  /** What is still owed after the change, payable at the front desk. */
+  balanceDue: number;
+};
+
+type CustomerKind = "booking_confirmed" | "booking_failed_refunded" | "payment_refunded" | "cancelled" | "pre_arrival" | "booking_modified";
 
 type Copy = {
   labels: {
     code: string; stay: string; room: string; rooms: string; nights: string; roomSubtotal: string;
     addons: string; discount: string; total: string; paid: string; refund: string; frontDeskRefund: string; cancellation: string;
-    contact: string; manage: string; checkInTime: string; directions: string;
+    contact: string; manage: string; checkInTime: string; directions: string; difference: string; settlement: string;
   };
+  /** booking_modified: how the price difference is settled. */
+  settle: (m: ModificationMoney) => string;
   /** Pre-arrival only: the property's check-in/out times and how to get there. */
   arrival: { times: string; directions: string };
   sign: string;
@@ -42,12 +57,18 @@ const copy: Record<Locale, Copy> = {
     labels: {
       code: "訂單代碼", stay: "入住期間", room: "房型", rooms: "間數", nights: "晚數", roomSubtotal: "房費",
       addons: "加購項目", discount: "優惠折抵", total: "訂單總額", paid: "已付金額", refund: "退款金額", frontDeskRefund: "其餘款項將由櫃檯退還",
-      cancellation: "取消規則", contact: "聯絡我們", manage: "查看或管理訂單", checkInTime: "入住時間", directions: "交通方式",
+      cancellation: "取消規則", contact: "聯絡我們", manage: "查看或管理訂單", checkInTime: "入住時間", directions: "交通方式", difference: "差額", settlement: "差額處理",
     },
     arrival: {
       times: "15:00 起可入住，退房時間為 11:00 前。入住時請出示與訂單姓名相符的身分證件或護照。",
       directions: "捷運南京三民站 4 號出口步行約 8 分鐘，樓下就有公車站。饒河街夜市與松山車站都在步行範圍內，到松山機場搭計程車約 10 分鐘。",
     },
+    settle: (m) => m.difference > 0
+      ? `需補差額 ${formatTwd(m.difference)}，目前待付 ${formatTwd(m.balanceDue)}，請於入住時在櫃檯付款。`
+      : m.difference < 0
+        ? [m.refunded > 0 ? `${formatTwd(m.refunded)} 將退回原付款方式` : "", m.frontDeskRefundDue > 0 ? `${formatTwd(m.frontDeskRefundDue)} 將由櫃檯退還` : ""]
+          .filter(Boolean).join("，") + "。"
+        : "總金額不變。",
     sign: "期待與您相見",
     kinds: {
       booking_confirmed: {
@@ -70,6 +91,11 @@ const copy: Record<Locale, Copy> = {
         heading: "您的訂單已取消",
         intro: () => "我們已為您取消這筆訂房，若有應退款項，將退回原付款方式。",
       },
+      booking_modified: {
+        subject: (d) => `訂單已變更：${d.code}｜${d.hotelName}`,
+        heading: "您的訂單已變更",
+        intro: () => "我們已依您的需求變更這筆訂房，以下是變更後的訂房資訊。",
+      },
       pre_arrival: {
         subject: (d) => `入住提醒：${d.code}｜${d.hotelName}`,
         heading: "入住在即，我們已準備好迎接您",
@@ -82,12 +108,18 @@ const copy: Record<Locale, Copy> = {
       code: "Booking code", stay: "Stay", room: "Room", rooms: "Rooms", nights: "Nights", roomSubtotal: "Room charges",
       addons: "Add-ons", discount: "Discount", total: "Total", paid: "Paid", refund: "Refund", frontDeskRefund: "Returned at the front desk",
       cancellation: "Cancellation policy", contact: "Contact us", manage: "View or manage your booking",
-      checkInTime: "Check-in", directions: "Getting here",
+      checkInTime: "Check-in", directions: "Getting here", difference: "Price difference", settlement: "Settlement",
     },
     arrival: {
       times: "Check-in from 15:00, check-out by 11:00. Please bring photo ID or a passport matching the name on the booking.",
       directions: "About 8 minutes' walk from exit 4 of Nanjing Sanmin MRT station, with a bus stop right outside. Raohe Street Night Market and Songshan Station are within walking distance, and Songshan Airport is about 10 minutes by taxi.",
     },
+    settle: (m) => m.difference > 0
+      ? `An extra ${formatTwd(m.difference)} is due; the balance of ${formatTwd(m.balanceDue)} is payable at the front desk when you check in.`
+      : m.difference < 0
+        ? [m.refunded > 0 ? `${formatTwd(m.refunded)} will be refunded to your original payment method` : "", m.frontDeskRefundDue > 0 ? `${formatTwd(m.frontDeskRefundDue)} will be returned to you at the front desk` : ""]
+          .filter(Boolean).join("; ") + "."
+        : "The total is unchanged.",
     sign: "We look forward to welcoming you",
     kinds: {
       booking_confirmed: {
@@ -110,6 +142,11 @@ const copy: Record<Locale, Copy> = {
         heading: "Your booking has been cancelled",
         intro: () => "We have cancelled this booking. Any refund due will be returned to your original payment method.",
       },
+      booking_modified: {
+        subject: (d) => `Booking changed: ${d.code} | ${d.hotelName}`,
+        heading: "Your booking has been changed",
+        intro: () => "We have changed this booking as you asked. The updated details are below.",
+      },
       pre_arrival: {
         subject: (d) => `Your stay is coming up: ${d.code} | ${d.hotelName}`,
         heading: "We're almost ready to welcome you",
@@ -122,12 +159,18 @@ const copy: Record<Locale, Copy> = {
       code: "ご予約番号", stay: "ご宿泊期間", room: "お部屋タイプ", rooms: "室数", nights: "泊数", roomSubtotal: "宿泊料金",
       addons: "オプション", discount: "割引", total: "合計金額", paid: "お支払い済み金額", refund: "ご返金額", frontDeskRefund: "残額はフロントにてご返金",
       cancellation: "キャンセルポリシー", contact: "お問い合わせ", manage: "ご予約の確認・変更",
-      checkInTime: "チェックイン", directions: "アクセス",
+      checkInTime: "チェックイン", directions: "アクセス", difference: "差額", settlement: "差額のお取り扱い",
     },
     arrival: {
       times: "チェックインは 15:00 から、チェックアウトは 11:00 までです。ご予約名と一致する身分証明書またはパスポートをご提示ください。",
       directions: "MRT 南京三民駅 4 番出口から徒歩約 8 分、建物の前にバス停があります。饒河街夜市と松山駅は徒歩圏内、松山空港へはタクシーで約 10 分です。",
     },
+    settle: (m) => m.difference > 0
+      ? `差額 ${formatTwd(m.difference)} が発生します。未払い額 ${formatTwd(m.balanceDue)} はチェックイン時にフロントでお支払いください。`
+      : m.difference < 0
+        ? [m.refunded > 0 ? `${formatTwd(m.refunded)} を元のお支払い方法へご返金いたします` : "", m.frontDeskRefundDue > 0 ? `${formatTwd(m.frontDeskRefundDue)} はフロントにてご返金いたします` : ""]
+          .filter(Boolean).join("。") + "。"
+        : "合計金額に変更はありません。",
     sign: "ご来館を心よりお待ちしております",
     kinds: {
       booking_confirmed: {
@@ -150,6 +193,11 @@ const copy: Record<Locale, Copy> = {
         heading: "ご予約をキャンセルいたしました",
         intro: () => "こちらのご予約をキャンセルいたしました。ご返金が発生する場合は、元のお支払い方法へお戻しいたします。",
       },
+      booking_modified: {
+        subject: (d) => `ご予約を変更しました：${d.code}｜${d.hotelName}`,
+        heading: "ご予約内容を変更いたしました",
+        intro: () => "ご依頼のとおりご予約を変更いたしました。変更後のご予約内容は以下のとおりです。",
+      },
       pre_arrival: {
         subject: (d) => `ご到着のご案内：${d.code}｜${d.hotelName}`,
         heading: "まもなくご到着、準備を整えてお待ちしております",
@@ -162,12 +210,18 @@ const copy: Record<Locale, Copy> = {
       code: "예약 번호", stay: "숙박 기간", room: "객실 유형", rooms: "객실 수", nights: "숙박 일수", roomSubtotal: "객실 요금",
       addons: "추가 옵션", discount: "할인", total: "총 금액", paid: "결제 금액", refund: "환불 금액", frontDeskRefund: "나머지 금액은 프런트에서 환불",
       cancellation: "취소 규정", contact: "문의", manage: "예약 확인 및 관리",
-      checkInTime: "체크인", directions: "오시는 길",
+      checkInTime: "체크인", directions: "오시는 길", difference: "차액", settlement: "차액 처리",
     },
     arrival: {
       times: "체크인은 15:00부터, 체크아웃은 11:00까지입니다. 예약자 성함과 일치하는 신분증 또는 여권을 지참해 주세요.",
       directions: "MRT 난징싼민역 4번 출구에서 걸어서 약 8분, 건물 앞에 버스 정류장이 있습니다. 라오허제 야시장과 쑹산역은 걸어서 갈 수 있고, 쑹산공항까지는 택시로 약 10분입니다.",
     },
+    settle: (m) => m.difference > 0
+      ? `차액 ${formatTwd(m.difference)}이(가) 발생합니다. 미결제 금액 ${formatTwd(m.balanceDue)}은(는) 체크인 시 프런트에서 결제해 주세요.`
+      : m.difference < 0
+        ? [m.refunded > 0 ? `${formatTwd(m.refunded)}은(는) 기존 결제 수단으로 환불됩니다` : "", m.frontDeskRefundDue > 0 ? `${formatTwd(m.frontDeskRefundDue)}은(는) 프런트에서 환불해 드립니다` : ""]
+          .filter(Boolean).join(". ") + "."
+        : "총 금액은 변동이 없습니다.",
     sign: "뵙게 되기를 진심으로 기대합니다",
     kinds: {
       booking_confirmed: {
@@ -189,6 +243,11 @@ const copy: Record<Locale, Copy> = {
         subject: (d) => `예약이 취소되었습니다: ${d.code} | ${d.hotelName}`,
         heading: "예약이 취소되었습니다",
         intro: () => "해당 예약을 취소했습니다. 환불 대상 금액이 있는 경우 기존 결제 수단으로 환불해 드립니다.",
+      },
+      booking_modified: {
+        subject: (d) => `예약이 변경되었습니다: ${d.code} | ${d.hotelName}`,
+        heading: "예약이 변경되었습니다",
+        intro: () => "요청하신 대로 예약을 변경했습니다. 변경된 예약 내용은 아래와 같습니다.",
       },
       pre_arrival: {
         subject: (d) => `투숙 안내: ${d.code} | ${d.hotelName}`,
@@ -216,7 +275,7 @@ function rows(kind: CustomerKind, c: Copy, d: EmailData): [string, string][] {
     [l.rooms, String(d.rooms)],
     [l.nights, String(d.nights)],
   ];
-  if (kind === "booking_confirmed" || kind === "pre_arrival") {
+  if (kind === "booking_confirmed" || kind === "pre_arrival" || kind === "booking_modified") {
     r.push([l.roomSubtotal, formatTwd(d.roomSubtotal)]);
     if (d.addonSubtotal > 0) r.push([l.addons, formatTwd(d.addonSubtotal)]);
     if (d.discount > 0) r.push([l.discount, `-${formatTwd(d.discount)}`]);
@@ -226,7 +285,11 @@ function rows(kind: CustomerKind, c: Copy, d: EmailData): [string, string][] {
     r.push([l.refund, formatTwd(d.refundAmount)]);
   }
   if (kind === "cancelled" && d.frontDeskRefundDue) r.push([l.frontDeskRefund, formatTwd(d.frontDeskRefundDue)]);
-  if (kind === "booking_confirmed" || kind === "pre_arrival" || kind === "cancelled") {
+  if (kind === "booking_modified" && d.modification) {
+    const diff = d.modification.difference;
+    r.push([l.difference, diff < 0 ? `-${formatTwd(-diff)}` : formatTwd(diff)], [l.settlement, c.settle(d.modification)]);
+  }
+  if (kind === "booking_confirmed" || kind === "pre_arrival" || kind === "cancelled" || kind === "booking_modified") {
     r.push([l.cancellation, d.cancellationText]);
   }
   if (kind === "pre_arrival") r.push([l.checkInTime, c.arrival.times], [l.directions, c.arrival.directions]);

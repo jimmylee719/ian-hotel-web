@@ -170,6 +170,8 @@ export const reservations = sqliteTable(
      * through the gateway). Fixed when the cancellation's refund is first planned; meaningful once cancelled.
      */
     frontDeskRefundDue: integer("front_desk_refund_due").notNull().default(0),
+    /** How many staff modifications this booking has had; the n-th one's refund key is `modify:<id>:<n>`. */
+    modCount: integer("mod_count").notNull().default(0),
   },
   (t) => [
     index("reservations_property_checkin").on(t.propertyId, t.checkIn),
@@ -244,7 +246,7 @@ export const notifications = sqliteTable(
     reservationId: text("reservation_id").notNull().references(() => reservations.id),
     kind: text("kind", {
       enum: [
-        "booking_confirmed", "booking_failed_refunded", "payment_refunded", "cancelled", "pre_arrival",
+        "booking_confirmed", "booking_failed_refunded", "payment_refunded", "cancelled", "pre_arrival", "booking_modified",
         "staff_new_booking", "staff_sync_failed", "staff_payment_alert",
       ],
     }).notNull(),

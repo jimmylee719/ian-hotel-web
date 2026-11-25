@@ -120,8 +120,10 @@ export type ReservationDetail = {
     nights: number; adults: number; children: number; locale: string; totalAmount: number; refundedAmount: number;
     promoCode: string | null; smConfirmation: string | null; lastSyncError: string | null;
     createdAt: number; updatedAt: number; cancelledAt: number | null;
-    /** Of a cancellation's refund, what the front desk must hand back (0 when none). */
+    /** What the front desk must hand back: of a cancellation's refund, or of staff modifications that lowered the price (0 when none). */
     frontDeskRefundDue: number;
+    /** How many staff modifications the booking has had. */
+    modCount: number;
   };
   guest: { id: string; name: string; email: string; phone: string; country: string };
   quote: unknown;
@@ -195,7 +197,7 @@ export async function getReservationDetail(db: Db, propertyId: string, id: strin
       nights: nightsBetween(r.checkIn, r.checkOut), adults: r.adults, children: r.children, locale: r.locale,
       totalAmount: r.totalAmount, refundedAmount: r.refundedAmount, promoCode: r.promoCode, smConfirmation: r.smConfirmation,
       lastSyncError: r.lastSyncError, createdAt: r.createdAt, updatedAt: r.updatedAt, cancelledAt: r.cancelledAt,
-      frontDeskRefundDue: r.frontDeskRefundDue,
+      frontDeskRefundDue: r.frontDeskRefundDue, modCount: r.modCount,
     },
     guest: { id: g.id, name: nameOf(g), email: g.email, phone: g.phone, country: g.country },
     quote: r.quote,

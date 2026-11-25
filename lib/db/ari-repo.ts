@@ -9,6 +9,11 @@ export type SearchQuery = {
   /** Children count toward occupancy like adults. Default 0. */
   children?: number;
   rooms?: number; today?: ISODate;
+  /**
+   * Rooms the caller already holds, counted as available on those nights (a modification re-prices a stay
+   * that partly overlaps its own hold). Default none.
+   */
+  credit?: { unitTypeId: string; nights: ISODate[]; rooms: number };
 };
 export type RichOffer = Offer & { unitType: typeof unitTypes.$inferSelect; ratePlan: typeof ratePlans.$inferSelect };
 export type SearchResult = { ok: true; offers: RichOffer[] } | { ok: false; error: string };
@@ -30,6 +35,10 @@ export async function searchAvailability(db: Db, q: SearchQuery): Promise<Search
   ]);
 
   const avail = new Map(inventory.map((i) => [`${i.unitTypeId}|${i.date}`, i.available]));
+  for (const d of q.credit?.nights ?? []) {
+    const k = `${q.credit!.unitTypeId}|${d}`;
+    if (avail.has(k)) avail.set(k, avail.get(k)! + q.credit!.rooms);
+  }
   const groups = new Map<string, AriNight[]>();
   for (const r of rates) {
     const k = `${r.unitTypeId}|${r.ratePlanId}`;

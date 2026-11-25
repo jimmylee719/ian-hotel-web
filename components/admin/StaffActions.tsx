@@ -220,3 +220,101 @@ export function VoidFrontDeskPaymentAction({ paymentId, amount }: { paymentId: s
     </>
   );
 }
+
+type Stay = { checkIn: string; checkOut: string; adults: number; children: number };
+type ModifyOptions = {
+  unitTypes: { slug: string; name: string }[];
+  ratePlans: { slug: string; name: string }[];
+  current: { unitTypeSlug: string; ratePlanSlug: string };
+};
+type ModifyPreview = {
+  newQuote: { nights: number; total: number };
+  difference: number; refundIfLower: number; frontDeskRefundIfLower: number; balanceIfHigher: number;
+};
+
+/**
+ * 修改訂單: new dates, guests, room type or rate plan. Staff first 試算 (preview, nothing changes); 確定修改 then
+ * applies exactly that difference (the server answers PRICE_CHANGED if it moved meanwhile).
+ */
+export function ModifyReservationAction({ reservationId, stay, options }: { reservationId: string; stay: Stay; options: ModifyOptions }) {
+  const router = useRouter();
+  const { show, view } = useToast();
+  const [form, setForm] = useState({ ...stay, ...options.current });
+  const [reason, setReason] = useState("");
+  const [preview, setPreview] = useState<{ key: string; p: ModifyPreview } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const base = `/api/admin/reservations/${encodeURIComponent(reservationId)}/modify`;
+  const key = JSON.stringify(form);
+  const current = preview?.key === key ? preview.p : null;
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
+    setForm((f) => ({ ...f, [k]: k === "adults" || k === "children" ? Number(e.target.value) : e.target.value }));
+
+  async function runPreview() {
+    setBusy(true);
+    setPreviewError(null);
+    try {
+      setPreview({ key, p: await post<ModifyPreview>(`${base}/preview`, form) });
+    } catch (e) {
+      setPreview(null);
+      setPreviewError(e instanceof Error ? e.message : "試算失敗");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirm() {
+    if (!current) throw new Error("請先按「試算差額」，確認新的金額後再修改");
+    if (!reason.trim()) throw new Error("請填寫修改原因");
+    const r = await post<{ difference: number; refunded: number; frontDeskRefundDue: number; balanceDue: number; refundFailed?: boolean }>(
+      base, { ...form, expectedDifference: current.difference, reason });
+    show(r.difference > 0 ? `已修改，待收 ${formatMoney(r.balanceDue)}`
+      : r.difference < 0
+        ? `已修改，線上退款 ${formatMoney(r.refunded)}${r.frontDeskRefundDue ? `，另需由櫃檯退款 ${formatMoney(r.frontDeskRefundDue)}` : ""}`
+          + (r.refundFailed ? "（線上退款沒有完成，已通知管理者，請到退款對帳頁確認）" : "")
+        : "已修改，金額不變");
+    setPreview(null);
+    router.refresh();
+  }
+
+  return (
+    <>
+      <ConfirmDialog triggerLabel="修改訂單" title="修改這筆訂單" confirmLabel="確定修改" onConfirm={confirm}>
+        <div className="adm-dialog-form">
+          <label htmlFor="mod-in">入住日</label>
+          <input id="mod-in" type="date" required value={form.checkIn} onChange={set("checkIn")} />
+          <label htmlFor="mod-out">退房日</label>
+          <input id="mod-out" type="date" required value={form.checkOut} onChange={set("checkOut")} />
+          <label htmlFor="mod-adults">成人</label>
+          <input id="mod-adults" type="number" inputMode="numeric" min={1} max={12} step={1} value={form.adults} onChange={set("adults")} />
+          <label htmlFor="mod-children">兒童</label>
+          <input id="mod-children" type="number" inputMode="numeric" min={0} max={6} step={1} value={form.children} onChange={set("children")} />
+          <label htmlFor="mod-unit">房型</label>
+          <select id="mod-unit" value={form.unitTypeSlug} onChange={set("unitTypeSlug")}>
+            {options.unitTypes.map((u) => <option key={u.slug} value={u.slug}>{u.name}</option>)}
+          </select>
+          <label htmlFor="mod-plan">方案</label>
+          <select id="mod-plan" value={form.ratePlanSlug} onChange={set("ratePlanSlug")}>
+            {options.ratePlans.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
+          </select>
+          <button type="button" className="adm-btn" disabled={busy} onClick={runPreview}>{busy ? "試算中…" : "試算差額"}</button>
+          {previewError ? <p className="adm-form-error" role="alert">{previewError}</p> : null}
+          {current ? (
+            <p aria-live="polite">
+              新總額 <strong>{formatMoney(current.newQuote.total)}</strong>（{current.newQuote.nights} 晚），差額{" "}
+              <strong>{formatMoney(current.difference)}</strong>：
+              {current.difference > 0 ? <>待收增加，修改後待收 <strong>{formatMoney(current.balanceIfHigher)}</strong>，由櫃檯收款。</>
+                : current.difference < 0 ? (
+                  <>線上退回 <strong>{formatMoney(current.refundIfLower)}</strong>
+                    {current.frontDeskRefundIfLower > 0 ? <>，另 <strong>{formatMoney(current.frontDeskRefundIfLower)}</strong> 需由櫃檯退還</> : null}。</>
+                ) : <>金額不變。</>}
+            </p>
+          ) : preview ? <p className="adm-muted">內容已變更，請重新試算。</p> : null}
+          <label htmlFor="mod-reason">修改原因（必填）</label>
+          <textarea id="mod-reason" rows={2} required aria-required="true" value={reason} onChange={(e) => setReason(e.target.value)} />
+        </div>
+      </ConfirmDialog>
+      {view}
+    </>
+  );
+}

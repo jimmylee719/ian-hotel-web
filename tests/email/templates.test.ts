@@ -11,7 +11,7 @@ const data: EmailData = {
   hotelPhone: "+886-2-1234-5678", hotelEmail: "hi@ian.test", hotelAddress: "1 Test Rd, Taipei",
   manageUrl: "https://hotel.test/en/booking/NK-1234", refundAmount: 4960,
 };
-const customerKinds: NotificationKind[] = ["booking_confirmed", "booking_failed_refunded", "payment_refunded", "cancelled", "pre_arrival"];
+const customerKinds: NotificationKind[] = ["booking_confirmed", "booking_failed_refunded", "payment_refunded", "cancelled", "pre_arrival", "booking_modified"];
 
 describe("renderEmail", () => {
   it("ja booking_confirmed has the code in the subject and formatted total in html", () => {
@@ -39,6 +39,26 @@ describe("renderEmail", () => {
     expect(renderEmail("cancelled", "en", data).html).toContain("NT$4,960");
     expect(renderEmail("booking_failed_refunded", "ko", data).text).toContain("NT$4,960");
     expect(renderEmail("payment_refunded", "ja", data).text).toContain("NT$4,960");
+  });
+
+  it("booking_modified shows the new stay, the difference and how it is settled, in every locale", () => {
+    const higher = { difference: 2000, refunded: 0, frontDeskRefundDue: 0, balanceDue: 2500 };
+    const lower = { difference: -3000, refunded: 2000, frontDeskRefundDue: 1000, balanceDue: 0 };
+    for (const l of LOCALES) {
+      const up = renderEmail("booking_modified", l, { ...data, modification: higher }).text;
+      expect(up).toContain("2026-12-01 → 2026-12-03");
+      expect(up).toContain("NT$4,960"); // the new total
+      expect(up).toContain("NT$2,000");
+      expect(up).toContain("NT$2,500"); // the balance due at the desk
+      const down = renderEmail("booking_modified", l, { ...data, modification: lower }).text;
+      expect(down).toContain("-NT$3,000");
+      expect(down).toContain("NT$2,000"); // refunded online
+      expect(down).toContain("NT$1,000"); // at the front desk
+      const same = renderEmail("booking_modified", l, { ...data, modification: { ...higher, difference: 0, balanceDue: 0 } }).text;
+      expect(same).toContain("NT$0");
+    }
+    expect(renderEmail("booking_modified", "en", { ...data, modification: lower }).text)
+      .toContain("NT$2,000 will be refunded to your original payment method; NT$1,000 will be returned to you at the front desk.");
   });
 
   it("escapes html in user-supplied fields", () => {

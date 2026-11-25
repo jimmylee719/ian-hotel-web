@@ -4,27 +4,25 @@ import { DataTable, type Column } from "@/components/admin/DataTable";
 import { DateRange } from "@/components/admin/DateRange";
 import { Money } from "@/components/admin/Money";
 import {
-  CancelReservationAction, RecordFrontDeskPaymentAction, ResendNotificationAction, VoidFrontDeskPaymentAction,
+  CancelReservationAction, ModifyReservationAction, RecordFrontDeskPaymentAction, ResendNotificationAction,
+  VoidFrontDeskPaymentAction,
 } from "@/components/admin/StaffActions";
 import { StatusBadge } from "@/components/admin/StatusBadge";
 import { canVoidFrontDesk, frontDeskOpen, voidableOn } from "@/lib/admin/front-desk";
-import { can, type Permission } from "@/lib/admin/permissions";
+import { modifyFormOptions } from "@/lib/admin/modify";
+import { can } from "@/lib/admin/permissions";
 import { requirePage } from "@/lib/admin/page-guard";
 import { currentProperty } from "@/lib/admin/property-scope";
 import { getReservationDetail, NOTE_MAX, type ReservationDetail } from "@/lib/admin/reservations";
 import { staffCancelPreview } from "@/lib/admin/staff-cancel";
 import { getDb } from "@/lib/db/client";
+import { todayInTaipei } from "@/lib/domain/dates";
 import { addNoteAction } from "./actions";
 
 export const metadata = { title: "訂單詳情" };
 
 const taipei = (ms: number) =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Taipei", dateStyle: "short", timeStyle: "medium" }).format(ms);
-
-/** Disabled until Task 7 wires it; shows only to staff allowed to do it. */
-const PENDING_ACTIONS: { label: string; permission: Permission }[] = [
-  { label: "修改", permission: "reservations.modify" },
-];
 
 const NOTE_ERRORS: Record<string, string> = {
   NOTE_EMPTY: "備註不能是空的。",
@@ -88,6 +86,9 @@ export default async function Page({
   const voidable = (p: PaymentRow) => mayVoid && p.kind === "front_desk" && p.status === "succeeded" && voidableOn(p.createdAt, now);
   const canTakePayment = deskOpen && d.money.balanceDue !== null && d.money.balanceDue > 0
     && can(ctx.staff, "payments.front_desk", propertyId);
+  // The server re-checks everything (including no other modification in flight); this only hides a button that cannot work.
+  const modifyOptions = deskOpen && todayInTaipei(now) <= r.checkIn && can(ctx.staff, "reservations.modify", propertyId)
+    ? await modifyFormOptions(db, propertyId, r.id) : null;
 
   return (
     <>
@@ -103,9 +104,10 @@ export default async function Page({
             canOverride={can(ctx.staff, "reservations.refund_override", propertyId)} />
         ) : null}
         {canTakePayment ? <RecordFrontDeskPaymentAction reservationId={r.id} balanceDue={d.money.balanceDue!} /> : null}
-        {PENDING_ACTIONS.filter((a) => can(ctx.staff, a.permission, propertyId)).map((a) => (
-          <button key={a.label} type="button" className="adm-btn" disabled>{a.label}</button>
-        ))}
+        {modifyOptions ? (
+          <ModifyReservationAction reservationId={r.id} options={modifyOptions}
+            stay={{ checkIn: r.checkIn, checkOut: r.checkOut, adults: r.adults, children: r.children }} />
+        ) : null}
       </div>
 
       <div className="adm-grid">
@@ -139,7 +141,7 @@ export default async function Page({
             <dt>已退</dt><dd><Money amount={d.money.refunded} /></dd>
             <dt>待收</dt><dd>{d.money.balanceDue !== null ? <Money amount={d.money.balanceDue} /> : <span className="adm-muted">—</span>}</dd>
             <dt>已收款（退款前）</dt><dd className="adm-muted"><Money amount={d.money.grossReceived} /></dd>
-            {r.status === "cancelled" && r.frontDeskRefundDue > 0 ? (
+            {(r.status === "cancelled" || r.modCount > 0) && r.frontDeskRefundDue > 0 ? (
               <><dt>需由櫃檯退款</dt><dd><Money amount={r.frontDeskRefundDue} /> <span className="adm-muted">（櫃檯收款不會自動退回）</span></dd></>
             ) : null}
           </dl>

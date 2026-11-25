@@ -27,6 +27,11 @@ const MESSAGES: Record<string, [status: number, message: string]> = {
   INVALID_AUTH_CODE: [400, "授權碼只能是 1 到 12 個英文字母或數字。"],
   LOOKS_LIKE_CARD_NUMBER: [400, "授權碼或備註看起來像完整卡號，請不要輸入卡號。"],
   ALREADY_VOIDED: [409, "這筆收款已經作廢了。"],
+  INVALID_INPUT: [400, "日期或人數不正確（退房日要晚於入住日，入住日不能是過去，成人至少 1 位且不少於間數）。"],
+  NOT_MODIFIABLE: [409, "這筆訂單目前不能修改（只有入住日以前、已確認、沒有在取消，也沒有其他修改在處理中的訂單可以修改）。"],
+  NOT_AVAILABLE: [409, "新的日期或房型沒有空房。"],
+  PRICE_CHANGED: [409, "價格在試算後變動了，請重新試算再確認。"],
+  CONFLICT: [409, "這筆訂單剛被其他人修改過，請重新整理後再試。"],
 };
 
 /** The JSON error response for `code`, `{ error, message }`. */
