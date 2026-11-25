@@ -306,12 +306,27 @@ describe("settle_offline: a refund the gateway will not take, paid back by the h
     expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER)).toEqual({ ok: false, error: "ALREADY_RESOLVED" });
   });
 
-  test("settle_offline on a failed row does not ask the gateway", async () => {
+  test("settle_offline on a failed row asks the gateway too: not made → settled offline", async () => {
     const s = await droppedClaim();
     const query = vi.spyOn(s.gateway, "queryRefund");
     query.mockClear();
-    expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER)).toMatchObject({ ok: true, status: "succeeded" });
-    expect(query).not.toHaveBeenCalled();
+    const r = await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER);
+    expect(r).toMatchObject({ ok: true, status: "succeeded" });
+    expect(r).not.toHaveProperty("settledByGateway");
+    expect(query).toHaveBeenCalledWith(`cancel:${s.id}`);
+    expect(await s.refundRows(s.id)).toMatchObject([{ providerRef: `offline:${OFFLINE.reference}:${s.row.id}` }]);
+  });
+
+  test("settle_offline on a failed row the gateway reports made after all is settled with the gateway's ref, offline entry unused", async () => {
+    const s = await droppedClaim();
+    vi.spyOn(s.gateway, "queryRefund").mockResolvedValueOnce({ status: "succeeded", refundRef: "BANK-LATE" });
+    expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER))
+      .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled", settledByGateway: true });
+    expect(await s.refundRows(s.id)).toMatchObject([{ status: "succeeded", providerRef: "BANK-LATE", note: null }]);
+    expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID });
+    expect(await s.db.select().from(auditLog).where(eq(auditLog.entityId, s.row.id))).toMatchObject([{
+      before: { status: "failed" }, after: { kind: "settle_offline", outcome: "gateway_succeeded" },
+    }]);
   });
 
   test("one transfer can settle several refund rows: providerRef is offline:<reference>:<rowId>, the reference is in the note", async () => {

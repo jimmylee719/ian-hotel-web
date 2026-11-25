@@ -75,8 +75,8 @@ export type ReconcileResult =
  * - `retry`: only a failed row (a succeeded one is ALREADY_RESOLVED); refundOnce again under the row's own key (the gateway's idempotency key), then
  *   finishes the flow as above.
  * - `settle_offline`: a failed or pending row the gateway will never take (e.g. its refund window has passed), that
- *   the hotel paid back itself by transfer, cash or card terminal. For a pending row the gateway is asked first
- *   (queryRefund): if it made the refund after all, the row is settled with the gateway's ref instead (no note, the
+ *   the hotel paid back itself by transfer, cash or card terminal. The gateway is asked first, for a pending or a
+ *   failed row (queryRefund): if it made the refund after all, the row is settled with the gateway's ref instead (no note, the
  *   audit row says `outcome: "gateway_succeeded"`) and the result says `settledByGateway`. The reference (1–200 characters, never something
  *   that looks like a card number) is required. Like mark_succeeded, in one batch guarded by the row's status as
  *   read: the row → succeeded with providerRef `offline:<reference>:<row id>` (one transfer may cover several rows;
@@ -126,11 +126,12 @@ export async function reconcileRefund(
     if (!reference) return { ok: false, error: "REFERENCE_REQUIRED" };
     if (reference.length > OFFLINE_REFERENCE_MAX || !OFFLINE_REFUND_METHODS.includes(action.method)) return { ok: false, error: "INVALID_REFERENCE" };
     if (looksLikeCardNumber(reference)) return { ok: false, error: "LOOKS_LIKE_CARD_NUMBER" };
-    // A pending row's refund may still have been made by the gateway: ask first. If it was, the gateway's
-    // result settles the row and the hotel's offline entry is not used (staff are told: the guest may now
-    // have been paid twice, by the gateway and by the hotel).
+    // A pending row's refund may still have been made by the gateway, and so may a failed one's (a failure
+    // marked from an answer that later proved wrong, or a retry the gateway took after all): ask first. If it was,
+    // the gateway's result settles the row and the hotel's offline entry is not used (staff are told: the guest
+    // may now have been paid twice, by the gateway and by the hotel).
     // Without a gateway there is no one to ask: the dialog's warning covers it.
-    const made = gateway && row.status === "pending" ? await gatewayMadeRefund(deps, row.idempotencyKey) : null;
+    const made = gateway ? await gatewayMadeRefund(deps, row.idempotencyKey) : null;
     if (made) {
       settledByGateway = true;
       providerRef = made.refundRef;

@@ -130,6 +130,7 @@ export function ReconcileRefundActions({ paymentId, status, amount }: { paymentI
           <p role="alert"><strong>注意：這筆退款仍在處理中，金流可能仍會完成退款。</strong>
             按下後系統會先向金流查詢；若金流已退款，會以金流結果入帳，不採用這裡填的資料。查不到結果時才標記為線下退款，之後若金流仍完成退款，旅客可能收到兩次退款。</p>
         )}
+        {status === "failed" && <p>按下後系統會先向金流查詢；若金流其實已退款，會以金流結果入帳，不採用這裡填的資料。</p>}
         <label htmlFor={`offm-${paymentId}`}>退款方式</label>
         <select id={`offm-${paymentId}`} value={offlineMethod} onChange={(e) => setOfflineMethod(e.target.value as OfflineMethod)}>
           {(Object.keys(OFFLINE_LABEL) as OfflineMethod[]).map((m) => <option key={m} value={m}>{OFFLINE_LABEL[m]}</option>)}
