@@ -30,8 +30,11 @@ describe("toCsv", () => {
     expect(cell("a=1")).toBe("a=1");
   });
 
-  it("guards numbers once they are strings, header labels too, and renders null as empty", () => {
-    expect(cell(-500)).toBe("'-500");
+  it("writes JS numbers raw, guards numeric-looking strings, guards header labels, renders null as empty", () => {
+    expect(cell(-500)).toBe("-500");
+    expect(cell("-500")).toBe("'-500");
+    expect(cell("=1+1")).toBe("'=1+1");
+    expect(cell(Number.NaN)).toBe("NaN");
     expect(cell(1234)).toBe("1234");
     expect(cell(0)).toBe("0");
     expect(cell(null)).toBe("");
