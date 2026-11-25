@@ -16,3 +16,12 @@ export function maxSlotHeight(key: string, slotWidth: number, tolerance = 1.5): 
   if (!src || src.w < slotWidth * tolerance) return 0;
   return Math.floor(src.h / tolerance);
 }
+
+/**
+ * Height for a cover-fit frame `slotWidth` wide: the sharp maximum (`maxSlotHeight`), capped at the frame's own
+ * design maximum `cap`. 0 means the source cannot fill this slot sharply; put it in a smaller slot.
+ */
+export function frameHeight(key: string, slotWidth: number, cap: number, tolerance = 1.5): number {
+  const h = maxSlotHeight(key, slotWidth, tolerance);
+  return h === 0 ? 0 : Math.min(cap, h);
+}

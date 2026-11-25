@@ -960,3 +960,327 @@ main + .booking-dock {
     transition: none;
   }
 }
+
+/* ==========================================================================
+   Shared section pieces (2026-11-25 redesign, spec §5.2): components/site/sections/*, PageHead.
+   ========================================================================== */
+
+/* ---------- band: full-bleed even inside main.wrap ---------- */
+/* The background bleeds sideways with a border-image outset: that is ink overflow, so it never widens the page or
+   adds a scrollbar, and unlike 100vw it does not depend on the scrollbar width. Nothing is clipped, so children may
+   overlap the band's top/bottom edge. Inside a .wrap the band's own .wrap adds no second gutter. */
+.band {
+  border-image: conic-gradient(var(--band-bg) 0 0) fill 0 / / 0 100vmax;
+}
+.band.band-ink {
+  --band-bg: var(--color-ink);
+}
+.band.band-paper {
+  --band-bg: var(--color-paper);
+}
+.wrap .band > .wrap {
+  max-width: none;
+  padding-inline: 0;
+}
+
+/* ---------- small-caps English labels ---------- */
+.chapter-en,
+.page-en,
+.ratings-platform {
+  font-family: var(--font-en-stack);
+  font-size: 12px;
+  line-height: 1.6;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--color-muted-text);
+  margin: 0;
+}
+.band-ink .chapter-en,
+.band-ink .page-en,
+.band-ink .ratings-platform {
+  color: var(--color-on-ink-faint);
+}
+
+/* ---------- page head: ink (default) and compact paper ---------- */
+.page-head-ink {
+  margin-bottom: var(--space-7);
+}
+.page-head-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: var(--space-6);
+  row-gap: var(--space-4);
+  align-items: center;
+  padding-top: var(--space-6);
+  padding-bottom: var(--space-7);
+}
+.page-head-ink.has-photo .page-head-inner {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 560px);
+}
+.page-head-ink h1 {
+  font-family: var(--font-cjk);
+  font-weight: 500;
+  font-size: 30px;
+  line-height: 1.4;
+  letter-spacing: 0.16em;
+  margin: 0;
+}
+.page-head-ink .page-en {
+  margin-top: var(--space-1);
+}
+.page-head-ink .page-sub {
+  color: var(--color-gold);
+}
+.page-head-ink .page-lead {
+  color: var(--color-on-ink-muted);
+}
+.page-head-photo {
+  width: 100%;
+  max-width: 560px;
+  justify-self: end;
+}
+.page-head-paper {
+  padding-top: var(--space-6);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.page-head-paper h1 {
+  font-size: 28px;
+}
+
+/* ---------- chapter ---------- */
+.chapter {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--space-6);
+  padding: 72px 0;
+}
+.chapter + .chapter {
+  border-top: 1px solid var(--color-line);
+}
+.chapter-num {
+  display: block;
+  font-family: var(--font-en-stack);
+  font-weight: 400;
+  font-size: 52px;
+  line-height: 1;
+  color: var(--color-accent);
+}
+.band-ink .chapter-num {
+  color: var(--color-gold);
+}
+.chapter-title {
+  font-family: var(--font-cjk);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.2em;
+  margin: var(--space-2) 0 4px;
+}
+.chapter-title:first-child {
+  margin-top: 0;
+}
+
+/* ---------- photo frames (cover-fit; height from the sharpness rule, see components/site/sections/Frame.tsx) ---------- */
+.frame {
+  height: var(--frame-h, 240px);
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+.band-ink .frame {
+  background: var(--color-ink-surface);
+}
+.frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.arch-photo {
+  width: 440px;
+  max-width: 100%;
+  height: var(--frame-h, 340px);
+  /* Oversized radii are scaled down proportionally, so the top stays a half-circle of the frame's width. */
+  border-radius: 999px 999px 4px 4px;
+}
+.photo-cap {
+  font-family: var(--font-cjk);
+  font-size: 14px;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+  margin-top: 10px;
+}
+.photo-cap small {
+  display: block;
+  font-family: var(--font-en-stack);
+  font-style: italic;
+  font-size: 13px;
+  letter-spacing: 0;
+  color: var(--color-muted-text);
+}
+
+/* grid3: row 1 = wide lead (2 columns) + item; row 2 = item + text (2 columns). Capped at the chapter body width
+   (904px) so the slot widths assumed by PhotoGrid3 hold. */
+.photo-grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5) 20px;
+  align-items: start;
+  max-width: 904px;
+}
+.grid3-lead {
+  grid-column: span 2;
+  height: var(--frame-h, 290px);
+}
+.grid3-item {
+  margin: 0;
+}
+.grid3-photo {
+  height: var(--frame-h, 210px);
+}
+.grid3-text {
+  grid-column: span 2;
+}
+
+/* split: large photo | small photo over text, bottoms aligned. */
+.photo-split {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 28px;
+  align-items: end;
+  max-width: 904px;
+}
+.split-large {
+  height: var(--frame-h, 330px);
+}
+.split-small {
+  height: var(--frame-h, 240px);
+}
+.split-small + .split-text {
+  margin-top: 20px;
+}
+
+/* ---------- ratings strip ---------- */
+.ratings {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-7) 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-4);
+  text-align: center;
+}
+.ratings-score {
+  display: block;
+  font-family: var(--font-en-stack);
+  font-size: 56px;
+  line-height: 1;
+  color: var(--color-accent);
+}
+.band-ink .ratings-score {
+  color: var(--color-gold);
+}
+.ratings-score small {
+  font-size: 18px;
+  color: var(--color-muted-text);
+}
+.ratings-platform {
+  display: block;
+  margin-top: var(--space-2);
+}
+
+/* ---------- reveal: fade-up once on first scroll into view (components/site/sections/Reveal.tsx) ---------- */
+.reveal.is-armed {
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 600ms var(--ease),
+    transform 600ms var(--ease);
+}
+.reveal.is-armed.is-visible {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal.is-armed {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .page-head-ink.has-photo .page-head-inner {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .page-head-photo {
+    justify-self: start;
+  }
+  .chapter {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+    padding: var(--space-7) 0;
+  }
+  .chapter-rail {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: var(--space-3);
+  }
+  .chapter-num {
+    font-size: 40px;
+  }
+  .chapter-title {
+    margin: 0;
+  }
+  .chapter-en {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 700px) {
+  .page-head-ink h1 {
+    font-size: 24px;
+    letter-spacing: 0.12em;
+  }
+  .page-head-inner {
+    padding-top: var(--space-5);
+    padding-bottom: var(--space-6);
+  }
+  .page-head-paper h1 {
+    font-size: 24px;
+  }
+  .arch-photo {
+    width: 100%;
+    height: min(var(--frame-h, 340px), 300px);
+  }
+  /* Stacked: one column, frames no wider than 640px (a 960px source at 1.5x) and no taller than ~62% of their width. */
+  .photo-grid3,
+  .photo-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .grid3-lead,
+  .grid3-text {
+    grid-column: auto;
+  }
+  .photo-grid3 .frame,
+  .photo-split .frame {
+    max-width: 640px;
+    height: min(var(--frame-h, 240px), 62vw);
+  }
+  .page-head-photo {
+    height: min(var(--frame-h, 330px), 62vw);
+  }
+  .ratings {
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    gap: var(--space-3);
+    padding: var(--space-6) 0;
+  }
+  .ratings-score {
+    font-size: 42px;
+  }
+  .ratings-platform {
+    letter-spacing: 0.16em;
+  }
+}

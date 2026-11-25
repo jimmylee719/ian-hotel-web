@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PHOTO_DIMENSIONS, maxSlotHeight, photoFits } from "@/lib/design/photo-fit";
+import { PHOTO_DIMENSIONS, frameHeight, maxSlotHeight, photoFits } from "@/lib/design/photo-fit";
 
 describe("photo dimensions manifest", () => {
   it("has an entry for every file under content/images and nothing else", () => {
@@ -38,5 +38,17 @@ describe("maxSlotHeight", () => {
   it("is 0 for unknown keys or a slot too wide for the source", () => {
     expect(maxSlotHeight("nope.jpg", 600)).toBe(0);
     expect(maxSlotHeight("rooms/rooms_76.jpg", 1000)).toBe(0);
+  });
+});
+
+describe("frameHeight", () => {
+  it("is the sharp maximum, capped at the frame's own maximum", () => {
+    expect(frameHeight("rooms/rooms_76.jpg", 600, 330)).toBe(293);
+    expect(frameHeight("amenities/amenities_32.jpg", 495, 330)).toBe(330);
+    expect(frameHeight("amenities/amenities_32.jpg", 440, 340, 1.4)).toBe(340);
+  });
+  it("is 0 when the source cannot fill the slot sharply", () => {
+    expect(frameHeight("nope.jpg", 300, 300)).toBe(0);
+    expect(frameHeight("rooms/rooms_76.jpg", 800, 300)).toBe(0);
   });
 });

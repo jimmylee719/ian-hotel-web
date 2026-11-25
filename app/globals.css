@@ -579,7 +579,8 @@ a {
 
 /* ---------- motion: one reveal on load ---------- */
 @media (prefers-reduced-motion: no-preference) {
-  .hero-photo img {
+  .hero-photo img,
+  .arch-photo img {
     animation: reveal 1.4s var(--ease) both 0.1s;
   }
   .tagline {
