@@ -9,7 +9,7 @@ import { PhotoManager } from "./PhotoManager";
 import { Toast } from "./Toast";
 
 /** Send JSON to an admin content route; a failed answer throws its `message`. */
-async function send<T>(method: "POST" | "PATCH" | "DELETE", url: string, body?: unknown): Promise<T> {
+export async function send<T>(method: "POST" | "PATCH" | "DELETE", url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method, ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   });
@@ -18,7 +18,7 @@ async function send<T>(method: "POST" | "PATCH" | "DELETE", url: string, body?: 
   return json;
 }
 
-function useToast() {
+export function useToast() {
   const [toast, setToast] = useState<{ text: string; kind: "success" | "error" } | null>(null);
   const close = useCallback(() => setToast(null), []);
   return {

@@ -39,6 +39,8 @@ const MESSAGES: Record<string, [status: number, message: string]> = {
   INVALID_FIELD: [400, "有欄位的格式不正確，請檢查後再存檔。"],
   IMAGE_NOT_FOUND: [400, "有照片在儲存空間裡找不到，請重新上傳。"],
   SLUG_TAKEN: [409, "這個網址代稱已經有人用了，請換一個。"],
+  CODE_TAKEN: [409, "這個折扣碼已經存在（大小寫視為相同），請換一個。"],
+  READ_ONLY_FIELD: [400, "這個欄位不能在這裡修改。"],
   TOO_LARGE: [413, "照片太大了，最大 8 MB。"],
   BAD_TYPE: [415, "只能上傳 JPEG、PNG、WebP 或 AVIF 照片。"],
   BAD_PREFIX: [400, "上傳位置不正確。"],

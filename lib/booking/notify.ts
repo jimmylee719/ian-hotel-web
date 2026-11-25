@@ -133,6 +133,7 @@ export async function emailContext(
     hotelEmail: property.email,
     hotelAddress: property.address[loc],
     manageUrl: `${base}/${loc}/manage/${res.code}`,
+    arrival: { checkIn: property.checkInTime, checkOut: property.checkOutTime, directions: property.directions[loc] ?? "" },
     ...(res.refundedAmount > 0 ? { refundAmount: res.refundedAmount } : {}),
     ...(res.status === "cancelled" && res.frontDeskRefundDue > 0 ? { frontDeskRefundDue: res.frontDeskRefundDue } : {}),
   };

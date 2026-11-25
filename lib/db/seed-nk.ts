@@ -16,6 +16,14 @@ const ROOMS: [slug: string, name: I18n, maxOccupancy: number][] = [
   ["connecting-room", t("行政四人套房（連通房）", "CONNECTING ROOM", "コネクティングルーム（4名）", "커넥팅 룸 (4인)"), 4],
 ];
 
+/** How to get to NK Hostel (also written by migration 0015 for databases that existed before it). */
+const DIRECTIONS: I18n = {
+  "zh-TW": "捷運南京三民站 4 號出口步行約 8 分鐘，樓下就有公車站。饒河街夜市與松山車站都在步行範圍內，到松山機場搭計程車約 10 分鐘。",
+  en: "About 8 minutes' walk from exit 4 of Nanjing Sanmin MRT station, with a bus stop right outside. Raohe Street Night Market and Songshan Station are within walking distance, and Songshan Airport is about 10 minutes by taxi.",
+  ja: "MRT 南京三民駅 4 番出口から徒歩約 8 分、建物の前にバス停があります。饒河街夜市と松山駅は徒歩圏内、松山空港へはタクシーで約 10 分です。",
+  ko: "MRT 난징싼민역 4번 출구에서 걸어서 약 8분, 건물 앞에 버스 정류장이 있습니다. 라오허제 야시장과 쑹산역은 걸어서 갈 수 있고, 쑹산공항까지는 택시로 약 10분입니다.",
+};
+
 export async function seedNk(db: Db): Promise<{ propertyId: string }> {
   const existing = await db.select({ id: properties.id }).from(properties).where(eq(properties.slug, "nk-hostel"));
   if (existing.length) return { propertyId: existing[0].id };
@@ -34,6 +42,10 @@ export async function seedNk(db: Db): Promise<{ propertyId: string }> {
     ),
     phone: "+886 2 2769 0200",
     email: "info@nkhostel.com",
+    // Defaults until the owner confirms the real times (editable at /admin/commerce/property).
+    checkInTime: "15:00",
+    checkOutTime: "11:00",
+    directions: DIRECTIONS,
     createdAt: Date.now(),
   });
 

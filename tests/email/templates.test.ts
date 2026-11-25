@@ -10,6 +10,7 @@ const data: EmailData = {
   cancellationText: "Free cancellation until 2026-11-28.",
   hotelPhone: "+886-2-1234-5678", hotelEmail: "hi@ian.test", hotelAddress: "1 Test Rd, Taipei",
   manageUrl: "https://hotel.test/en/booking/NK-1234", refundAmount: 4960,
+  arrival: { checkIn: "15:00", checkOut: "11:00", directions: "Exit 4 of Nanjing Sanmin MRT station, then 8 minutes on foot." },
 };
 const customerKinds: NotificationKind[] = ["booking_confirmed", "booking_failed_refunded", "payment_refunded", "cancelled", "pre_arrival", "booking_modified"];
 
@@ -89,16 +90,31 @@ describe("MockEmailSender", () => {
   });
 
   it("pre_arrival tells the guest how to get there, the check-in time and how to reach the hotel, in every locale", () => {
-    const expected = { "zh-TW": "捷運南京三民站", en: "Nanjing Sanmin MRT", ja: "南京三民駅", ko: "난징싼민역" } as const;
     for (const l of LOCALES) {
       const m = renderEmail("pre_arrival", l, data);
       for (const out of [m.text, m.html]) {
-        expect(out).toContain(expected[l]);
+        expect(out).toContain("Nanjing Sanmin MRT");
         expect(out).toContain("15:00");
         expect(out).toContain(data.hotelPhone);
         expect(out).toContain(data.hotelEmail);
       }
     }
     expect(renderEmail("booking_confirmed", "en", data).text).not.toContain("Nanjing Sanmin MRT");
+
+    // The times and directions are the property's settings, not hard-coded copy.
+    const custom = { ...data, arrival: { checkIn: "14:30", checkOut: "10:00", directions: "Take the lift to 5F." } };
+    for (const l of LOCALES) {
+      const m = renderEmail("pre_arrival", l, custom);
+      for (const out of [m.text, m.html]) {
+        expect(out).toContain("14:30");
+        expect(out).toContain("10:00");
+        expect(out).toContain("Take the lift to 5F.");
+        expect(out).not.toContain("15:00");
+        expect(out).not.toContain("11:00");
+      }
+    }
+    // No directions set yet: the row is left out rather than shown empty.
+    const bare = renderEmail("pre_arrival", "en", { ...data, arrival: { ...data.arrival, directions: "  " } });
+    expect(bare.text).not.toContain("Getting here");
   });
 });

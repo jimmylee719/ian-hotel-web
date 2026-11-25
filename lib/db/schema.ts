@@ -25,6 +25,11 @@ export const properties = sqliteTable("properties", {
   email: text("email").notNull(),
   smPropertyCode: text("sm_property_code"),
   sinopacMerchantId: text("sinopac_merchant_id"),
+  /** 'HH:MM' Taipei wall-clock, shown in the pre-arrival email. */
+  checkInTime: text("check_in_time").notNull().default("15:00"),
+  checkOutTime: text("check_out_time").notNull().default("11:00"),
+  /** How to get there, per language (staff-managed; the pre-arrival email shows it). */
+  directions: text("directions", { mode: "json" }).$type<I18n>().notNull().default(sql`'{"zh-TW":"","en":"","ja":"","ko":""}'`),
   createdAt: ms("created_at"),
 });
 
@@ -276,21 +281,26 @@ export const notifications = sqliteTable(
 );
 export type NotificationKind = typeof notifications.$inferSelect["kind"];
 
-export const addons = sqliteTable("addons", {
-  id: id(),
-  propertyId: text("property_id").notNull().references(() => properties.id),
-  slug: text("slug").notNull(),
-  name: i18n("name"),
-  price: integer("price").notNull(),
-  unit: text("unit", { enum: ["per_stay", "per_night", "per_person_night"] }).notNull(),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
-});
+export const addons = sqliteTable(
+  "addons",
+  {
+    id: id(),
+    propertyId: text("property_id").notNull().references(() => properties.id),
+    slug: text("slug").notNull(),
+    name: i18n("name"),
+    price: integer("price").notNull(),
+    unit: text("unit", { enum: ["per_stay", "per_night", "per_person_night"] }).notNull(),
+    active: integer("active", { mode: "boolean" }).notNull().default(true),
+  },
+  (t) => [uniqueIndex("addons_property_slug").on(t.propertyId, t.slug)],
+);
 
 export const promoCodes = sqliteTable(
   "promo_codes",
   {
     id: id(),
     propertyId: text("property_id").notNull().references(() => properties.id),
+    /** Stored trimmed and UPPERCASE (lib/admin/commerce); matched case-insensitively at booking time. */
     code: text("code").notNull(),
     kind: text("kind", { enum: ["percent", "fixed"] }).notNull(),
     value: integer("value").notNull(),

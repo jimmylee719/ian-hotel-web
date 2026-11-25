@@ -7,6 +7,10 @@ export const FIELD_LABELS: Record<string, string> = {
   name: "名稱", description: "介紹", bedType: "床型", amenities: "設備", sizeSqm: "坪數（平方公尺）",
   maxAdults: "成人上限", maxOccupancy: "入住上限", sortOrder: "排序", active: "上架", images: "照片",
   slug: "網址代稱", title: "標題", body: "內文", publishedAt: "發布時間",
+  price: "價格", unit: "計價單位", code: "折扣碼", kind: "折扣類型", value: "折扣數值", validFrom: "開始日", validTo: "結束日",
+  maxUses: "使用上限", cancelPolicy: "取消規則", paymentMode: "付款方式", depositPct: "訂金比例", includesBreakfast: "含早餐",
+  directOnly: "官網限定", address: "地址", phone: "電話", email: "Email", checkInTime: "入住時間", checkOutTime: "退房時間",
+  directions: "交通說明",
 };
 
 const UNIT_TYPE_KEYS = ["name", "description", "bedType", "amenities", "sizeSqm", "maxAdults", "maxOccupancy", "sortOrder", "active", "images"] as const;

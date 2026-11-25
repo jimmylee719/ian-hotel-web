@@ -23,6 +23,8 @@ export type EmailData = {
   frontDeskRefundDue?: number;
   /** booking_modified only: the new total minus the old one, and how that difference is settled. */
   modification?: ModificationMoney;
+  /** The property's own check-in/out times ('HH:MM') and directions in the email's language (pre_arrival). */
+  arrival: { checkIn: string; checkOut: string; directions: string };
 };
 
 export type ModificationMoney = {
@@ -47,7 +49,7 @@ type Copy = {
   /** booking_modified: how the price difference is settled. */
   settle: (m: ModificationMoney) => string;
   /** Pre-arrival only: the property's check-in/out times and how to get there. */
-  arrival: { times: string; directions: string };
+  arrival: { times: (checkIn: string, checkOut: string) => string };
   sign: string;
   kinds: Record<CustomerKind, { subject: (d: EmailData) => string; heading: string; intro: (d: EmailData) => string }>;
 };
@@ -60,8 +62,7 @@ const copy: Record<Locale, Copy> = {
       cancellation: "取消規則", contact: "聯絡我們", manage: "查看或管理訂單", checkInTime: "入住時間", directions: "交通方式", difference: "差額", settlement: "差額處理",
     },
     arrival: {
-      times: "15:00 起可入住，退房時間為 11:00 前。入住時請出示與訂單姓名相符的身分證件或護照。",
-      directions: "捷運南京三民站 4 號出口步行約 8 分鐘，樓下就有公車站。饒河街夜市與松山車站都在步行範圍內，到松山機場搭計程車約 10 分鐘。",
+      times: (i, o) => `${i} 起可入住，退房時間為 ${o} 前。入住時請出示與訂單姓名相符的身分證件或護照。`,
     },
     settle: (m) => m.difference > 0
       ? `需補差額 ${formatTwd(m.difference)}，目前待付 ${formatTwd(m.balanceDue)}，請於入住時在櫃檯付款。`
@@ -112,8 +113,7 @@ const copy: Record<Locale, Copy> = {
       checkInTime: "Check-in", directions: "Getting here", difference: "Price difference", settlement: "Settlement",
     },
     arrival: {
-      times: "Check-in from 15:00, check-out by 11:00. Please bring photo ID or a passport matching the name on the booking.",
-      directions: "About 8 minutes' walk from exit 4 of Nanjing Sanmin MRT station, with a bus stop right outside. Raohe Street Night Market and Songshan Station are within walking distance, and Songshan Airport is about 10 minutes by taxi.",
+      times: (i, o) => `Check-in from ${i}, check-out by ${o}. Please bring photo ID or a passport matching the name on the booking.`,
     },
     settle: (m) => m.difference > 0
       ? `An extra ${formatTwd(m.difference)} is due; the balance of ${formatTwd(m.balanceDue)} is payable at the front desk when you check in.`
@@ -164,8 +164,7 @@ const copy: Record<Locale, Copy> = {
       checkInTime: "チェックイン", directions: "アクセス", difference: "差額", settlement: "差額のお取り扱い",
     },
     arrival: {
-      times: "チェックインは 15:00 から、チェックアウトは 11:00 までです。ご予約名と一致する身分証明書またはパスポートをご提示ください。",
-      directions: "MRT 南京三民駅 4 番出口から徒歩約 8 分、建物の前にバス停があります。饒河街夜市と松山駅は徒歩圏内、松山空港へはタクシーで約 10 分です。",
+      times: (i, o) => `チェックインは ${i} から、チェックアウトは ${o} までです。ご予約名と一致する身分証明書またはパスポートをご提示ください。`,
     },
     settle: (m) => m.difference > 0
       ? `差額 ${formatTwd(m.difference)} が発生します。未払い額 ${formatTwd(m.balanceDue)} はチェックイン時にフロントでお支払いください。`
@@ -216,8 +215,7 @@ const copy: Record<Locale, Copy> = {
       checkInTime: "체크인", directions: "오시는 길", difference: "차액", settlement: "차액 처리",
     },
     arrival: {
-      times: "체크인은 15:00부터, 체크아웃은 11:00까지입니다. 예약자 성함과 일치하는 신분증 또는 여권을 지참해 주세요.",
-      directions: "MRT 난징싼민역 4번 출구에서 걸어서 약 8분, 건물 앞에 버스 정류장이 있습니다. 라오허제 야시장과 쑹산역은 걸어서 갈 수 있고, 쑹산공항까지는 택시로 약 10분입니다.",
+      times: (i, o) => `체크인은 ${i}부터, 체크아웃은 ${o}까지입니다. 예약자 성함과 일치하는 신분증 또는 여권을 지참해 주세요.`,
     },
     settle: (m) => m.difference > 0
       ? `차액 ${formatTwd(m.difference)}이(가) 발생합니다. 미결제 금액 ${formatTwd(m.balanceDue)}은(는) 체크인 시 프런트에서 결제해 주세요.`
@@ -296,7 +294,10 @@ function rows(kind: CustomerKind, c: Copy, d: EmailData): [string, string][] {
   if (kind === "booking_confirmed" || kind === "pre_arrival" || kind === "cancelled" || kind === "booking_modified") {
     r.push([l.cancellation, d.cancellationText]);
   }
-  if (kind === "pre_arrival") r.push([l.checkInTime, c.arrival.times], [l.directions, c.arrival.directions]);
+  if (kind === "pre_arrival") {
+    r.push([l.checkInTime, c.arrival.times(d.arrival.checkIn, d.arrival.checkOut)]);
+    if (d.arrival.directions.trim()) r.push([l.directions, d.arrival.directions]);
+  }
   return r;
 }
 
