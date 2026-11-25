@@ -300,6 +300,20 @@ export const auditLog = sqliteTable("audit_log", {
   at: ms("at"),
 });
 
+/** Staff-only notes on a reservation. Append-only: there is no update or delete path. */
+export const reservationNotes = sqliteTable(
+  "reservation_notes",
+  {
+    id: id(),
+    reservationId: text("reservation_id").notNull().references(() => reservations.id),
+    propertyId: text("property_id").notNull().references(() => properties.id),
+    staffEmail: text("staff_email").notNull(),
+    body: text("body").notNull(),
+    createdAt: ms("created_at"),
+  },
+  (t) => [index("reservation_notes_reservation").on(t.reservationId, t.createdAt)],
+);
+
 const contentTable = (name: string) =>
   sqliteTable(name, {
     id: id(),

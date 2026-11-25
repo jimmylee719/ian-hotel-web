@@ -2,6 +2,7 @@ import { and, eq, gte, inArray, like, lte, sql } from "drizzle-orm";
 import { addDaysISO, todayInTaipei, type ISODate } from "@/lib/domain/dates";
 import { guests, notifications, paymentEvents, payments, reservationRooms, reservations } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
+import { MONEY_KINDS, netDelta } from "./money-metrics";
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -147,7 +148,7 @@ async function loadKpis(db: Db, propertyId: string, today: ISODate, monthStart: 
   const money = await db.select({ kind: payments.kind, amount: payments.amount, at: payments.createdAt })
     .from(payments).innerJoin(reservations, eq(reservations.id, payments.reservationId))
     .where(and(own, eq(reservations.channel, "direct"), eq(payments.status, "succeeded"),
-      inArray(payments.kind, ["charge", "front_desk", "refund"]), gte(payments.createdAt, monthStartMs)));
+      inArray(payments.kind, [...MONEY_KINDS]), gte(payments.createdAt, monthStartMs)));
 
   const stays = await db.select({ id: reservations.id, checkIn: reservations.checkIn, checkOut: reservations.checkOut })
     .from(reservations)
@@ -166,7 +167,7 @@ async function loadKpis(db: Db, propertyId: string, today: ISODate, monthStart: 
   const kpi = (from: ISODate, to: ISODate): Kpi => {
     const inRange = (ms: number) => { const d = todayInTaipei(new Date(ms)); return d >= from && d < to; };
     return {
-      revenue: money.filter((m) => inRange(m.at)).reduce((s, m) => s + (m.kind === "refund" ? -m.amount : m.amount), 0),
+      revenue: money.filter((m) => inRange(m.at)).reduce((s, m) => s + netDelta(m.kind, m.amount), 0),
       nights: stays.reduce((s, r) => s + nightsWithin(r.checkIn, r.checkOut, from, to) * (roomCount.get(r.id) ?? 1), 0),
       cancellations: cancelled.filter((c) => c.at != null && inRange(c.at)).length,
     };
