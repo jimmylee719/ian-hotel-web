@@ -115,11 +115,11 @@ test("a cancel applies its policy only to money not already owed back: 50% of 40
 });
 
 /**
- * `db`, except that the first `db.update(...)` statement runs `before()` just before it executes: a write that
- * lands between a request's checks and its first update (here, between staffCancel's override check and its claim).
+ * `db`, except that its `nth` `db.update(...)` statement (1-based) runs `before()` just before it executes: a write
+ * that lands between a request's reads and that update (e.g. between staffCancel's override check and its claim).
  */
-function beforeFirstUpdate<T extends object>(db: T, before: () => Promise<unknown>): T {
-  let fired = false;
+function beforeUpdate<T extends object>(db: T, nth: number, before: () => Promise<unknown>): T {
+  let count = 0;
   const defer = (b: object): object => new Proxy(b, {
     get(t, k, r) {
       const v = Reflect.get(t, k, r);
@@ -130,8 +130,8 @@ function beforeFirstUpdate<T extends object>(db: T, before: () => Promise<unknow
   return new Proxy(db, {
     get(t, k, r) {
       const v = Reflect.get(t, k, r);
-      if (k !== "update" || fired) return typeof v === "function" ? v.bind(t) : v;
-      return (...a: unknown[]) => { fired = true; return defer((v as Function).apply(t, a)); };
+      if (k !== "update") return typeof v === "function" ? v.bind(t) : v;
+      return (...a: unknown[]) => { const b = (v as Function).apply(t, a); return ++count === nth ? defer(b) : b; };
     },
   });
 }
@@ -139,7 +139,7 @@ function beforeFirstUpdate<T extends object>(db: T, before: () => Promise<unknow
 test("an override checked before a concurrent price-lowering modification is clamped to what is left: never more back than paid (I-2)", async () => {
   const s = await tenK();
   // Staff A asks to refund 10000 (all of it, valid now); staff B's modification to one night refunds 6000 first.
-  const raced = { ...s.deps, db: beforeFirstUpdate(s.db, () => s.modify(ONE_NIGHT)) };
+  const raced = { ...s.deps, db: beforeUpdate(s.db, 1, () => s.modify(ONE_NIGHT)) };
   const r = await staffCancel(raced, s.manager, s.id, { reason: "x", notifyGuest: true, refundOverride: 10000 }, AT);
   expect(r).toEqual({
     ok: true, refunded: 4000, alreadyCancelled: false, overrideClamped: true, overrideRequested: 10000, overrideApplied: 4000,
@@ -161,4 +161,22 @@ test("the cancel core clamps an override above the cancel base itself, keeping m
   expect(r).toMatchObject({ ok: true, refunded: 0, frontDeskRefundDue: 7000, overrideClamped: { requested: 9000, applied: 4000 } });
   // The desk owes exactly the 7000 it holds (3000 owed back + the 4000 cancel refund), not 12000.
   expect(await s.row()).toMatchObject({ status: "cancelled", frontDeskRefundDue: 7000 });
+});
+
+test("a cancel attempt that stalls past its lease cannot overwrite the desk share the takeover fixed with its intent (M-1)", async () => {
+  const s = await tenK({ deposit: true, desk: 7000 }); // 3000 online + 7000 at the desk
+  const real = s.gateway.refund.bind(s.gateway);
+  const takeover = new Date(HALF.getTime() + 3 * 60_000); // after CANCEL_LEASE_MS
+  // Attempt A (staff, override 10000 → desk share 7000) has claimed and planned, then stalls before storing its
+  // share. Meanwhile attempt B takes over: policy 50% at A's claim time → 5000: 3000 online + 2000 desk; its
+  // refund's outcome is lost (row pending), so the booking stays confirmed with B's intent and B's share.
+  const b = async () => {
+    vi.spyOn(s.gateway, "refund").mockImplementationOnce(async (r) => { await real(r); throw new Error("connection reset"); });
+    expect(await cancelConfirmed(s.deps, s.id, takeover, { reason: "GUEST_CANCELLED" })).toEqual({ ok: false, error: "REFUND_FAILED" });
+    expect(await s.row()).toMatchObject({ status: "confirmed", cancelDeskDue: 2000 });
+  };
+  const stalled = { ...s.deps, db: beforeUpdate(s.db, 2, b) };
+  await cancelConfirmed(stalled, s.id, HALF, { reason: "STAFF_CANCELLED", refundOverride: 10000 });
+  expect(await s.refunds()).toMatchObject([{ idempotencyKey: `cancel:${s.id}`, amount: 3000 }]);
+  expect((await s.row()).cancelDeskDue).toBe(2000);
 });

@@ -315,10 +315,11 @@ async function refundCancellation(deps: Deps, claim: Reservation, now: Date, o: 
   const plan = await cancelRefundPlan(db, claim, new Date(claim.cancelledAt!), o.refundOverride);
   const amount = plan.online;
   // Fixed alongside the intent: stored before refundOnce creates it, never rewritten once it exists.
-  // updatedAt (the claim's lease) is left alone.
+  // updatedAt (the claim's lease) is left alone, and must still be this claim's: an attempt that stalled past
+  // its lease must not overwrite the share a takeover attempt has since fixed with its own intent.
   if (!intent && plan.frontDesk !== claim.cancelDeskDue)
     await db.update(reservations).set({ cancelDeskDue: plan.frontDesk })
-      .where(and(eq(reservations.id, claim.id), eq(reservations.status, "confirmed")));
+      .where(and(eq(reservations.id, claim.id), eq(reservations.status, "confirmed"), eq(reservations.updatedAt, claim.updatedAt)));
   const clamp = plan.overrideClamped ? { overrideClamped: plan.overrideClamped } : {};
   if (amount <= 0) return { ok: true, amount: 0, frontDesk: plan.frontDesk, ...clamp };
   if (o.gatewayAvailable === false) return { ok: false, error: "PAYMENTS_UNAVAILABLE" };
