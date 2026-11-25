@@ -79,7 +79,8 @@ export type ReconcileResult =
  *   (queryRefund): if it made the refund after all, the row is settled with the gateway's ref instead (no note, the
  *   audit row says `outcome: "gateway_succeeded"`) and the result says `settledByGateway`. The reference (1–200 characters, never something
  *   that looks like a card number) is required. Like mark_succeeded, in one batch guarded by the row's status as
- *   read: the row → succeeded with providerRef `offline:<reference>` and a note saying how, refundedAmount bumped
+ *   read: the row → succeeded with providerRef `offline:<reference>:<row id>` (one transfer may cover several rows;
+ *   rows settled before this format keep `offline:<reference>`) and a note saying how and the reference, refundedAmount bumped
  *   for `cancel:` / `fail:` rows, the audit row; then finishFlow. A settled `modify:` row stops blocking cancels and
  *   further modifications. The row keeps its online method on purpose: it still reverses the ONLINE charge (the
  *   money the gateway took), so the money module counts it against onlineNet, not the desk; how the cash actually
@@ -135,7 +136,8 @@ export async function reconcileRefund(
       providerRef = made.refundRef;
       extra = { method: action.method, reference, outcome: "gateway_succeeded" };
     } else {
-      providerRef = `offline:${reference}`;
+      // The row id keeps providerRef unique while one transfer may pay back several rows; the reference itself is in the note.
+      providerRef = `offline:${reference}:${row.id}`;
       note = `線下退款（${OFFLINE_METHOD_LABEL[action.method]}）：${reference}`;
       extra = { method: action.method, reference };
     }

@@ -258,7 +258,7 @@ describe("settle_offline: a refund the gateway will not take, paid back by the h
       .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
     expect(refund).not.toHaveBeenCalled(); // the money moved by bank transfer, not through the gateway
     expect(await s.refundRows(s.id)).toMatchObject([{
-      status: "succeeded", amount: PAID, method: "sinopac_online", providerRef: `offline:${OFFLINE.reference}`,
+      status: "succeeded", amount: PAID, method: "sinopac_online", providerRef: `offline:${OFFLINE.reference}:${s.row.id}`,
       note: expect.stringContaining("匯款"), settledAt: LATER.getTime(),
     }]);
     expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: PAID, frontDeskRefundDue: 0, cancelledAt: s.row.createdAt });
@@ -269,7 +269,7 @@ describe("settle_offline: a refund the gateway will not take, paid back by the h
     expect(await s.db.select().from(auditLog).where(eq(auditLog.entityId, s.row.id))).toMatchObject([{
       action: "payment.reconcile", entity: "payment", staffEmail: s.manager.email,
       before: { status: "failed" },
-      after: { kind: "settle_offline", method: "transfer", reference: OFFLINE.reference, providerRef: `offline:${OFFLINE.reference}` },
+      after: { kind: "settle_offline", method: "transfer", reference: OFFLINE.reference, providerRef: `offline:${OFFLINE.reference}:${s.row.id}` },
     }]);
 
     expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER)).toEqual({ ok: false, error: "ALREADY_RESOLVED" });
@@ -312,6 +312,32 @@ describe("settle_offline: a refund the gateway will not take, paid back by the h
     query.mockClear();
     expect(await reconcileRefund(s.deps, s.manager, s.row.id, OFFLINE, LATER)).toMatchObject({ ok: true, status: "succeeded" });
     expect(query).not.toHaveBeenCalled();
+  });
+
+  test("one transfer can settle several refund rows: providerRef is offline:<reference>:<rowId>, the reference is in the note", async () => {
+    const { db, deps, gateway, manager, book, notice, reservation, refundRows } = await setup();
+    const code = await book();
+    const res0 = await reservation(code);
+    await db.insert(payments).values({
+      id: "extra-charge", reservationId: res0.id, kind: "charge", method: "sinopac_online", amount: 100, status: "succeeded",
+      providerRef: "REF-EXTRA", createdAt: minutes(1).getTime(),
+    });
+    vi.spyOn(gateway, "refund").mockResolvedValueOnce({ ok: false, error: "WINDOW_CLOSED" }); // first refund refused
+    await handlePaymentNotice(deps, await notice(code, { amount: PAY_NOW - 1 }), minutes(2)); // AMOUNT_MISMATCH
+    const [first] = await refundRows(res0.id);
+    expect(first.status).toBe("failed");
+    vi.spyOn(gateway, "refund").mockResolvedValueOnce({ ok: false, error: "WINDOW_CLOSED" }); // and the other one, on completion
+    expect(await reconcileRefund(deps, manager, first.id, OFFLINE, minutes(60)))
+      .toMatchObject({ ok: true, status: "succeeded", completed: null });
+    const second = (await refundRows(res0.id)).find((r) => r.id !== first.id)!;
+    expect(second.status).toBe("failed");
+
+    // The hotel paid both back in one transfer: the same reference settles the second row too.
+    expect(await reconcileRefund(deps, manager, second.id, OFFLINE, minutes(61)))
+      .toEqual({ ok: true, status: "succeeded", completed: "refund_and_fail", reservationStatus: "confirm_failed_refunded" });
+    const rows = await refundRows(res0.id);
+    expect(rows.map((r) => r.providerRef).sort()).toEqual([`offline:${OFFLINE.reference}:${first.id}`, `offline:${OFFLINE.reference}:${second.id}`].sort());
+    expect(rows.every((r) => r.status === "succeeded" && r.note?.includes(OFFLINE.reference))).toBe(true);
   });
 
   test("a failed modify: row settled offline lets the guest cancel again", async () => {
