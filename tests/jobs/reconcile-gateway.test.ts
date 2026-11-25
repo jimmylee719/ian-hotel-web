@@ -4,11 +4,13 @@ import { alertHref, getDashboard } from "@/lib/admin/dashboard";
 import { reconcileRefund } from "@/lib/admin/reconcile";
 import { cancelReservation } from "@/lib/booking/manage";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
-import { jobRuns, notifications, paymentEvents, payments } from "@/lib/db/schema";
+import { settleRefundRow } from "@/lib/booking/confirm";
+import type { Deps } from "@/lib/booking/notify";
+import { jobRuns, notifications, paymentEvents, payments, reservations } from "@/lib/db/schema";
 import {
   CHANNEL_RECONCILE_JOB, CRON_CHANNEL_RECONCILE, CRON_EVERY_5_MIN, CRON_GATEWAY_RECONCILE, CRON_JOB, GATEWAY_RECONCILE_JOB, recordJob, runCronTrigger,
 } from "@/lib/jobs/cron";
-import { REFUND_FAILED_REF, runGatewayReconcile } from "@/lib/jobs/reconcile-gateway";
+import { FLOW_UNFINISHED_REF, REFUND_FAILED_REF, runGatewayReconcile } from "@/lib/jobs/reconcile-gateway";
 import { bookingSetup, minutes, PAY_NOW, STAFF } from "@/tests/helpers/booking";
 
 const GUEST = "mei@example.com";
@@ -259,4 +261,85 @@ test("an attempt over an hour old is asked about about hourly, not on every 15-m
   query.mockClear();
   for (let m = 60; m < 180; m += 15) await runGatewayReconcile(s.deps, minutes(m));
   expect(query).toHaveBeenCalledTimes(2); // then once an hour
+});
+
+/**
+ * deps whose db refuses every UPDATE of reservations (a worker dying mid-flow), everything else as usual;
+ * with `afterSettle`, only once a payments row has been updated (the refund settled first).
+ */
+function failingReservationUpdates(deps: Deps, o: { afterSettle?: boolean } = {}): Deps {
+  let armed = !o.afterSettle;
+  const db = new Proxy(deps.db, {
+    get(target, prop, receiver) {
+      const v = Reflect.get(target, prop, receiver);
+      if (prop !== "update") return typeof v === "function" ? v.bind(target) : v;
+      return (table: unknown) => {
+        if (table === payments) armed = true;
+        else if (table === reservations && armed) throw new Error("D1_ERROR: worker died");
+        return (v as (t: unknown) => unknown).call(target, table);
+      };
+    },
+  });
+  return { ...deps, db };
+}
+
+test("a settled cancellation refund whose flow never finished (worker died) is finished by a later run, not by one inside its grace", async () => {
+  const s = await stuckCancellation();
+  // The gateway reports the refund made; the job settles the row, then finishing the cancellation dies.
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  expect(await runGatewayReconcile(failingReservationUpdates(s.deps, { afterSettle: true }), minutes(15))).toMatchObject({ refundsChecked: 1 });
+  expect(await s.refundRows()).toMatchObject([{ status: "succeeded", settledAt: minutes(15).getTime() }]);
+  expect(await s.reservation(s.code)).toMatchObject({ status: "confirmed" }); // refunded, but still holding the room
+  // Staff are told, once.
+  const [row] = await s.refundRows();
+  const told = () => s.db.select().from(notifications).where(eq(notifications.ref, `${FLOW_UNFINISHED_REF}${row.id}`));
+  expect(await told()).toMatchObject([{ kind: "staff_payment_alert", to: STAFF }]);
+
+  // Within the grace after settling (a live cancel may still be finishing it): left alone.
+  expect(await runGatewayReconcile(s.deps, minutes(20))).toMatchObject({ flowsFinished: 0 });
+  expect((await s.reservation(s.code)).status).toBe("confirmed");
+
+  // Later: finished, the room released, the guest emailed once; staff not told again.
+  expect(await runGatewayReconcile(s.deps, minutes(30))).toMatchObject({ flowsFinished: 1, flowsFailed: 0 });
+  expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", refundedAmount: row.amount, cancelledAt: minutes(2).getTime() });
+  expect(s.channel.records).toMatchObject([{ code: s.code, state: "cancelled" }]);
+  expect(s.email.sent.filter((e) => e.to === GUEST && e.subject.includes("cancelled"))).toHaveLength(1);
+  expect(await told()).toHaveLength(1);
+
+  // Nothing left to finish.
+  expect(await runGatewayReconcile(s.deps, minutes(45))).toMatchObject({ flowsFinished: 0, flowsFailed: 0 });
+  error.mockRestore();
+});
+
+test("the sweep keeps trying a flow that throws, alerting staff once per row", async () => {
+  const s = await stuckCancellation();
+  const [pending] = await s.refundRows();
+  // The live cancel's refund settled, and then the request died before cancelling the booking.
+  await settleRefundRow(s.db, pending, "BANK-R", true, minutes(3));
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  expect(await runGatewayReconcile(failingReservationUpdates(s.deps), minutes(15))).toMatchObject({ flowsFinished: 0, flowsFailed: 1 });
+  expect(await runGatewayReconcile(failingReservationUpdates(s.deps), minutes(30))).toMatchObject({ flowsFailed: 1 });
+  error.mockRestore();
+  expect(await s.db.select().from(notifications).where(eq(notifications.ref, `${FLOW_UNFINISHED_REF}${pending.id}`))).toHaveLength(1);
+  expect(await runGatewayReconcile(s.deps, minutes(45))).toMatchObject({ flowsFinished: 1 });
+  expect((await s.reservation(s.code)).status).toBe("cancelled");
+});
+
+test("a failed booking whose refund settled but was never closed is refunded-and-failed by the sweep", async () => {
+  const s = await bookingSetup({ refundTimeoutNext: 1 });
+  const code = await s.book();
+  // Paid the wrong amount: refundAndFail; the refund's answer is lost and the gateway cannot say yet.
+  vi.spyOn(s.gateway, "queryRefund").mockResolvedValueOnce({ status: "pending" });
+  await handlePaymentNotice(s.deps, await s.notice(code, { amount: PAY_NOW - 1 }), minutes(1));
+  const res = await s.reservation(code);
+  expect(res).toMatchObject({ status: "paid_pending_confirm", syncState: "failed" });
+  const [row] = await s.db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "refund")));
+  expect(row).toMatchObject({ status: "pending", idempotencyKey: expect.stringMatching(/^fail:/) });
+  // Settled (e.g. by an earlier run) but the booking was never closed.
+  await settleRefundRow(s.db, row, "BANK-R", true, minutes(2));
+
+  expect(await runGatewayReconcile(s.deps, minutes(15))).toMatchObject({ flowsFinished: 1 });
+  expect(await s.reservation(code)).toMatchObject({ status: "confirm_failed_refunded", refundedAmount: PAY_NOW - 1 });
+  expect(s.gateway.refunds).toHaveLength(1); // nothing refunded twice
+  expect(await runGatewayReconcile(s.deps, minutes(30))).toMatchObject({ flowsFinished: 0 });
 });

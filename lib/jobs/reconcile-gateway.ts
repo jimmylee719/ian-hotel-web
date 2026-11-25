@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, gt, gte, isNotNull, isNull, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNotNull, isNull, like, lte, or, sql } from "drizzle-orm";
 import { finishFlow } from "@/lib/admin/reconcile";
-import { countsAsBookingRefund, markRefundFailed, settleRefundRow } from "@/lib/booking/confirm";
+import { countsAsBookingRefund, markRefundFailed, settleRefundRow, type PaymentRow } from "@/lib/booking/confirm";
 import { notifyStaff, type Deps } from "@/lib/booking/notify";
 import { applyPaymentNotice } from "@/lib/booking/payment-notice";
 import { payments, reservations } from "@/lib/db/schema";
@@ -20,8 +20,13 @@ export const GATEWAY_RECONCILE_BATCH = 50;
 /** The staff alert's ref for a refund row this job found failed: one email per row. */
 export const REFUND_FAILED_REF = "refund-failed:";
 
+/** The staff alert's ref for a settled refund whose flow could not be finished: one email per row. */
+export const FLOW_UNFINISHED_REF = "flow-unfinished:";
+
 export type GatewayReconcileResult = {
   refundsChecked: number; refundsSettled: number; refundsFailed: number; refundsUnresolved: number;
+  /** Settled cancel / fail refunds whose booking was left unfinished, finished (or tried and failed) by the sweep. */
+  flowsFinished: number; flowsFailed: number;
   chargesChecked: number; chargesApplied: number;
 };
 
@@ -42,11 +47,16 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
  *   succeeded → applied exactly like a verified notice (applyPaymentNotice: dedupe, amount check, re-hold, channel
  *   push, stray refund of a second payment); the charge row then carries its order number and is not asked about
  *   again. Anything else changes nothing.
+ * - Succeeded `cancel:<id>` refunds whose booking is still `confirmed`, and succeeded `fail:<id>:…` refunds whose
+ *   booking is still `paid_pending_confirm` with syncState failed, settled over 10 minutes ago (a flow that died
+ *   after its refund settled: a live cancel, a refundAndFail, or this job's own finishFlow) → finishFlow again;
+ *   a flow that throws emails staff once per row and is tried again next run.
  * One item failing is logged and counted as unresolved; it never stops the others.
  */
 export async function runGatewayReconcile(deps: Deps, now: Date): Promise<GatewayReconcileResult> {
   const out: GatewayReconcileResult = {
-    refundsChecked: 0, refundsSettled: 0, refundsFailed: 0, refundsUnresolved: 0, chargesChecked: 0, chargesApplied: 0,
+    refundsChecked: 0, refundsSettled: 0, refundsFailed: 0, refundsUnresolved: 0, flowsFinished: 0, flowsFailed: 0,
+    chargesChecked: 0, chargesApplied: 0,
   };
   const due = now.getTime() - GATEWAY_RECONCILE_AFTER_MS;
 
@@ -67,8 +77,9 @@ export async function runGatewayReconcile(deps: Deps, now: Date): Promise<Gatewa
       }
       if (q.status === "succeeded") {
         await settleRefundRow(deps.db, row, q.refundRef ?? null, countsAsBookingRefund(row.idempotencyKey), now);
-        await finishFlow(deps, row.idempotencyKey, row.reservationId, now);
         out.refundsSettled++;
+        // If finishing throws, the row is settled all the same: the sweep below finishes it on a later run.
+        await finishOrAlert(deps, row, now);
       } else {
         await markRefundFailed(deps.db, row.id);
         // The refund_pending alert goes with the pending row: tell staff (once per row) and let the dashboard's
@@ -80,6 +91,34 @@ export async function runGatewayReconcile(deps: Deps, now: Date): Promise<Gatewa
       console.error(`gateway reconcile: refund ${row.id} failed`, e);
       out.refundsUnresolved++;
     }
+  }
+
+  // Self-healing: a refund settled (by this job, a live request or staff) whose flow then died — guest refunded,
+  // booking still holding the room. Only rows settled over GATEWAY_RECONCILE_AFTER_MS ago, so a live cancel or
+  // refundAndFail that has just settled its refund and is finishing right now is never raced. finishFlow is
+  // guarded (status as expected, intent succeeded) and safe to run again.
+  const settledBefore = now.getTime() - GATEWAY_RECONCILE_AFTER_MS;
+  const orphans = await deps.db.select({ p: payments }).from(payments)
+    .innerJoin(reservations, eq(reservations.id, payments.reservationId))
+    .where(and(
+      eq(payments.kind, "refund"), eq(payments.status, "succeeded"),
+      lte(sql`coalesce(${payments.settledAt}, ${payments.createdAt})`, settledBefore),
+      or(
+        and(eq(reservations.status, "confirmed"), eq(payments.idempotencyKey, sql`'cancel:' || ${reservations.id}`)),
+        and(
+          eq(reservations.status, "paid_pending_confirm"), eq(reservations.syncState, "failed"),
+          like(payments.idempotencyKey, sql`'fail:' || ${reservations.id} || ':%'`),
+        ),
+      ),
+    ))
+    .orderBy(asc(payments.settledAt), asc(payments.id))
+    .limit(GATEWAY_RECONCILE_BATCH);
+  const seen = new Set<string>();
+  for (const { p: row } of orphans) {
+    if (seen.has(row.reservationId)) continue; // one finish per booking per run (a failed booking may have several)
+    seen.add(row.reservationId);
+    if (await finishOrAlert(deps, row, now)) out.flowsFinished++;
+    else out.flowsFailed++;
   }
 
   // Every attempt of a payment started in the last day, whatever the booking's status since: a guest may pay on
@@ -125,4 +164,20 @@ export async function runGatewayReconcile(deps: Deps, now: Date): Promise<Gatewa
     }
   }
   return out;
+}
+
+/**
+ * finishFlow for a settled refund row. Never throws: a failure is logged and staff are emailed once per row
+ * (staff_payment_alert, ref FLOW_UNFINISHED_REF + row id); the sweep tries again on later runs.
+ * True when it ran without throwing.
+ */
+async function finishOrAlert(deps: Deps, row: Pick<PaymentRow, "id" | "idempotencyKey" | "reservationId">, now: Date): Promise<boolean> {
+  try {
+    await finishFlow(deps, row.idempotencyKey, row.reservationId, now);
+    return true;
+  } catch (e) {
+    console.error(`gateway reconcile: finishing the flow of refund ${row.id} failed`, e);
+    await notifyStaff(deps, row.reservationId, "staff_payment_alert", now, {}, `${FLOW_UNFINISHED_REF}${row.id}`);
+    return false;
+  }
 }
