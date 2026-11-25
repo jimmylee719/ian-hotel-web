@@ -4,7 +4,7 @@ import { getDashboard } from "@/lib/admin/dashboard";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { notifications, reservations } from "@/lib/db/schema";
 import { CHANNEL_RECONCILE_JOB, recordJob } from "@/lib/jobs/cron";
-import { CHANNEL_LOOKUP_ERRORS_REF, runChannelReconcile } from "@/lib/jobs/reconcile-channel";
+import { CHANNEL_LOOKUP_ERRORS_REF, CHANNEL_RECONCILE_BUDGET_MS, runChannelReconcile } from "@/lib/jobs/reconcile-channel";
 import { bookingSetup, minutes, NOW, STAFF } from "@/tests/helpers/booking";
 
 /** Taipei 04:00 on 2026-11-25. */
@@ -148,4 +148,37 @@ test("a run with lookup errors tells staff once a day and changes no row", async
   // A clean run tells no one.
   await runChannelReconcile(deps, new Date(RUN.getTime() + 2 * 86_400_000));
   expect(await told()).toHaveLength(2);
+});
+
+/** `n` confirmed direct bookings, pushed. */
+async function manyConfirmed(n: number) {
+  const s = await bookingSetup({ available: n + 1 });
+  for (let i = 0; i < n; i++) {
+    const code = await s.book({ idempotencyKey: `key-many-${String(i).padStart(4, "0")}` });
+    await handlePaymentNotice(s.deps, await s.notice(code), minutes(1));
+  }
+  return s;
+}
+
+test("the run stops calling the channel after 5 consecutive errors, and records that it stopped early", async () => {
+  const s = await manyConfirmed(7);
+  const lookup = vi.spyOn(s.channel, "lookupReservation").mockResolvedValue({ error: "DOWN", retryable: true });
+  const r = await recordJob(s.db, CHANNEL_RECONCILE_JOB, RUN, () => runChannelReconcile(s.deps, RUN));
+  expect(r).toMatchObject({ checked: 5, lookupErrors: 5, stoppedEarly: "errors" });
+  expect(lookup).toHaveBeenCalledTimes(5);
+  lookup.mockReset();
+  lookup.mockRejectedValueOnce(new Error("x")).mockResolvedValue({ found: false } as never);
+  vi.spyOn(s.channel, "pushReservation");
+  const again = await runChannelReconcile(s.deps, RUN);
+  expect(again).toMatchObject({ checked: 7, lookupErrors: 1 });
+  expect(again.stoppedEarly).toBeUndefined();
+});
+
+test("the run stops issuing channel calls once its wall-clock budget is spent", async () => {
+  const s = await manyConfirmed(3);
+  let t = 0;
+  const real = s.channel.lookupReservation.bind(s.channel);
+  vi.spyOn(s.channel, "lookupReservation").mockImplementation(async (code) => { t += 11 * 60_000; return real(code); });
+  expect(CHANNEL_RECONCILE_BUDGET_MS).toBeLessThanOrEqual(20 * 60_000);
+  expect(await runChannelReconcile(s.deps, RUN, { clock: () => t })).toMatchObject({ checked: 2, stoppedEarly: "deadline" });
 });

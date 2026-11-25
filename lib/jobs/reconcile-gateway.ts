@@ -4,6 +4,7 @@ import { countsAsBookingRefund, markRefundFailed, settleRefundRow, type PaymentR
 import { notifyStaff, type Deps } from "@/lib/booking/notify";
 import { applyPaymentNotice } from "@/lib/booking/payment-notice";
 import { payments, reservations } from "@/lib/db/schema";
+import { CallBudget, type StoppedEarly } from "./budget";
 
 /** A payment or refund is asked about once it has been pending this long (the gateway's own calls time out far sooner). */
 export const GATEWAY_RECONCILE_AFTER_MS = 10 * 60_000;
@@ -16,6 +17,8 @@ export const SLOW_QUERY_AFTER_MS = 60 * 60_000;
 const SLOW_QUERY_EVERY_MS = 60 * 60_000;
 /** At most this many refunds and this many charge-attempt queries per run. */
 export const GATEWAY_RECONCILE_BATCH = 50;
+/** A run stops issuing gateway calls this long after it started (well under its 15-minute interval). */
+export const GATEWAY_RECONCILE_BUDGET_MS = 10 * 60_000;
 
 /** The staff alert's ref for a refund row this job found failed: one email per row. */
 export const REFUND_FAILED_REF = "refund-failed:";
@@ -28,6 +31,8 @@ export type GatewayReconcileResult = {
   /** Settled cancel / fail refunds whose booking was left unfinished, finished (or tried and failed) by the sweep. */
   flowsFinished: number; flowsFailed: number;
   chargesChecked: number; chargesApplied: number;
+  /** Set when the run stopped issuing gateway calls early: its wall-clock budget ran out, or too many errors in a row. */
+  stoppedEarly?: StoppedEarly;
 };
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -51,9 +56,14 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
  *   booking is still `paid_pending_confirm` with syncState failed, settled over 10 minutes ago (a flow that died
  *   after its refund settled: a live cancel, a refundAndFail, or this job's own finishFlow) → finishFlow again;
  *   a flow that throws emails staff once per row and is tried again next run.
- * One item failing is logged and counted as unresolved; it never stops the others.
+ * One item failing is logged and counted as unresolved; it never stops the others. The run stops issuing gateway
+ * calls 10 minutes after it started, or after 5 errors in a row (lib/jobs/budget.ts), and records `stoppedEarly`;
+ * what it did not reach waits for the next run.
  */
-export async function runGatewayReconcile(deps: Deps, now: Date): Promise<GatewayReconcileResult> {
+export async function runGatewayReconcile(
+  deps: Deps, now: Date, o: { clock?: () => number } = {},
+): Promise<GatewayReconcileResult> {
+  const budget = new CallBudget(GATEWAY_RECONCILE_BUDGET_MS, o.clock);
   const out: GatewayReconcileResult = {
     refundsChecked: 0, refundsSettled: 0, refundsFailed: 0, refundsUnresolved: 0, flowsFinished: 0, flowsFailed: 0,
     chargesChecked: 0, chargesApplied: 0,
@@ -66,9 +76,11 @@ export async function runGatewayReconcile(deps: Deps, now: Date): Promise<Gatewa
     .limit(GATEWAY_RECONCILE_BATCH);
   for (const row of refunds) {
     if (!row.idempotencyKey) continue;
+    if (!budget.canCall()) break;
     out.refundsChecked++;
     try {
       const q = await deps.gateway.queryRefund(row.idempotencyKey).catch((e: unknown) => ({ error: errorText(e) }));
+      budget.record(!("error" in q));
       // Only a definite answer changes the row. not_found is not one here: the gateway may simply not show the
       // refund (yet), so the row stays pending for staff to check with the bank (the refund_pending alert).
       if ("error" in q || q.status === "pending" || q.status === "not_found") {
@@ -117,7 +129,10 @@ export async function runGatewayReconcile(deps: Deps, now: Date): Promise<Gatewa
   for (const { p: row } of orphans) {
     if (seen.has(row.reservationId)) continue; // one finish per booking per run (a failed booking may have several)
     seen.add(row.reservationId);
-    if (await finishOrAlert(deps, row, now)) out.flowsFinished++;
+    if (!budget.canCall()) break; // finishing may refund and call the channel
+    const finished = await finishOrAlert(deps, row, now);
+    budget.record(finished);
+    if (finished) out.flowsFinished++;
     else out.flowsFailed++;
   }
 
@@ -145,10 +160,11 @@ export async function runGatewayReconcile(deps: Deps, now: Date): Promise<Gatewa
     for (let n = 1; n <= last; n++) {
       const merchantOrderNo = `${b.code}-${n}`;
       if (recorded.has(merchantOrderNo)) continue;
-      if (out.chargesChecked >= GATEWAY_RECONCILE_BATCH) break charges;
+      if (out.chargesChecked >= GATEWAY_RECONCILE_BATCH || !budget.canCall()) break charges;
       out.chargesChecked++;
       try {
         const q = await deps.gateway.queryTransaction({ merchantOrderNo }).catch((e: unknown) => ({ error: errorText(e) }));
+        budget.record(!("error" in q));
         if ("error" in q || q.status !== "succeeded" || !q.providerRef || q.amount === undefined) continue;
         // Exactly as a verified notice: the first paid attempt settles the booking (or takes the late-payment path of
         // an expired one); any further paid attempt is a stray charge, refunded once (keyed by its provider ref).
@@ -163,6 +179,7 @@ export async function runGatewayReconcile(deps: Deps, now: Date): Promise<Gatewa
       }
     }
   }
+  if (budget.stoppedEarly) out.stoppedEarly = budget.stoppedEarly;
   return out;
 }
 

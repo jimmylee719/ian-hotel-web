@@ -10,7 +10,7 @@ import { jobRuns, notifications, paymentEvents, payments, reservations } from "@
 import {
   CHANNEL_RECONCILE_JOB, CRON_CHANNEL_RECONCILE, CRON_EVERY_5_MIN, CRON_GATEWAY_RECONCILE, CRON_JOB, GATEWAY_RECONCILE_JOB, recordJob, runCronTrigger,
 } from "@/lib/jobs/cron";
-import { FLOW_UNFINISHED_REF, REFUND_FAILED_REF, runGatewayReconcile } from "@/lib/jobs/reconcile-gateway";
+import { FLOW_UNFINISHED_REF, GATEWAY_RECONCILE_BUDGET_MS, REFUND_FAILED_REF, runGatewayReconcile } from "@/lib/jobs/reconcile-gateway";
 import { bookingSetup, minutes, PAY_NOW, STAFF } from "@/tests/helpers/booking";
 
 const GUEST = "mei@example.com";
@@ -342,4 +342,47 @@ test("a failed booking whose refund settled but was never closed is refunded-and
   expect(await s.reservation(code)).toMatchObject({ status: "confirm_failed_refunded", refundedAmount: PAY_NOW - 1 });
   expect(s.gateway.refunds).toHaveLength(1); // nothing refunded twice
   expect(await runGatewayReconcile(s.deps, minutes(30))).toMatchObject({ flowsFinished: 0 });
+});
+
+/** A stuck cancellation plus `extra` more pending refund rows on it (staff-modification refunds), all due. */
+async function manyPendingRefunds(extra: number) {
+  const s = await stuckCancellation();
+  for (let n = 1; n <= extra; n++)
+    await s.db.insert(payments).values({
+      id: `extra-${n}`, reservationId: s.id, kind: "refund", method: s.row.method, amount: 10, status: "pending",
+      refundOf: s.row.refundOf, idempotencyKey: `modify:${s.id}:${n}`, createdAt: minutes(2).getTime() + n,
+    });
+  return s;
+}
+
+test("the run stops calling the gateway after 5 consecutive errors, and records that it stopped early", async () => {
+  const s = await manyPendingRefunds(6);
+  const q = vi.spyOn(s.gateway, "queryRefund").mockResolvedValue({ error: "DOWN" });
+  const tx = vi.spyOn(s.gateway, "queryTransaction");
+  q.mockClear(); // the stuck cancellation's own query
+  const r = await recordJob(s.db, GATEWAY_RECONCILE_JOB, minutes(15), () => runGatewayReconcile(s.deps, minutes(15)));
+  expect(r).toMatchObject({ refundsChecked: 5, refundsUnresolved: 5, stoppedEarly: "errors" });
+  expect(q).toHaveBeenCalledTimes(5);
+  expect(tx).not.toHaveBeenCalled();
+  const [run] = await s.db.select().from(jobRuns).where(eq(jobRuns.name, GATEWAY_RECONCILE_JOB));
+  expect(run.result).toMatchObject({ stoppedEarly: "errors" });
+
+  // An answer in between resets the count.
+  q.mockReset();
+  q.mockResolvedValueOnce({ error: "DOWN" }).mockResolvedValueOnce({ error: "DOWN" }).mockResolvedValueOnce({ status: "pending" })
+    .mockResolvedValue({ error: "DOWN" });
+  const again = await runGatewayReconcile(s.deps, minutes(30));
+  expect(again).toMatchObject({ refundsChecked: 7 });
+  expect(again.stoppedEarly).toBeUndefined();
+});
+
+test("the run stops issuing gateway calls once its wall-clock budget is spent", async () => {
+  const s = await manyPendingRefunds(2);
+  let t = 0;
+  const clock = () => t;
+  vi.spyOn(s.gateway, "queryRefund").mockImplementation(async () => { t += 6 * 60_000; return { status: "pending" }; });
+  const tx = vi.spyOn(s.gateway, "queryTransaction");
+  expect(GATEWAY_RECONCILE_BUDGET_MS).toBeLessThanOrEqual(10 * 60_000);
+  expect(await runGatewayReconcile(s.deps, minutes(15), { clock })).toMatchObject({ refundsChecked: 2, stoppedEarly: "deadline" });
+  expect(tx).not.toHaveBeenCalled();
 });
