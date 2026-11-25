@@ -1,4 +1,4 @@
-type Tone = "amber" | "blue" | "green" | "red" | "grey";
+import { syncStatusLabel, type Tone } from "@/lib/admin/sync-status";
 
 const RESERVATION: Record<string, [string, Tone]> = {
   pending_payment: ["待付款", "amber"],
@@ -9,16 +9,14 @@ const RESERVATION: Record<string, [string, Tone]> = {
   expired: ["已逾時", "grey"],
 };
 
-const SYNC: Record<string, [string, Tone]> = {
-  not_required: ["無需同步", "grey"],
-  pending: ["同步中", "amber"],
-  synced: ["已同步", "green"],
-  failed: ["同步失敗", "red"],
-};
-
-/** Coloured label for a reservation `status` or a channel `syncState`. Unknown values show as-is in grey. */
-export function StatusBadge({ status, kind = "reservation" }: { status: string; kind?: "reservation" | "sync" }) {
-  const [label, tone] = (kind === "sync" ? SYNC : RESERVATION)[status] ?? [status, "grey" as Tone];
+/**
+ * Coloured label for a reservation `status` or a channel `syncState`. Unknown values show as-is in grey.
+ * `channelConfigured` false (a sync badge): a pending sync reads 「通路未設定，待同步」 (see syncStatusLabel).
+ */
+export function StatusBadge({ status, kind = "reservation", channelConfigured = true }: {
+  status: string; kind?: "reservation" | "sync"; channelConfigured?: boolean;
+}) {
+  const [label, tone] = kind === "sync" ? syncStatusLabel(status, channelConfigured) : RESERVATION[status] ?? [status, "grey" as Tone];
   return <span className={`adm-badge adm-badge-${tone}`}>{label}</span>;
 }
 

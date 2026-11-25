@@ -113,8 +113,8 @@ type Plan = {
 /**
  * What modifying the booking to `change` would cost, without changing anything. Needs `reservations.modify`
  * at the booking's property (another property's booking is NOT_FOUND). Only a booking that is confirmed, not
- * yet past check-in day (Taipei), not being cancelled and with no other modification in flight (channel sync
- * pending, or an unsettled modification refund) can be modified; otherwise NOT_MODIFIABLE. OTA bookings are
+ * yet past check-in day (Taipei), not being cancelled and with no other modification's refund unsettled can be
+ * modified; otherwise NOT_MODIFIABLE. A channel sync still pending does not block (see modifiableSql). OTA bookings are
  * NOT_MODIFIABLE (detail OTA_BOOKING): they are changed through the OTA / SiteMinder.
  * Money (one model, against the money module's `received`, net of refunds):
  * - overpaid = max(0, received − newTotal): only money actually paid beyond the new price goes back;
@@ -206,8 +206,12 @@ export async function applyModification(
         frontDeskRefundDue: pl.frontDeskRefund,
         deskDueSince: pl.frontDeskRefund > 0 ? sql`coalesce(${reservations.deskDueSince}, ${at})` : null,
         holdExpiresAt: res.holdExpiresAt ?? at,
-        // nextSyncAt = now: from this moment the retry job is the safety net for the channel modify.
-        syncState: "pending", syncAttempts: 0, nextSyncAt: at, lastSyncError: null, updatedAt: at,
+        // From now on the retry job is the safety net for the channel modify. nextSyncAt = now, unless a push of
+        // an earlier change holds its lease (or waits for its retry slot): then this change goes out with the next
+        // push instead, never as a second push at the same time. That push's result no longer applies (its
+        // syncAttempts / modCount guard fails), so the booking stays pending until the latest stay is pushed.
+        syncState: "pending", syncAttempts: 0,
+        nextSyncAt: sql`max(coalesce(${reservations.nextSyncAt}, ${at}), ${at})`, lastSyncError: null, updatedAt: at,
       }).where(and(eq(reservations.id, res.id), guard)),
       // The refund intent is recorded with the change, as `failed` (= not yet done; retrying is safe): refundOnce
       // below takes it from there, and if this request dies first it waits on the reconciliation page. It goes
@@ -306,12 +310,13 @@ export async function modifyWithChannel(deps: Deps, reservationId: string, now: 
 
 /**
  * SQL: the booking may be modified (see previewModification) and is unchanged since `res` was read
- * (updatedAt). Checked inside every statement of the modification's batch.
+ * (updatedAt). Checked inside every statement of the modification's batch. A pending channel sync does not
+ * block: the sync always pushes the booking as it is then, so a further change just updates what gets pushed
+ * (with no channel configured the sync stays pending until one is). Only an unsettled modification refund does.
  */
 function modifiableSql(res: Reservation, today: ISODate): SQL {
   return sql`${deskOpenSql(res.id)} and exists (select 1 from ${reservations} where ${reservations.id} = ${res.id}
-    and ${reservations.updatedAt} = ${res.updatedAt} and ${reservations.checkIn} >= ${today}
-    and ${reservations.syncState} <> 'pending')
+    and ${reservations.updatedAt} = ${res.updatedAt} and ${reservations.checkIn} >= ${today})
     and not exists (${unsettledModifyRefund(res.id)})`;
 }
 
@@ -320,10 +325,10 @@ async function blocker(db: Db, reservationId: string, now: Date): Promise<"NOT_F
   const [row] = await db.select({
     open: sql<number>`${deskOpenSql(reservationId)}`,
     inFlight: sql<number>`exists (${unsettledModifyRefund(reservationId)})`,
-    checkIn: reservations.checkIn, syncState: reservations.syncState,
+    checkIn: reservations.checkIn,
   }).from(reservations).where(eq(reservations.id, reservationId));
   if (!row) return "NOT_FOUND";
-  if (!Number(row.open) || Number(row.inFlight) || row.syncState === "pending" || todayInTaipei(now) > row.checkIn)
+  if (!Number(row.open) || Number(row.inFlight) || todayInTaipei(now) > row.checkIn)
     return "NOT_MODIFIABLE";
   return null;
 }

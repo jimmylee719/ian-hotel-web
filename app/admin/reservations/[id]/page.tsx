@@ -17,6 +17,7 @@ import { currentProperty } from "@/lib/admin/property-scope";
 import { getReservationDetail, NOTE_MAX, type ReservationDetail } from "@/lib/admin/reservations";
 import { staffCancelPreview } from "@/lib/admin/staff-cancel";
 import { getDb } from "@/lib/db/client";
+import { appEnv } from "@/lib/runtime/env";
 import { todayInTaipei } from "@/lib/domain/dates";
 import { addNoteAction } from "./actions";
 
@@ -80,6 +81,8 @@ export default async function Page({
   const r = d.reservation;
   const cancelPreview = can(ctx.staff, "reservations.cancel", propertyId) ? await staffCancelPreview(db, r.id, new Date()) : null;
   const quote = (d.quote ?? {}) as Quote;
+  // Without CHANNEL_MODE nothing reaches the channel yet: a pending sync waits for one to be configured.
+  const channelConfigured = !!(await appEnv()).CHANNEL_MODE;
   const now = new Date();
   // Desk money moves only while no cancellation has started (the server enforces the same rule).
   const deskOpen = await frontDeskOpen(db, r.id);
@@ -99,7 +102,7 @@ export default async function Page({
     <>
       <p className="adm-muted"><Link href="/admin/reservations">← 訂單列表</Link></p>
       <h1 className="adm-h1">
-        {r.code} <StatusBadge status={r.status} /> <StatusBadge status={r.syncState} kind="sync" />
+        {r.code} <StatusBadge status={r.status} /> <StatusBadge status={r.syncState} kind="sync" channelConfigured={channelConfigured} />
       </h1>
 
       <div className="adm-actions" role="group" aria-label="訂單操作">

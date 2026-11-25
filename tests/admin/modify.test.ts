@@ -6,6 +6,8 @@ import { staffCancel } from "@/lib/admin/staff-cancel";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { addons, auditLog, inventoryDaily, notifications, payments, reservationRooms, reservations, staff, unitTypes } from "@/lib/db/schema";
 import { runSyncRetry } from "@/lib/jobs/sync-retry";
+import { MockChannelManager } from "@/lib/channel/mock";
+import { BookingDisabledError } from "@/lib/runtime/deps";
 import { setAri } from "@/tests/helpers/ari";
 import { bookingSetup, minutes } from "@/tests/helpers/booking";
 
@@ -193,14 +195,56 @@ test("a retryable channel failure leaves the sync pending; the retry job then se
   const c = change({ checkOut: "2026-12-04" });
   expect(await applyModification(s.deps, s.frontDesk, s.id, c, opts(2000), AT)).toMatchObject({ ok: true });
   expect(await s.reservation(s.code)).toMatchObject({ status: "confirmed", checkOut: "2026-12-04", syncState: "pending", lastSyncError: "SM_TIMEOUT" });
-  // While the channel has not caught up, another modification waits.
-  expect(await previewModification(s.db, s.frontDesk, s.id, change(), minutes(11))).toEqual({ ok: false, error: "NOT_MODIFIABLE" });
+  // A pending sync does not block another modification (M-3): the next push simply carries the latest stay.
+  // Its own push waits for the retry slot already set, so the channel never gets two pushes at once.
+  expect(await applyModification(s.deps, s.frontDesk, s.id, change({ checkOut: "2026-12-05" }), opts(2000), minutes(11))).toMatchObject({ ok: true, modCount: 2 });
+  expect(modify).toHaveBeenCalledTimes(1);
+  expect(await s.reservation(s.code)).toMatchObject({ checkOut: "2026-12-05", modCount: 2, syncState: "pending" });
 
   expect(await runSyncRetry(s.deps, minutes(16))).toEqual({ attempted: 1 });
   expect(modify).toHaveBeenCalledTimes(2);
   expect(push).not.toHaveBeenCalled();
-  expect(modify.mock.calls[1][0]).toMatchObject({ code: s.code, checkOut: "2026-12-04", total: 6000 });
+  expect(modify.mock.calls[1][0]).toMatchObject({ code: s.code, checkOut: "2026-12-05", total: 8000 });
   expect(await s.reservation(s.code)).toMatchObject({ status: "confirmed", syncState: "synced", lastSyncError: null });
+});
+
+test("with no channel configured (offline mode) two modifications in a row both succeed; the sync waits, then sends the latest (M-3)", async () => {
+  const s = await confirmed();
+  const offline = new MockChannelManager();
+  const off = async () => { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); };
+  offline.modifyReservation = off;
+  offline.cancelReservation = off;
+  offline.pushReservation = off;
+  const deps = { ...s.deps, channel: offline };
+  expect(await applyModification(deps, s.frontDesk, s.id, change({ checkOut: "2026-12-04" }), opts(2000), AT)).toMatchObject({ ok: true, modCount: 1 });
+  expect(await s.reservation(s.code)).toMatchObject({ syncState: "pending", lastSyncError: "CHANNEL_MODE_NOT_SET" });
+  expect(await previewModification(s.db, s.frontDesk, s.id, change({ checkOut: "2026-12-05" }), minutes(11))).toMatchObject({ ok: true, difference: 2000 });
+  expect(await applyModification(deps, s.frontDesk, s.id, change({ checkOut: "2026-12-05" }), opts(2000), minutes(11))).toMatchObject({ ok: true, modCount: 2 });
+  expect(await s.reservation(s.code)).toMatchObject({ checkOut: "2026-12-05", totalAmount: 8000, modCount: 2, syncState: "pending" });
+
+  // Once a channel is configured, the retry job sends ONE modify with the current state.
+  const modify = vi.spyOn(s.channel, "modifyReservation");
+  expect(await runSyncRetry(s.deps, minutes(30))).toEqual({ attempted: 1 });
+  expect(modify).toHaveBeenCalledTimes(1);
+  expect(modify.mock.calls[0][0]).toMatchObject({ code: s.code, checkOut: "2026-12-05", total: 8000 });
+  expect(await s.reservation(s.code)).toMatchObject({ syncState: "synced" });
+});
+
+test("a staff cancel in offline mode waits for the channel, and the retry job then sends a cancel (M-3)", async () => {
+  const s = await confirmed();
+  const offline = new MockChannelManager();
+  offline.cancelReservation = async () => { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); };
+  expect(await applyModification(s.deps, s.frontDesk, s.id, change({ checkOut: "2026-12-04" }), opts(2000), AT)).toMatchObject({ ok: true });
+  const manager = await s.mk("manager");
+  expect(await staffCancel({ ...s.deps, channel: offline }, manager, s.id, { reason: "x", notifyGuest: false, refundOverride: 0 }, minutes(11)))
+    .toMatchObject({ ok: true, refunded: 0 });
+  expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", syncState: "pending" });
+  const cancel = vi.spyOn(s.channel, "cancelReservation");
+  const modify = vi.spyOn(s.channel, "modifyReservation");
+  expect(await runSyncRetry(s.deps, minutes(30))).toEqual({ attempted: 1 });
+  expect(cancel).toHaveBeenCalledWith(s.code);
+  expect(modify).not.toHaveBeenCalled();
+  expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", syncState: "synced" });
 });
 
 test("a non-retryable channel failure alerts staff and keeps the booking (no automatic cancel)", async () => {
