@@ -370,3 +370,23 @@ export function renderEmail(
   }
   return renderCustomer(kind, locale, data);
 }
+
+/** The ops alert email (lib/ops/alerts.ts), in the staff alerts' style. `detail` must already be redacted. */
+export function renderOpsAlert(a: { key: string; title: string; detail: string; environment: string; at: Date }): {
+  subject: string; html: string; text: string;
+} {
+  const lines = [
+    `環境：${a.environment}`,
+    `警示：${a.key}`,
+    `時間：${a.at.toISOString()}`,
+    "同一種警示每小時最多寄一封；請到 /admin/system 與 Workers 日誌查看詳情。",
+  ];
+  const html = `<!doctype html><html lang="zh-TW"><body style="${STYLE.body}"><div style="${STYLE.card}"><h1 style="${STYLE.h1}">${esc(a.title)}</h1>${lines
+    .map((l) => `<p style="margin:0 0 8px;font-size:14px;">${esc(l)}</p>`)
+    .join("")}<pre style="margin:16px 0 0;padding:12px;background:#f6f3ee;border-radius:6px;font-size:13px;white-space:pre-wrap;word-break:break-word;">${esc(a.detail)}</pre></div></body></html>`;
+  return {
+    subject: `[NK ops][${a.environment}] ${a.title}（${a.key}）`,
+    html,
+    text: [a.title, "", ...lines, "", a.detail].join("\n"),
+  };
+}

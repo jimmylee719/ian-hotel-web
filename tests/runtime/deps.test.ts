@@ -103,3 +103,10 @@ test("ENVIRONMENT=production requires BASE_URL: booking is off and the cron neve
   // Local development keeps the wrangler dev fallback.
   expect(buildScheduledDeps(base, db)).toMatchObject({ baseUrl: "http://localhost:8787", emailSkipReason: null });
 });
+
+test("staging fails closed like production: mock modes refused, BASE_URL required", () => {
+  expect(bookingDisabledReason({ ...base, ENVIRONMENT: "staging" })).toBe("MOCK_MODE_IN_PRODUCTION");
+  expect(bookingDisabledReason({ ENVIRONMENT: "staging", PAYMENT_MODE: "sinopac", CHANNEL_MODE: "siteminder" })).toBe("BASE_URL_NOT_SET");
+  expect(buildScheduledDeps({ ENVIRONMENT: "staging" }, db).emailSkipReason).toBe("BASE_URL_NOT_SET");
+  expect(buildScheduledDeps({ ENVIRONMENT: "staging", BASE_URL: "https://staging.nk.test" }, db).emailSkipReason).toBeNull();
+});

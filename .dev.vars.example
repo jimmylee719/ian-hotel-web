@@ -1,7 +1,8 @@
 # Local secrets and vars for wrangler dev / `npm run preview` (copy to .dev.vars).
 
 # Where this runs. Mock payment/channel modes are accepted only when ENVIRONMENT=local (wrangler.jsonc
-# sets it for the default env; env.production sets "production", which refuses mocks and 404s /dev/pay).
+# sets it for the default env; env.staging / env.production set "staging" / "production", which refuse mocks
+# and 404 /dev/pay).
 ENVIRONMENT=local
 
 # Payments: "mock" (dev pay page at /dev/pay, no money moves) or "sinopac" (Plan 5).
@@ -20,6 +21,8 @@ CHANNEL_MODE=mock
 # RESEND_API_KEY=re_xxx
 # EMAIL_FROM="NK Hostel <noreply@nkhostel.com>"
 # STAFF_EMAILS=front@nkhostel.com,manager@nkhostel.com
+# Ops alerts (cron failing 3 times in a row, reconcile mismatches, config refused): at most one per kind per hour.
+# OPS_EMAILS=ops@nkhostel.com
 
 # Staff admin (/admin). Production signs staff in through Cloudflare Access (CF_ACCESS_TEAM_DOMAIN and
 # CF_ACCESS_AUD in wrangler.jsonc). Locally, with ENVIRONMENT=local, act as this staff email instead;

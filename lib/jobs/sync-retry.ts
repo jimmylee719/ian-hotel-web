@@ -4,6 +4,7 @@ import { confirmWithChannel } from "@/lib/booking/confirm";
 import { cancelWithChannel } from "@/lib/booking/manage";
 import type { Deps } from "@/lib/booking/notify";
 import { reservations } from "@/lib/db/schema";
+import { log } from "@/lib/runtime/log";
 
 export const SYNC_RETRY_BATCH = 20;
 
@@ -31,7 +32,7 @@ export async function runSyncRetry(deps: Deps, now: Date): Promise<{ attempted: 
       else if (status === "confirmed") await modifyWithChannel(deps, id, now);
       else await confirmWithChannel(deps, id, now);
     } catch (e) {
-      console.error(`sync retry failed for reservation ${id}`, e);
+      log.error(`sync retry failed for reservation ${id}`, e);
     }
   }
   return { attempted: due.length };

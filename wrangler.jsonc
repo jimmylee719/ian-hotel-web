@@ -5,6 +5,8 @@
   //    deployed copy of this env cannot take bookings anywhere but a local dev server.
   // Production is env.production: no PAYMENT_MODE / CHANNEL_MODE (booking stays off until Plans 4 and 5),
   // ENVIRONMENT "production" (mock modes refused, /dev/pay 404s), served on a custom domain, not workers.dev.
+  // Staging is env.staging: its own Worker, D1 and R2 bucket, the same crons, ENVIRONMENT "staging" (mock modes
+  // refused, vendor endpoints must be on the sandbox lists in lib/runtime/config-guard.ts, BASE_URL required).
   "$schema": "node_modules/wrangler/config-schema.json",
   "main": "worker.ts",
   "name": "nk-booking",
@@ -51,6 +53,32 @@
         }
       ],
       "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "nk-media" }],
+      "images": { "binding": "IMAGES" }
+    },
+    // Staging: a full copy of production on its own resources, for the vendor sandboxes (SiteMinder sandbox,
+    // SinoPac test environment) and for rehearsing migrations. Deployed with `npm run deploy:staging`.
+    // No PAYMENT_MODE / CHANNEL_MODE yet: the real adapters do not exist (Tasks 3 and 5), and mock modes are refused
+    // outside ENVIRONMENT=local, so booking stays off here until the sandbox adapters are configured. Secrets
+    // (RESEND_API_KEY, STAFF_EMAILS, OPS_EMAILS, BASE_URL, the vendors' sandbox credentials) are set with
+    // `wrangler secret put <NAME> --env staging`; never production values. See docs/DEPLOY.md, Staging.
+    "staging": {
+      "name": "nk-booking-staging",
+      "main": "worker.ts",
+      "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+      "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "nk-booking-staging" }],
+      "triggers": { "crons": ["*/5 * * * *", "*/15 * * * *", "0 20 * * *"] },
+      "workers_dev": false,
+      // Fill both CF_ACCESS_* with the staging Access application's values; while either is empty /admin is 401.
+      "vars": { "ENVIRONMENT": "staging", "CF_ACCESS_TEAM_DOMAIN": "", "CF_ACCESS_AUD": "" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "nk-booking-staging",
+          "database_id": "REPLACE_WITH_STAGING_D1_ID",
+          "migrations_dir": "drizzle/migrations"
+        }
+      ],
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "nk-media-staging" }],
       "images": { "binding": "IMAGES" }
     }
   }

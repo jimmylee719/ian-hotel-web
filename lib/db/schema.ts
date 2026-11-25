@@ -421,3 +421,22 @@ export const jobRuns = sqliteTable(
   },
   (t) => [index("job_runs_name_started").on(t.name, t.startedAt)],
 );
+
+/**
+ * Ops alerts sent (lib/ops/alerts.ts): one row per alert key per send, so each key emails ops at most once an hour.
+ * Not in `notifications`: that table's rows belong to a reservation (reservation_id NOT NULL REFERENCES
+ * reservations), and an ops alert (a cron failing, a reconcile run's mismatches) has none.
+ */
+export const opsAlerts = sqliteTable(
+  "ops_alerts",
+  {
+    id: id(),
+    /** The alert kind, plus `:<scope>` when it has one (e.g. `cron_failed:gateway_reconcile`). */
+    key: text("key").notNull(),
+    /** floor(at / 1 hour): the unique index stops two concurrent runs from both sending in the same hour. */
+    hour: integer("hour").notNull(),
+    status: text("status", { enum: ["sent", "failed"] }).notNull(),
+    at: ms("at"),
+  },
+  (t) => [uniqueIndex("ops_alerts_key_hour").on(t.key, t.hour), index("ops_alerts_key_at").on(t.key, t.at)],
+);

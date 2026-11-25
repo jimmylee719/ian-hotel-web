@@ -49,3 +49,31 @@ test("deploy runs the tests and the type check, then fetches the fonts, before b
   expect(scripts.preview).toMatch(/^tsx scripts\/fetch-fonts\.ts && /);
   expect(scripts.deploy).toContain("--env production");
 });
+
+test("staging is its own env: own Worker, D1 and bucket, the same crons, ENVIRONMENT=staging, no mock modes", () => {
+  const stg = cfg.env.staging;
+  const prod = cfg.env.production;
+  expect(stg).toBeTruthy();
+  expect(stg.workers_dev).toBe(false);
+  expect(stg.vars.ENVIRONMENT).toBe("staging");
+  expect(stg.vars).not.toHaveProperty("PAYMENT_MODE");
+  expect(stg.vars).not.toHaveProperty("CHANNEL_MODE");
+  expect(JSON.stringify(stg.vars)).not.toContain("mock");
+  expect(stg.vars).toMatchObject({ CF_ACCESS_TEAM_DOMAIN: "", CF_ACCESS_AUD: "" });
+  expect(stg.main ?? cfg.main).toBe("worker.ts");
+  expect(stg.triggers.crons).toEqual(CRONS);
+  expect(stg.name).not.toBe(cfg.name);
+  expect(stg.name).not.toBe(prod.name);
+  expect(stg.services[0]).toEqual({ binding: "WORKER_SELF_REFERENCE", service: stg.name });
+  expect(stg.d1_databases[0]).toMatchObject({ binding: "DB", database_name: "nk-booking-staging", migrations_dir: "drizzle/migrations" });
+  expect(stg.d1_databases[0].database_id).not.toBe(prod.d1_databases[0].database_id);
+  expect(stg.r2_buckets[0].binding).toBe("MEDIA");
+  expect(stg.r2_buckets[0].bucket_name).not.toBe(prod.r2_buckets[0].bucket_name);
+  expect(stg.images).toEqual({ binding: "IMAGES" });
+  expect(stg.assets).toEqual(prod.assets);
+});
+
+test("deploy:staging mirrors deploy but targets --env staging", () => {
+  const { scripts } = JSON.parse(readFileSync(path.resolve(__dirname, "../../package.json"), "utf8"));
+  expect(scripts["deploy:staging"]).toBe(scripts.deploy.replaceAll("--env production", "--env staging"));
+});

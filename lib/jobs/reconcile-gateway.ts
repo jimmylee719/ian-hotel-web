@@ -7,6 +7,7 @@ import { applyPaymentNotice } from "@/lib/booking/payment-notice";
 import { payments, reservations } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 import { CallBudget, type StoppedEarly } from "./budget";
+import { log } from "@/lib/runtime/log";
 
 /** A payment or refund is asked about once it has been pending this long (the gateway's own calls time out far sooner). */
 export const GATEWAY_RECONCILE_AFTER_MS = 10 * 60_000;
@@ -106,7 +107,7 @@ export async function runGatewayReconcile(
         out.refundsFailed++;
       }
     } catch (e) {
-      console.error(`gateway reconcile: refund ${row.id} failed`, e);
+      log.error(`gateway reconcile: refund ${row.id} failed`, e);
       out.refundsUnresolved++;
     }
   }
@@ -188,7 +189,7 @@ export async function runGatewayReconcile(
           .where(and(eq(payments.providerRef, q.providerRef), eq(payments.kind, "charge"), isNull(payments.merchantOrderNo)));
         out.chargesApplied++;
       } catch (e) {
-        console.error(`gateway reconcile: charge ${merchantOrderNo} failed`, e);
+        log.error(`gateway reconcile: charge ${merchantOrderNo} failed`, e);
       }
     }
   }
@@ -208,7 +209,7 @@ async function finishOrAlert(
     const r = await finishFlow(deps, row.idempotencyKey, row.reservationId, now);
     return r.completed ? "completed" : "unfinished";
   } catch (e) {
-    console.error(`gateway reconcile: finishing the flow of refund ${row.id} failed`, e);
+    log.error(`gateway reconcile: finishing the flow of refund ${row.id} failed`, e);
     await notifyStaff(deps, row.reservationId, "staff_payment_alert", now, {}, `${FLOW_UNFINISHED_REF}${row.id}`);
     return "threw";
   }

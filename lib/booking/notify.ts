@@ -13,6 +13,7 @@ import type { Email, EmailSender } from "@/lib/email/types";
 import type { Quote } from "@/lib/domain/quote";
 import type { PaymentGateway } from "@/lib/payments/types";
 import { receivedAmount } from "@/lib/admin/money-metrics";
+import { log } from "@/lib/runtime/log";
 
 export type Deps = {
   db: Db;
@@ -72,7 +73,7 @@ export async function notifyGuest(
     const data = { ...ctx.data, ...extra };
     return await sendOnce(deps, reservationId, kind, ctx.guestEmail, { to: ctx.guestEmail, ...renderEmail(kind, ctx.locale, data) }, now, ref);
   } catch (e) {
-    console.error(`notifyGuest ${kind} failed for reservation ${reservationId}`, e);
+    log.error(`notifyGuest ${kind} failed for reservation ${reservationId}`, e);
     return "failed";
   }
 }
@@ -87,14 +88,14 @@ export async function notifyStaff(
     const ctx = await emailContext(deps, reservationId, STAFF_LOCALE);
     rendered = renderEmail(kind, STAFF_LOCALE, { ...ctx.data, ...extra });
   } catch (e) {
-    console.error(`notifyStaff ${kind} failed for reservation ${reservationId}`, e);
+    log.error(`notifyStaff ${kind} failed for reservation ${reservationId}`, e);
     return;
   }
   for (const to of deps.staffEmails) {
     try {
       await sendOnce(deps, reservationId, kind, to, { to, ...rendered }, now, ref);
     } catch (e) {
-      console.error(`notifyStaff ${kind} to ${to} failed for reservation ${reservationId}`, e);
+      log.error(`notifyStaff ${kind} to ${to} failed for reservation ${reservationId}`, e);
     }
   }
 }

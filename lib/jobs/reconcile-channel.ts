@@ -6,6 +6,7 @@ import type { LookupResult, PushResult } from "@/lib/channel/types";
 import { notifications, reservations } from "@/lib/db/schema";
 import { addDaysISO, todayInTaipei } from "@/lib/domain/dates";
 import { CallBudget, type StoppedEarly } from "./budget";
+import { log } from "@/lib/runtime/log";
 
 /** This job's job_runs name; the dashboard reads its latest row's mismatches. */
 export const CHANNEL_RECONCILE_JOB = "channel_reconcile";
@@ -138,7 +139,7 @@ export async function runChannelReconcile(
         out.cancelled++;
       }
     } catch (e) {
-      console.error(`channel reconcile failed for reservation ${res.id}`, e);
+      log.error(`channel reconcile failed for reservation ${res.id}`, e);
       out.failed++;
     }
   }
@@ -155,6 +156,6 @@ async function alertLookupErrors(deps: Deps, reservationId: string, count: numbe
   const [sent] = await deps.db.select({ id: notifications.id }).from(notifications)
     .where(and(eq(notifications.kind, "staff_sync_failed"), eq(notifications.ref, ref))).limit(1);
   if (sent) return;
-  console.error(`channel reconcile: ${count} lookup(s) failed`);
+  log.error(`channel reconcile: ${count} lookup(s) failed`);
   await notifyStaff(deps, reservationId, "staff_sync_failed", now, {}, ref);
 }

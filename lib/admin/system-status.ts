@@ -13,12 +13,12 @@ import type { AppEnv } from "@/lib/runtime/env";
 
 /** Vars and secrets reported as set / not set, never by value. */
 export const SETTING_NAMES = [
-  "BASE_URL", "CF_ACCESS_TEAM_DOMAIN", "CF_ACCESS_AUD", "RESEND_API_KEY", "EMAIL_FROM", "STAFF_EMAILS",
+  "BASE_URL", "CF_ACCESS_TEAM_DOMAIN", "CF_ACCESS_AUD", "RESEND_API_KEY", "EMAIL_FROM", "STAFF_EMAILS", "OPS_EMAILS",
   "MOCK_PAYMENT_SECRET", "DEV_STAFF_EMAIL",
 ] as const satisfies readonly (keyof AppEnv)[];
 
 const KNOWN_MODES = {
-  ENVIRONMENT: ["local", "production"],
+  ENVIRONMENT: ["local", "staging", "production"],
   PAYMENT_MODE: ["mock", "sinopac"],
   CHANNEL_MODE: ["mock", "siteminder"],
 } as const;
