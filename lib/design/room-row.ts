@@ -14,13 +14,20 @@ import { maxSlotHeight, pickFitting } from "./photo-fit";
 export const ROW_SLOT = { w: 520, h: 200 } as const;
 export const ROW_CAP = 290;
 
-/** Room page gallery slots; widths mirror PhotoGrid3 (lead 596, item 288) and PhotoSplit (large 495, small 381). */
+/**
+ * Room page gallery slots; widths mirror PhotoGrid3 (lead 596, item 288) and PhotoSplit (large 495, small 381).
+ * `more` is the 288px grid under them: it accepts shorter frames (>= 140px tall, i.e. sources >= 210px tall) so the
+ * old site's short 500-wide photos (500 x 213-234) are still shown rather than dropped.
+ */
 export const GALLERY_SLOTS = {
   lead: { w: 596, h: 240 },
   item: { w: 288, h: 200 },
   large: { w: 495, h: 240 },
   small: { w: 381, h: 200 },
+  more: { w: 288, h: 140 },
 } as const;
+/** Design height maximum of a `more` frame (same as a grid3 item). */
+export const MORE_CAP = 210;
 
 /**
  * Display data for a rooms list row. `photo` is the first of the room's photos that fills the row (a cover too small
@@ -47,8 +54,8 @@ export type RoomGalleryLayout =
 
 /**
  * The room page gallery: grid3 (a lead wide enough for the 596px slot, then two items) when some photo can fill the
- * lead; otherwise split (large + small). Every remaining photo that fills a 288px item goes in `more`. Photos are used
- * once each, in the room's order; photos too small for any slot they could take are left out.
+ * lead; otherwise split (large + small). Every remaining photo that fills the 288px `more` slot goes in `more`, so a
+ * room shows every photo that fits any gallery slot. Photos are used once each, in the room's order.
  */
 export function roomGallery(images: readonly string[]): RoomGalleryLayout {
   const rest = [...new Set(images)];
@@ -70,12 +77,19 @@ export function roomGallery(images: readonly string[]): RoomGalleryLayout {
   const lead = take(GALLERY_SLOTS.lead);
   if (lead) {
     const items = takeAll(GALLERY_SLOTS.item, 2);
-    return { kind: "grid3", lead, items, more: takeAll(GALLERY_SLOTS.item) };
+    return { kind: "grid3", lead, items, more: takeAll(GALLERY_SLOTS.more) };
   }
   const large = take(GALLERY_SLOTS.large);
   if (large) {
     const small = take(GALLERY_SLOTS.small);
-    return { kind: "split", large, small, more: takeAll(GALLERY_SLOTS.item) };
+    return { kind: "split", large, small, more: takeAll(GALLERY_SLOTS.more) };
   }
-  return { kind: "none", more: takeAll(GALLERY_SLOTS.item) };
+  return { kind: "none", more: takeAll(GALLERY_SLOTS.more) };
+}
+
+/** The gallery's photos in display order; the full-size viewer steps through them in this order. */
+export function galleryPhotos(layout: RoomGalleryLayout): string[] {
+  if (layout.kind === "grid3") return [layout.lead, ...layout.items, ...layout.more];
+  if (layout.kind === "split") return [layout.large, ...(layout.small ? [layout.small] : []), ...layout.more];
+  return layout.more;
 }

@@ -12,7 +12,7 @@ import { Photo } from "../Photo";
  * outside production it throws so `next dev` and tests surface it; in production it is shown at its largest sharp
  * size centred in the slot.
  */
-export function Frame({ src, alt, slotWidth, cap, sizes, className, priority, tolerance = 1.5 }: {
+export function Frame({ src, alt, slotWidth, cap, sizes, className, priority, tolerance = 1.5, open }: {
   src: string;
   alt: string;
   slotWidth: number;
@@ -21,6 +21,8 @@ export function Frame({ src, alt, slotWidth, cap, sizes, className, priority, to
   className: string;
   priority?: boolean;
   tolerance?: number;
+  /** Makes the photo a button that opens a full-size viewer (PhotoViewer handles the click by `data-viewer-index`). */
+  open?: { index: number; label: string };
 }) {
   const box = frameBox(src, slotWidth, cap, tolerance);
   if (!box.fits && process.env.NODE_ENV !== "production") {
@@ -30,7 +32,13 @@ export function Frame({ src, alt, slotWidth, cap, sizes, className, priority, to
   const style = { "--frame-h": `${box.h}px`, "--frame-max-w": `${box.maxW}px` } as CSSProperties;
   return (
     <div className={`frame ${className}`} style={style}>
-      <Photo src={src} alt={alt} width={dims.w} height={dims.h} sizes={sizes} priority={priority} />
+      {open ? (
+        <button type="button" className="frame-open" data-viewer-index={open.index} aria-label={open.label} aria-haspopup="dialog">
+          <Photo src={src} alt={alt} width={dims.w} height={dims.h} sizes={sizes} priority={priority} />
+        </button>
+      ) : (
+        <Photo src={src} alt={alt} width={dims.w} height={dims.h} sizes={sizes} priority={priority} />
+      )}
     </div>
   );
 }

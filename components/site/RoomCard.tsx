@@ -8,9 +8,10 @@ import { Frame } from "./sections/Frame";
 /**
  * Editorial room row (spec §5.3 Rooms list): photo on one side (the other side when `flip`), then name, English name,
  * summary, facts, the "from" price and the booking link. The photo is the room's first photo sharp enough for the row
- * (lib/design/room-row.ts); with none, the row is text only, and with no price there is no price text.
+ * (lib/design/room-row.ts); with none, the row is text only, and with no price there is no price text. `priority` loads
+ * the photo first (the rooms list's first row is its LCP image).
  */
-export async function RoomCard({ room, locale, headingLevel = 3, flip = false }: { room: Room; locale: Locale; headingLevel?: 2 | 3; flip?: boolean }) {
+export async function RoomCard({ room, locale, headingLevel = 3, flip = false, priority = false }: { room: Room; locale: Locale; headingLevel?: 2 | 3; flip?: boolean; priority?: boolean }) {
   const t = await getTranslations({ locale, namespace: "rooms" });
   const H = headingLevel === 2 ? "h2" : "h3";
   const href = `/rooms/${room.slug}`;
@@ -19,7 +20,7 @@ export async function RoomCard({ room, locale, headingLevel = 3, flip = false }:
     <article className={["room-row", flip && "is-flipped", !row.photo && "no-photo"].filter(Boolean).join(" ")}>
       {row.photo && (
         <Link className="room-row-media" href={href} tabIndex={-1} aria-hidden="true">
-          <Frame className="room-row-photo" src={row.photo} alt="" slotWidth={ROW_SLOT.w} cap={row.photoHeight} sizes="(max-width: 900px) calc(100vw - 40px), 520px" />
+          <Frame className="room-row-photo" src={row.photo} alt="" slotWidth={ROW_SLOT.w} cap={row.photoHeight} sizes="(max-width: 900px) calc(100vw - 40px), 520px" priority={priority} />
         </Link>
       )}
       <div className="room-row-text">

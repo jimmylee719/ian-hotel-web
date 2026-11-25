@@ -27,7 +27,7 @@ export default async function RoomsPage({ params }: Props) {
       <PageHead title={t("title")} lead={t("intro")} />
       <div className="room-rows">
         {rooms.map((room, i) => (
-          <RoomCard key={room.slug} room={room} locale={locale} headingLevel={2} flip={i % 2 === 1} />
+          <RoomCard key={room.slug} room={room} locale={locale} headingLevel={2} flip={i % 2 === 1} priority={i === 0} />
         ))}
       </div>
     </main>

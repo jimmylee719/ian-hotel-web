@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { formatPrice } from "@/components/site/price";
 import { roomImages } from "@/lib/content/old-site";
-import { GALLERY_SLOTS, ROW_SLOT, roomGallery, roomRowProps } from "@/lib/design/room-row";
-import { frameBox } from "@/lib/design/photo-fit";
+import { GALLERY_SLOTS, ROW_SLOT, galleryPhotos, roomGallery, roomRowProps } from "@/lib/design/room-row";
+import { frameBox, photoFits } from "@/lib/design/photo-fit";
 
 const room = (photos: string[], fromPrice: number | null = 2980) => ({ photos, fromPrice });
 
@@ -55,12 +55,30 @@ describe("roomGallery", () => {
     });
   });
 
-  it("leaves out photos too small for any slot (500 x 221, a 703-wide portrait in the lead)", () => {
+  it("keeps short 500-wide photos in the shorter 'more' slot (500 x 221 -> 288 x 147)", () => {
     const g = roomGallery(roomImages("mixed-cube"));
     expect(g.kind).toBe("grid3");
     const all = g.kind === "grid3" ? [g.lead, ...g.items, ...g.more] : [];
-    expect(all).not.toContain("rooms/rooms_138.jpg");
-    expect(all).toContain("rooms/rooms_137.jpg"); // 500 x 333 still fills a 288 item slot
+    expect(g.kind === "grid3" && g.items).not.toContain("rooms/rooms_138.jpg"); // too short for a 210px grid3 item
+    expect(g.more).toContain("rooms/rooms_138.jpg");
+    expect(all).toHaveLength(8);
+  });
+
+  it.each(["mixed-cube", "female-cube"])("%s shows all 8 of its photos", (slug) => {
+    expect(galleryPhotos(roomGallery(roomImages(slug)))).toHaveLength(8);
+  });
+
+  it.each(ROOMS)("%s shows every one of its photos that fits some gallery slot", (slug) => {
+    const images = roomImages(slug);
+    const fitsSome = images.filter((k) => Object.values(GALLERY_SLOTS).some((slot) => photoFits(k, slot)));
+    expect(new Set(galleryPhotos(roomGallery(images)))).toEqual(new Set(fitsSome));
+  });
+
+  it("lists the gallery's photos in display order (the viewer's order)", () => {
+    expect(galleryPhotos({ kind: "split", large: "a", small: "b", more: ["c"] })).toEqual(["a", "b", "c"]);
+    expect(galleryPhotos({ kind: "split", large: "a", small: null, more: [] })).toEqual(["a"]);
+    expect(galleryPhotos({ kind: "grid3", lead: "a", items: ["b", "c"], more: ["d"] })).toEqual(["a", "b", "c", "d"]);
+    expect(galleryPhotos({ kind: "none", more: ["d"] })).toEqual(["d"]);
   });
 
   it("falls back to split when no photo can fill the grid3 lead", () => {
@@ -78,7 +96,7 @@ describe("roomGallery", () => {
 
   it("is empty when nothing fits", () => {
     expect(roomGallery([])).toEqual({ kind: "none", more: [] });
-    expect(roomGallery(["rooms/rooms_138.jpg"])).toEqual({ kind: "none", more: [] });
+    expect(roomGallery(["attractions/attractions_19.png"])).toEqual({ kind: "none", more: [] }); // 55 x 48 icon
   });
 
   it("never repeats a photo", () => {
@@ -93,7 +111,7 @@ describe("roomGallery", () => {
         : g.kind === "split"
           ? [[g.large, GALLERY_SLOTS.large], ...(g.small ? [[g.small, GALLERY_SLOTS.small] as [string, { w: number; h: number }]] : [])]
           : [];
-    for (const k of g.more) placed.push([k, GALLERY_SLOTS.item]);
+    for (const k of g.more) placed.push([k, GALLERY_SLOTS.more]);
     expect(placed.length).toBeGreaterThan(0);
     for (const [key, slot] of placed) expect(frameBox(key, slot.w, slot.h).fits, `${key} in ${slot.w}`).toBe(true);
   });

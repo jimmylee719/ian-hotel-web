@@ -8,13 +8,15 @@ import { Frame } from "./Frame";
 const LARGE = { w: 495, cap: 330 };
 const SMALL = { w: 381, cap: 240 };
 
-/** Large photo beside a column holding an optional small photo and the text (`children`). */
-export function PhotoSplit({ large, small, children }: { large: { src: string; alt: string }; small?: { src: string; alt: string }; children: ReactNode }) {
+type Photo = { src: string; alt: string; open?: { index: number; label: string } };
+
+/** Large photo beside a column holding an optional small photo and the text (`children`). `priority` loads the large photo first (LCP). */
+export function PhotoSplit({ large, small, children, priority }: { large: Photo; small?: Photo; children: ReactNode; priority?: boolean }) {
   return (
     <div className="photo-split">
-      <Frame className="split-large" src={large.src} alt={large.alt} slotWidth={LARGE.w} cap={LARGE.cap} sizes="(max-width: 700px) calc(100vw - 40px), 495px" />
+      <Frame className="split-large" src={large.src} alt={large.alt} slotWidth={LARGE.w} cap={LARGE.cap} sizes="(max-width: 700px) calc(100vw - 40px), 495px" priority={priority} open={large.open} />
       <div className="split-side">
-        {small && <Frame className="split-small" src={small.src} alt={small.alt} slotWidth={SMALL.w} cap={SMALL.cap} sizes="(max-width: 700px) calc(100vw - 40px), 381px" />}
+        {small && <Frame className="split-small" src={small.src} alt={small.alt} slotWidth={SMALL.w} cap={SMALL.cap} sizes="(max-width: 700px) calc(100vw - 40px), 381px" open={small.open} />}
         <div className="split-text">{children}</div>
       </div>
     </div>
