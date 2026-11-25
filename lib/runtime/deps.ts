@@ -9,7 +9,9 @@ import type { EmailSender } from "@/lib/email/types";
 import { MOCK_DEFAULT_SECRET } from "@/lib/payments/mock-page";
 import { MockSinoPacGateway } from "@/lib/payments/mock-sinopac";
 import type { PaymentGateway } from "@/lib/payments/types";
+import type { OpsDeps } from "@/lib/ops/alerts";
 import { appEnv, type AppEnv } from "./env";
+import { log } from "./log";
 
 /**
  * Thrown when online booking is switched off: PAYMENT_MODE or CHANNEL_MODE is unset (production before
@@ -26,8 +28,8 @@ export class BookingDisabledError extends Error {
 /**
  * Why online booking must stay off, or null if it may run. Fails closed: both modes must be set, and
  * the mock modes are accepted only when ENVIRONMENT === "local" (wrangler.jsonc sets it for the default
- * env; env.production sets "production"), so mock payments can never serve a public host; and
- * ENVIRONMENT=production needs BASE_URL.
+ * env; env.staging / env.production set "staging" / "production"), so mock payments can never serve a
+ * public host; and staging and production need BASE_URL. (The reason code keeps its historical name.)
  */
 export function bookingDisabledReason(env: AppEnv): string | null {
   if (!env.PAYMENT_MODE) return "PAYMENT_MODE_NOT_SET";
@@ -37,11 +39,11 @@ export function bookingDisabledReason(env: AppEnv): string | null {
 }
 
 /**
- * Production must name its public origin: links in emails and the gateway's return/notify URLs are
- * built from BASE_URL, and the cron has no request origin to fall back on (only localhost).
+ * Production and staging must name their public origin: links in emails and the gateway's return/notify URLs
+ * are built from BASE_URL, and the cron has no request origin to fall back on (only localhost).
  */
 export function baseUrlMissingReason(env: AppEnv): string | null {
-  return env.ENVIRONMENT === "production" && !env.BASE_URL ? "BASE_URL_NOT_SET" : null;
+  return (env.ENVIRONMENT === "production" || env.ENVIRONMENT === "staging") && !env.BASE_URL ? "BASE_URL_NOT_SET" : null;
 }
 
 /** Is online booking on? */
@@ -138,7 +140,7 @@ export function buildScheduledDeps(env: AppEnv, db: Db): ScheduledDeps {
       gateway = paymentGateway(env, core.baseUrl);
       channel = channelManager(env);
     } catch (e) {
-      console.error("scheduled: payment/channel config failed; sync retry is off", e);
+      log.error("scheduled: payment/channel config failed; sync retry is off", e);
       gateway = disabledGateway;
       channel = disabledChannel;
       syncSkipReason = e instanceof Error ? e.message : String(e);
@@ -194,6 +196,16 @@ function channelManager(env: AppEnv): ChannelManager {
   }
 }
 
+/** What notifyOps needs: the email layer, OPS_EMAILS (comma-separated) and the environment named in the subject. */
+export function buildOpsDeps(env: AppEnv, db: Db): OpsDeps {
+  return {
+    db,
+    email: emailSender(env),
+    opsEmails: (env.OPS_EMAILS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    environment: env.ENVIRONMENT?.trim() || "(unset)",
+  };
+}
+
 /** Resend when configured; otherwise a mock that logs each email (local dev). */
 function emailSender(env: AppEnv): EmailSender {
   if (env.RESEND_API_KEY)
@@ -201,7 +213,7 @@ function emailSender(env: AppEnv): EmailSender {
   const mock = new MockEmailSender();
   return {
     async send(e) {
-      console.log(`[email] RESEND_API_KEY not set; not sent:\nTo: ${e.to}${e.replyTo ? `\nReply-To: ${e.replyTo}` : ""}\nSubject: ${e.subject}\n\n${e.text}\n`);
+      log.info(`[email] RESEND_API_KEY not set; not sent:\nTo: ${e.to}${e.replyTo ? `\nReply-To: ${e.replyTo}` : ""}\nSubject: ${e.subject}\n\n${e.text}\n`);
       return mock.send(e);
     },
   };

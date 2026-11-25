@@ -2,6 +2,7 @@ import type { Deps } from "@/lib/booking/notify";
 import { runExpireHolds } from "./expire-holds";
 import { runPreArrival } from "./pre-arrival";
 import { runSyncRetry } from "./sync-retry";
+import { log } from "@/lib/runtime/log";
 
 export type ScheduledResult = { expired: number; attempted: number; preArrival: number };
 
@@ -19,13 +20,13 @@ export async function runScheduled(
     try {
       return await run();
     } catch (e) {
-      console.error(`scheduled job ${name} failed`, e);
+      log.error(`scheduled job ${name} failed`, e);
       return null;
     }
   };
   const expired = await attempt("expire-holds", () => runExpireHolds(deps, now));
-  if (opts.skipEmailReason) console.error(`scheduled: sync retry and pre-arrival emails skipped (${opts.skipEmailReason})`);
-  else if (opts.skipSyncReason) console.warn(`scheduled: sync retry skipped (${opts.skipSyncReason})`);
+  if (opts.skipEmailReason) log.error(`scheduled: sync retry and pre-arrival emails skipped (${opts.skipEmailReason})`);
+  else if (opts.skipSyncReason) log.warn(`scheduled: sync retry skipped (${opts.skipSyncReason})`);
   const skipSync = opts.skipEmailReason || opts.skipSyncReason;
   const retried = skipSync ? null : await attempt("sync-retry", () => runSyncRetry(deps, now));
   const arrival = opts.skipEmailReason ? null : await attempt("pre-arrival", () => runPreArrival(deps, now));

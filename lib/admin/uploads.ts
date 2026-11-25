@@ -3,6 +3,7 @@ import { VARIANT_WIDTHS, variantKey } from "@/lib/media";
 import { recordAudit } from "./audit";
 import type { StaffContext } from "./auth";
 import { can } from "./permissions";
+import { log } from "@/lib/runtime/log";
 
 /** Largest photo staff may upload. */
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
@@ -106,7 +107,7 @@ export async function uploadImage(
       try {
         await env.MEDIA.put(variantKey(key, width), await resize(file.bytes, width), { httpMetadata: { contentType: "image/webp" } });
       } catch (e) {
-        (opts.onVariantError ?? ((k, w, err) => console.error(`variant ${w} of ${k} failed`, err)))(key, width, e);
+        (opts.onVariantError ?? ((k, w, err) => log.error(`variant ${w} of ${k} failed`, err)))(key, width, e);
       }
     }
   return { ok: true, key };

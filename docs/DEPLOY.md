@@ -2,21 +2,22 @@
 
 ## Environments (read this first)
 
-| | default env (`nk-booking`) | `env.production` (`nk-booking-production`) |
-|---|---|---|
-| Used for | `wrangler dev`, `npm run preview`, a private staging Worker | the public site |
-| `ENVIRONMENT` | `local` | `production` |
-| `PAYMENT_MODE` | `mock` | **unset** |
-| `CHANNEL_MODE` | `mock` | **unset** |
-| `workers_dev` | `false` | `false` (use a custom domain) |
-| D1 `database_id` | `local` (local only) | `REPLACE_WITH_PRODUCTION_D1_ID` in `wrangler.jsonc` |
+| | default env (`nk-booking`) | `env.staging` (`nk-booking-staging`) | `env.production` (`nk-booking-production`) |
+|---|---|---|---|
+| Used for | `wrangler dev`, `npm run preview` | vendor sandboxes, migration rehearsals ([Staging](#staging)) | the public site |
+| `ENVIRONMENT` | `local` | `staging` | `production` |
+| `PAYMENT_MODE` | `mock` | **unset** (until the SinoPac adapter, Task 5) | **unset** |
+| `CHANNEL_MODE` | `mock` | **unset** (until the SiteMinder adapter, Task 3) | **unset** |
+| `workers_dev` | `false` | `false` | `false` (use a custom domain) |
+| D1 | `nk-booking`, `database_id` `local` (local only) | `nk-booking-staging`, `REPLACE_WITH_STAGING_D1_ID` | `nk-booking`, `REPLACE_WITH_PRODUCTION_D1_ID` |
+| R2 `MEDIA` | `nk-media` (local) | `nk-media-staging` | `nk-media` |
 
 - **Never deploy `PAYMENT_MODE=mock` to a public host.** `/dev/pay` would let anyone mark a booking as
   paid. `npm run deploy` always targets `--env production`, so it never ships the mock vars.
 - Wrangler does not inherit bindings, vars or triggers into an env, which is why `env.production`
   repeats them. `wrangler dev --env production` warns that top-level vars are not inherited; that is intended.
 - Online booking is on only when **both** `PAYMENT_MODE` and `CHANNEL_MODE` are set, and a `mock` value is
-  accepted only when `ENVIRONMENT=local`. Anything else (`PAYMENT_MODE_NOT_SET`, `CHANNEL_MODE_NOT_SET`,
+  accepted only when `ENVIRONMENT=local` (so never on staging either; staging also needs `BASE_URL`, like production). Anything else (`PAYMENT_MODE_NOT_SET`, `CHANNEL_MODE_NOT_SET`,
   `MOCK_MODE_IN_PRODUCTION`) makes `getDeps` throw and the routes answer 503. `/dev/pay` also 404s whenever
   `ENVIRONMENT=production`. The default env has `workers_dev: false` and `ENVIRONMENT=local`, so a stray bare
   `wrangler deploy` neither gets a public workers.dev URL nor can take bookings.
@@ -31,6 +32,81 @@
   `.dev.vars.production` exists. To test production's fail-closed behaviour locally, create an empty
   `.dev.vars.production` first (and delete it after).
 
+## Config guard (fails closed)
+
+Every entry point checks the whole config first (`assertConfig` / `configRefusal` in `lib/runtime/config-guard.ts`):
+`worker.ts` wraps `fetch` with `withConfigGuard`, and `runCron` / `runCronTrigger` (`lib/jobs/cron.ts`) check it
+before every cron run. The rules, by `ENVIRONMENT`:
+
+| `ENVIRONMENT` | refused |
+|---|---|
+| `local` | nothing |
+| `staging` | `PAYMENT_MODE` or `CHANNEL_MODE` = `mock`; a vendor endpoint that is not `https`, or whose host is on that vendor's **production** list or not on its **sandbox** list |
+| `production`, or unset / anything else (treated as production) | `PAYMENT_MODE` or `CHANNEL_MODE` = `mock`; a vendor endpoint that is not `https` or whose host is not on that vendor's **production** list |
+
+- Vendor endpoints are every var or secret named `SITEMINDER_…ENDPOINT` / `SINOPAC_…ENDPOINT` (or `…_URL`), e.g.
+  `SITEMINDER_ENDPOINT`, `SINOPAC_ENDPOINT`. Unset ones are not checked. The host lists are `SITEMINDER_HOSTS` and
+  `SINOPAC_HOSTS` in `lib/runtime/config-guard.ts` (exact hostnames). **They are empty until the vendor docs arrive**
+  (Tasks 3 and 5 fill them), so until then any configured vendor endpoint is refused outside local.
+- When refused, every request that reaches the Worker answers **503** (`Retry-After: 300`; the body names no setting)
+  and the reason is logged (`request refused: CONFIG_REFUSED: …`). Static assets served by the assets layer are not
+  affected. Each cron run is skipped and recorded in `job_runs` as `{ skipped: "CONFIG_REFUSED", error: "…" }`
+  (shown on `/admin/system` — which itself answers 503 while refused, so read it from the logs or D1), and ops are
+  emailed (`config_refused`, at most once an hour).
+- This is stricter than the booking switch: a production or staging Worker with a mock mode no longer just turns
+  booking off, it stops serving altogether. Today neither env sets a mode or an endpoint, so both pass.
+
+## Ops alerts and log redaction
+
+- **`OPS_EMAILS`** (comma-separated, a var or secret per env) receives ops alerts (`lib/ops/alerts.ts`,
+  `notifyOps`). Unset = alerts are only logged (`console.warn`). Each alert kind (per job, where it has one) is
+  emailed at most **once an hour**, deduplicated in the `ops_alerts` table (migration 0022; `notifications` cannot
+  hold them, its rows belong to a reservation). The email goes through the same Resend sender as the other emails.
+  Alerts:
+  - `cron_failed:<job>` — a cron job (`cron`, `gateway_reconcile`, `channel_reconcile`) failed 3 runs in a row
+    (its latest 3 `job_runs` rows are all errors);
+  - `config_refused` — the config guard skipped a cron run;
+  - `reconcile_mismatch:<job>` — a reconcile run found what it also tells staff about (channel mismatches,
+    CHANNEL_MISSING re-push / cancel failures, channel lookup errors; refunds marked failed, flows that would not
+    finish). Staff still get their per-booking emails; ops get one summary per job per hour;
+  - `ari_unknown_code` — reserved for the SiteMinder ARI inbound endpoint (Task 4), which calls `notifyOps` itself.
+- **Redaction.** Everything under `lib/` and `worker.ts` logs through `lib/runtime/log.ts`, which passes every argument
+  through `redact` (`lib/runtime/redact.ts`): card-like numbers (13–19 digits, spaces or hyphens allowed), the values
+  of `Authorization` / `Cookie`, and the values of fields named `password`, `secret`, `key`, `token`, `hashKey`,
+  `hashIV` (and names ending in them) in `key=value`, JSON and header forms. Alert details and the error text stored in
+  `job_runs` are redacted too. New adapter code must log through `log`, never `console` directly.
+
+## Staging
+
+`env.staging` in `wrangler.jsonc` is a full copy of production on its own resources: Worker `nk-booking-staging`,
+D1 `nk-booking-staging`, R2 bucket `nk-media-staging`, the `IMAGES` binding, the same three crons (`*/5`, `*/15`,
+`0 20`), `workers_dev: false`, `ENVIRONMENT=staging`, empty `CF_ACCESS_*`. It sets no `PAYMENT_MODE` /
+`CHANNEL_MODE`, so booking is off there until the sandbox adapters exist (mock modes are refused outside local). It
+may only talk to the **SiteMinder sandbox and the SinoPac test environment** (config guard above). Its secrets mirror
+production's, with staging / sandbox values only — never production credentials.
+
+What exists in the repo: the config above, `npm run deploy:staging` (the same as `npm run deploy`: tests, type check,
+fonts, OpenNext build, deploy, all with `--env staging`), and `npm run media:variants -- --remote --env staging`
+(uploads the photo variants to `nk-media-staging`). Nothing has been created in Cloudflare and nothing has been run
+against a remote.
+
+★ What the owner does (in this order; each needs its own go-ahead):
+
+1. **Create the resources**: `npx wrangler d1 create nk-booking-staging` (put the id in `env.staging.d1_databases`,
+   replacing `REPLACE_WITH_STAGING_D1_ID`), `npx wrangler r2 bucket create nk-media-staging`, Cloudflare Images on the
+   account (shared with production), and a **separate** Access application for the staging hostname (same policies as
+   [Cloudflare Access 設定](#cloudflare-access-設定); fill `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` in
+   `env.staging.vars`).
+2. **Secrets** (`npx wrangler secret put <NAME> --env staging`): `BASE_URL` (the staging hostname; required, as in
+   production), `RESEND_API_KEY`, `EMAIL_FROM`, `STAFF_EMAILS`, `OPS_EMAILS`, and later the vendors' **sandbox**
+   endpoints and credentials. Never `DEV_STAFF_EMAIL`, never `PAYMENT_MODE=mock`.
+3. **Migrations**: `npx wrangler d1 migrations apply nk-booking-staging --env staging --remote`. Then rehearse the
+   Plan 3 case-collision rollbacks of 0015 and 0017 on staging data.
+4. **Deploy**: `npm run deploy:staging`, `npm run media:variants -- --remote --env staging`, content import and the
+   first owner (the SQL in [建立第一位 owner](#建立第一位-owner) with `nk-booking-staging --env staging`).
+5. **Check**: `/admin/system` shows `ENVIRONMENT` staging, and a cron run within 5 minutes; a request answers 200
+   (not the config guard's 503).
+
 ## First-time setup
 
 Use `--env production` on every `wrangler` command that touches production. Nothing below has been run
@@ -40,7 +116,8 @@ by the build; each step is yours to run.
    `env.production.d1_databases` in `wrangler.jsonc` (replacing `REPLACE_WITH_PRODUCTION_D1_ID`).
 2. **R2.** `npx wrangler r2 bucket create nk-media`.
 3. **Secrets** (`npx wrangler secret put <NAME> --env production`):
-   `RESEND_API_KEY`, `STAFF_EMAILS` (comma-separated), and optionally `EMAIL_FROM`.
+   `RESEND_API_KEY`, `STAFF_EMAILS` (comma-separated), `OPS_EMAILS` (comma-separated, ops alerts), and optionally
+   `EMAIL_FROM`.
    **`BASE_URL`** (for example `https://www.nkhostel.com`) is also required: the cron worker has no
    request to take the site's address from, and the pre-arrival email's "manage booking" link uses it.
    Without it, production keeps booking off (`BASE_URL_NOT_SET`) and the cron skips every email job
@@ -188,6 +265,9 @@ as `--remote`).
 - [ ] `npm run deploy` runs `scripts/fetch-fonts.ts` itself before the build (as does `npm run preview`),
   so the machine running it needs internet access.
 - [ ] `BASE_URL` is set for `env.production` (cron emails link to it).
+- [ ] `OPS_EMAILS` is set for `env.production` (and staging), so a failing cron or a reconcile mismatch reaches ops.
+- [ ] `SITEMINDER_HOSTS` / `SINOPAC_HOSTS` (`lib/runtime/config-guard.ts`) hold the vendors' production and sandbox
+  hosts from their docs before any `SITEMINDER_…ENDPOINT` / `SINOPAC_…ENDPOINT` is set; otherwise the Worker 503s.
 - [ ] Confirm production has no `PAYMENT_MODE`/`CHANNEL_MODE`, and `ENVIRONMENT=production` (`npx wrangler secret list --env production` and
   `vars` in `wrangler.jsonc`) until SinoPac is configured; `/dev/pay/x` must answer 404 and
   `POST /api/bookings` must answer 503.

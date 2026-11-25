@@ -5,11 +5,12 @@
  *
  *   npm run media:variants                # local R2 (also run by scripts/seed-local.ts)
  *   npm run media:variants -- --remote    # the production bucket (docs/DEPLOY.md launch checklist)
+ *   npm run media:variants -- --remote --env staging   # env.staging's bucket (read from wrangler.jsonc)
  *
  * Never upscales: a variant wider than its source is written at the source width.
  */
 import { execFile } from "node:child_process";
-import { mkdirSync, readdirSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
@@ -19,6 +20,16 @@ const run = promisify(execFile);
 const SRC = path.resolve("content/images");
 const OUT = path.resolve(".wrangler/tmp/media-variants");
 const remote = process.argv.includes("--remote");
+const envName = process.argv.includes("--env") ? process.argv[process.argv.indexOf("--env") + 1] : undefined;
+const BUCKET = envName ? envBucket(envName) : "nk-media";
+
+/** The MEDIA bucket of a wrangler env (`--env staging` → nk-media-staging). Comment lines are stripped first. */
+function envBucket(name: string): string {
+  const cfg = JSON.parse(readFileSync(path.resolve("wrangler.jsonc"), "utf8").split("\n").filter((l) => !l.trim().startsWith("//")).join("\n"));
+  const bucket = cfg.env?.[name]?.r2_buckets?.find((b: { binding: string }) => b.binding === "MEDIA")?.bucket_name;
+  if (!bucket) throw new Error(`wrangler.jsonc has no MEDIA bucket for env "${name}"`);
+  return bucket;
+}
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -43,7 +54,7 @@ async function main() {
     }),
   );
   for (const [i, v] of variants.entries()) {
-    await run("npx", ["wrangler", "r2", "object", "put", `nk-media/${v.key}`, "--file", path.join(OUT, v.key), "--content-type", "image/webp", remote ? "--remote" : "--local"]);
+    await run("npx", ["wrangler", "r2", "object", "put", `${BUCKET}/${v.key}`, "--file", path.join(OUT, v.key), "--content-type", "image/webp", remote ? "--remote" : "--local"]);
     if ((i + 1) % 50 === 0) console.log(`${i + 1} of ${variants.length} uploaded`);
   }
   console.log(`done: ${variants.length} variants of ${files.length} images`);

@@ -52,3 +52,10 @@ Tasks 3, 4, 5, 7, 9 not yet executed (blocked on SiteMinder/SinoPac docs and Clo
 - Task 5: adapter must fill PaymentNotice.merchantOrderNo; queryTransaction providerRef must equal the notice's; return pending (not not_found) while unsure; provider-side single-refund check; paidAttempt fixture; confirm a failed attempt can never later succeed.
 - Task 7: copy crons */5, */15, 0 20 * * * into env.staging.
 - Task 9: runbook uses `npm run content:import-remote -- --env production --apply --yes`.
+
+## Task 7 (code part) — rulings and deferred minors
+- Ruling: only Steps 1–4 and 7 done; Steps 5–6 (create Cloudflare resources, secrets, remote migrations incl. 0022, deploy) are ★ and wait for owner authorisation.
+- Ruling: vendor host allow-lists in lib/runtime/config-guard.ts start empty; production refuses any vendor endpoint not on the production list, staging requires a sandbox-list host (stricter, fail-closed). Tasks 3/5 must fill both lists.
+- Request guard lives in worker.ts (withConfigGuard) because middleware skips /api, /admin, /media. Unset/unknown ENVIRONMENT is treated as production; a mock mode outside local 503s the whole site and skips crons.
+- Ops alert dedupe uses a new ops_alerts table (migration 0022) since notifications requires a reservation.
+- Deferred minors: hour-boundary dedupe race; redact over-masks some UUIDs / 13-digit epochs / idempotencyKey & R2 key values; URL-encoded card numbers unmasked; endpoint var pattern `(ENDPOINT|URL)` would catch our own SINOPAC_RETURN_URL etc. — narrow before Tasks 3/5 add such vars; CONFIG_REFUSED runs count toward the cron_failed streak; ops_alerts not pruned; DEPLOY.md note on local --env production + mock; Error own props (e.g. driver code) not kept.
