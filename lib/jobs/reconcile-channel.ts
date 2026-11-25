@@ -1,9 +1,9 @@
 import { and, asc, eq, gt, inArray, lte } from "drizzle-orm";
 import { cancelIfActive } from "@/lib/booking/manage";
-import type { Deps } from "@/lib/booking/notify";
+import { notifyStaff, type Deps } from "@/lib/booking/notify";
 import { toChannelReservation } from "@/lib/booking/to-channel";
-import type { LookupResult } from "@/lib/channel/types";
-import { reservations } from "@/lib/db/schema";
+import type { LookupResult, PushResult } from "@/lib/channel/types";
+import { notifications, reservations } from "@/lib/db/schema";
 import { addDaysISO, todayInTaipei } from "@/lib/domain/dates";
 
 /** This job's job_runs name; the dashboard reads its latest row's mismatches. */
@@ -29,24 +29,32 @@ export type ChannelReconcileResult = {
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** lastSyncError prefix of a confirmed booking the channel does not hold and that could not be pushed again. */
+export const CHANNEL_MISSING = "CHANNEL_MISSING";
+/** The staff alert's ref (+ Taipei date) for a run with lookup errors: one email a day. */
+export const CHANNEL_LOOKUP_ERRORS_REF = "channel-lookup-errors:";
+
 /**
  * Daily (04:00 Taipei): compare every direct booking this system pushed (confirmed) or took back (cancelled,
  * confirm_failed_refunded) whose stay overlaps today..today+60 (Taipei) with what the channel holds
  * (lookupReservation), and fix what is safe to fix:
  * - confirmed here, not on the channel → pushed again (pushReservation is idempotent by code); the channel's
- *   smConfirmation is stored;
+ *   smConfirmation is stored (a failure: see below);
  * - cancelled / refunded here, active there → cancelled there under the channel's smConfirmation (cancelIfActive);
  * - confirmed on both sides under different smConfirmations, or confirmed here but cancelled there → reported as a
  *   mismatch (the dashboard's channel_mismatch alert, from this run's job_runs row); nothing is changed.
  * Bookings the sync-retry job currently owns (syncState pending: a push, modify or cancel in progress or queued)
- * are skipped, so the two never act on one booking at once. A failed lookup skips the booking (lookupErrors);
- * a failed push or cancel is counted (failed) and tried again tomorrow.
+ * are skipped, so the two never act on one booking at once. A failed lookup skips the booking (lookupErrors) and
+ * staff are emailed once that day; a failed re-push marks the booking syncState failed with lastSyncError
+ * `CHANNEL_MISSING: <error>` (the dashboard's sync_failed alert) and emails staff once that day; a failed cancel is
+ * counted (failed). Failed rows stay in this job's set, so all of these are tried again tomorrow.
  */
 export async function runChannelReconcile(deps: Deps, now: Date): Promise<ChannelReconcileResult> {
   const { db } = deps;
   const today = todayInTaipei(now);
   const horizon = addDaysISO(today, CHANNEL_RECONCILE_DAYS);
   const out: ChannelReconcileResult = { checked: 0, repushed: 0, cancelled: 0, lookupErrors: 0, failed: 0, mismatches: [] };
+  let firstLookupError: typeof reservations.$inferSelect | undefined;
 
   const rows = await db.select().from(reservations)
     .where(and(
@@ -67,6 +75,7 @@ export async function runChannelReconcile(deps: Deps, now: Date): Promise<Channe
     }
     if ("error" in l) {
       out.lookupErrors++;
+      firstLookupError ??= res;
       continue;
     }
     // Written back only while the booking is as read: a staff modification or cancel since then wins.
@@ -74,8 +83,19 @@ export async function runChannelReconcile(deps: Deps, now: Date): Promise<Channe
     try {
       if (res.status === "confirmed") {
         if (!l.found) {
-          const r = await deps.channel.pushReservation(await toChannelReservation(db, res.id));
+          let r: PushResult;
+          try {
+            r = await deps.channel.pushReservation(await toChannelReservation(db, res.id));
+          } catch (e) {
+            r = { ok: false, retryable: true, error: errorText(e) };
+          }
           if (!r.ok) {
+            // Confirmed here, not held there: the room can be sold twice. A red alert (sync_failed) and on-duty
+            // staff told (spec §5.3); the row stays in this job's set, so tomorrow's run pushes again.
+            const marked = await db.update(reservations)
+              .set({ syncState: "failed", nextSyncAt: null, lastSyncError: `${CHANNEL_MISSING}: ${r.error}`, updatedAt: now.getTime() })
+              .where(unchanged).returning({ id: reservations.id });
+            if (marked.length) await notifyStaff(deps, res.id, "staff_sync_failed", now, {}, `channel-missing:${today}`);
             out.failed++;
             continue;
           }
@@ -108,5 +128,18 @@ export async function runChannelReconcile(deps: Deps, now: Date): Promise<Channe
       out.failed++;
     }
   }
+  // The channel would not answer for some bookings: nothing was changed for them, but staff should know the
+  // channel is not being checked. One email a day (anchored on the first such booking).
+  if (firstLookupError) await alertLookupErrors(deps, firstLookupError.id, out.lookupErrors, today, now);
   return out;
+}
+
+/** Staff alert (staff_sync_failed) for a run with lookup errors, at most once per Taipei day across all runs. */
+async function alertLookupErrors(deps: Deps, reservationId: string, count: number, today: string, now: Date): Promise<void> {
+  const ref = `${CHANNEL_LOOKUP_ERRORS_REF}${today}`;
+  const [sent] = await deps.db.select({ id: notifications.id }).from(notifications)
+    .where(and(eq(notifications.kind, "staff_sync_failed"), eq(notifications.ref, ref))).limit(1);
+  if (sent) return;
+  console.error(`channel reconcile: ${count} lookup(s) failed`);
+  await notifyStaff(deps, reservationId, "staff_sync_failed", now, {}, ref);
 }
