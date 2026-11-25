@@ -194,7 +194,10 @@ export type CancelCoreOptions = {
   refundOverride?: number;
   /** Give back only the nights on or after this date (a stay already under way); default every night. */
   releaseFrom?: ISODate;
-  /** Email the guest (default true). Staff are always emailed. */
+  /**
+   * Email the guest (default true). Staff are always emailed. A `false` is also stored on the refund intent this
+   * call creates, so a later completion by refund reconciliation (finishFlow) keeps it.
+   */
   notifyGuest?: boolean;
   /**
    * False when no payment gateway is configured: a cancellation that would move money then fails with
@@ -327,7 +330,9 @@ async function refundCancellation(deps: Deps, claim: Reservation, now: Date, o: 
   const charge = (await refundableCharges(db, claim.id)).find((c) => c.id === chargeId);
   if (!charge) return { ok: false, error: "NO_PAYING_CHARGE" };
   if (!intent && charge.remaining < amount) return { ok: false, error: `REFUNDABLE_${charge.remaining}_LT_${amount}` };
-  const r = await refundOnce(deps, cancelKey(claim.id), charge, amount, o.reason, now, { countsAsBookingRefund: true });
+  const r = await refundOnce(deps, cancelKey(claim.id), charge, amount, o.reason, now, {
+    countsAsBookingRefund: true, notifyGuest: o.notifyGuest,
+  });
   return r.ok ? { ...r, frontDesk: plan.frontDesk, ...clamp } : r;
 }
 

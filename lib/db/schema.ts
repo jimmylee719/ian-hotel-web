@@ -244,6 +244,12 @@ export const payments = sqliteTable(
      * the gateway reconcile job recorded or matched it), so that job does not ask about that attempt again. Null otherwise.
      */
     merchantOrderNo: text("merchant_order_no"),
+    /**
+     * For a cancellation's refund intent (`cancel:<id>`): whether the guest is emailed when the cancellation
+     * completes. Fixed with the intent (a staff cancel may choose not to), so a completion by refund
+     * reconciliation honours it. Null (every other row, and intents from before this column) means yes.
+     */
+    notifyGuest: integer("notify_guest", { mode: "boolean" }),
   },
   (t) => [
     uniqueIndex("payments_provider_ref_unique").on(t.providerRef), // NULLs never collide

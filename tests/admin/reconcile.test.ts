@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { StaffContext } from "@/lib/admin/auth";
 import { listPendingRefunds, reconcileRefund } from "@/lib/admin/reconcile";
 import { moneyOf } from "@/lib/admin/money-metrics";
+import { staffCancel } from "@/lib/admin/staff-cancel";
 import { cancelReservation, findReservation } from "@/lib/booking/manage";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { auditLog, inventoryDaily, notifications, payments, reservations, staff } from "@/lib/db/schema";
@@ -71,6 +72,25 @@ test("mark_succeeded on a stuck cancellation refund finishes the cancellation; a
   expect(await reconcileRefund(deps, manager, row.id, { kind: "mark_succeeded", providerRef: "BANK-123" }, LATER))
     .toEqual({ ok: false, error: "ALREADY_RESOLVED" });
   expect((await reservation(code)).refundedAmount).toBe(PAID);
+});
+
+test("a staff cancel with notifyGuest false keeps the guest un-emailed when reconciliation completes it", async () => {
+  for (const notify of [false, true]) {
+    const s = await setup();
+    const code = await s.book({ checkIn: "2026-12-10", checkOut: "2026-12-12" });
+    await handlePaymentNotice(s.deps, await s.notice(code, { amount: PAID }), minutes(2));
+    vi.spyOn(s.gateway, "refund").mockRejectedValueOnce(new Error("connection reset"));
+    vi.spyOn(s.gateway, "queryRefund").mockResolvedValueOnce({ error: "QUERY_DOWN" });
+    const res = await s.reservation(code);
+    expect(await staffCancel(s.deps, s.manager, res.id, { reason: "guest called", notifyGuest: notify }, EARLY))
+      .toEqual({ ok: false, error: "REFUND_FAILED" });
+    const [row] = await s.refundRows(res.id);
+    expect(row.status).toBe("pending");
+    expect(await reconcileRefund(s.deps, s.manager, row.id, { kind: "mark_succeeded", providerRef: `BANK-${notify}` }, LATER))
+      .toEqual({ ok: true, status: "succeeded", completed: "cancellation", reservationStatus: "cancelled" });
+    expect(s.email.sent.filter((e) => e.to === GUEST && e.subject.includes("cancelled"))).toHaveLength(notify ? 1 : 0);
+    expect(s.email.sent.filter((e) => e.to !== GUEST).length).toBeGreaterThan(0); // staff are still told
+  }
 });
 
 test("mark_failed only marks it failed; retry then calls the gateway with the same idempotency key", async () => {

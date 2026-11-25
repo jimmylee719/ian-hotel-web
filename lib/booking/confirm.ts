@@ -214,7 +214,7 @@ export type PaymentRow = typeof payments.$inferSelect;
  * Make the refund identified by `key` happen at most once, however many attempts run it.
  * The first attempt creates the intent row (`pending`, with `amount`); every later attempt reads that
  * row back and uses ITS amount (the `amount` passed in is ignored then). `key` is also the gateway's
- * idempotency key. By the row's status:
+ * idempotency key. `notifyGuest: false` is stored on a row this call creates (see payments.notifyGuest). By the row's status:
  * - `succeeded`: nothing to do, report success.
  * - `pending`: another attempt is in flight, or died with an unknown outcome → never call the gateway;
  *   report `pendingRefundId` so the caller alerts staff.
@@ -227,13 +227,14 @@ export type PaymentRow = typeof payments.$inferSelect;
  */
 export async function refundOnce(
   deps: Deps, key: string, charge: ChargeRow, amount: number, reason: string, now: Date,
-  o: { countsAsBookingRefund?: boolean } = {},
+  o: { countsAsBookingRefund?: boolean; notifyGuest?: boolean } = {},
 ): Promise<RefundOutcome> {
   const { db } = deps;
   if (!charge.providerRef) return { ok: false, error: "NO_PROVIDER_REF" };
   const created = await db.insert(payments).values({
     id: crypto.randomUUID(), reservationId: charge.reservationId, kind: "refund", method: charge.method, amount,
     status: "pending", refundOf: charge.id, idempotencyKey: key, createdAt: now.getTime(),
+    ...(o.notifyGuest === false ? { notifyGuest: false } : {}),
   }).onConflictDoNothing({ target: payments.idempotencyKey }).returning();
   let row: PaymentRow | undefined = created[0];
   if (!row) {

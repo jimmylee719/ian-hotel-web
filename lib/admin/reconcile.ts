@@ -164,7 +164,7 @@ async function statusOf(db: Db, reservationId: string): Promise<ReservationStatu
  *   cancelled, whether or not its claim survived (a definitive gateway refusal drops it) and even inside the
  *   original request's lease (that request already gave up with an unknown outcome). The cancel core re-takes
  *   the claim with `cancelledAt = coalesce(cancelledAt, <intent created>)`, so the cancellation keeps its
- *   original time; the intent fixes the amount; nights are released from today on (the staff rule).
+ *   original time; the intent fixes the amount and whether the guest is emailed; nights are released from today on (the staff rule).
  * - `fail:<id>:<charge>` of a failed booking (paid_pending_confirm, syncState failed) → refundAndFail's rest,
  *   with the booking's original failure reason so its emails and any new error keep it.
  * A booking in any other state is left alone; the result reports its status.
@@ -181,6 +181,7 @@ export async function finishFlow(
     if (intent?.status === "succeeded") {
       const r = await cancelConfirmed(deps, res.id, now, {
         reason: "RECONCILED", releaseFrom: todayInTaipei(now), takeOverAt: intent.createdAt,
+        notifyGuest: intent.notifyGuest !== false, // the cancel's own choice (a staff cancel may have said no)
       });
       if (r.ok && !r.alreadyCancelled) completed = "cancellation";
     }

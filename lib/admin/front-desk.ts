@@ -161,9 +161,9 @@ export async function recordFrontDeskPayment(
     }, fits, now),
     // The booking's version moves with its money, so a staff modification planned before this payment conflicts.
     db.update(reservations).set({ updatedAt: now.getTime() }).where(and(eq(reservations.id, res.id), fits)),
-    // Positional: payments' columns in schema order (id … createdAt, note, merchantOrderNo). Every column is read back in tests.
+    // Positional: payments' columns in schema order (id … createdAt, note, merchantOrderNo, notifyGuest). Every column is read back in tests.
     db.insert(payments).select(sql`select ${paymentId}, ${res.id}, 'front_desk', ${p.method}, ${p.amount}, 'succeeded',
-      null, ${authCode}, ${last4}, null, null, ${now.getTime()}, ${note}, null where ${fits}`),
+      null, ${authCode}, ${last4}, null, null, ${now.getTime()}, ${note}, null, null where ${fits}`),
   ]);
   const [won] = await db.select({ id: payments.id }).from(payments).where(eq(payments.id, paymentId));
   if (!won) {
@@ -284,9 +284,9 @@ export async function recordFrontDeskRefund(
         'authCode', ${authCode}, 'note', ${note},
         'frontDeskRefundDue', (select ${reservations.frontDeskRefundDue} from ${reservations} where ${reservations.id} = ${res.id}) - ${p.amount})`,
     }, guard, now),
-    // Positional: payments' columns in schema order (id … createdAt, note, merchantOrderNo).
+    // Positional: payments' columns in schema order (id … createdAt, note, merchantOrderNo, notifyGuest).
     db.insert(payments).select(sql`select ${paymentId}, ${res.id}, 'refund', ${p.method}, ${p.amount}, 'succeeded',
-      null, ${authCode}, ${last4}, null, null, ${now.getTime()}, ${note}, null where ${guard}`),
+      null, ${authCode}, ${last4}, null, null, ${now.getTime()}, ${note}, null, null where ${guard}`),
     db.update(reservations)
       .set({
         frontDeskRefundDue: sql`${reservations.frontDeskRefundDue} - ${p.amount}`,
