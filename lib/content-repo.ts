@@ -26,6 +26,8 @@ export type RoomCard = {
   sizeSqm: number | null;
   /** R2 key of the cover photo. */
   image: string | null;
+  /** All the room's photos (R2 keys, cover first): the staff-managed list, or the old-site photos while it is empty. */
+  photos: string[];
   /** Lowest nightly price with a room left over the next 7 days (today included); null = no data. */
   fromPrice: number | null;
 };
@@ -98,6 +100,7 @@ function toCard(u: typeof unitTypes.$inferSelect, locale: Locale, prices: Map<st
     bedType: u.bedType[locale],
     sizeSqm: u.sizeSqm,
     image: photosOf(u)[0] ?? null,
+    photos: photosOf(u),
     fromPrice: prices.get(u.id) ?? null,
   };
 }

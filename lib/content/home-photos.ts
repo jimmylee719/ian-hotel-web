@@ -1,3 +1,5 @@
+import { pickFitting } from "@/lib/design/photo-fit";
+
 /**
  * Photos on the home page (spec §5.3 Home) and the desktop slot each one fills. Every pick must pass the sharpness
  * rule in its slot (tests/design/home-photos.test.ts); `Frame` also throws outside production if one does not.
@@ -32,3 +34,20 @@ export const HOME_ROOM_SLOTS = {
   lead: { w: 596, h: 290 },
   item: { w: 288, h: 210 },
 } as const;
+
+/**
+ * The rooms grid: each featured room (in FEATURED_ROOMS order) with the first of its photos that can fill its slot —
+ * the wide lead for the first room shown, an item slot for the rest. Staff choose a room's photos in the admin, so
+ * the cover may be an upload (trusted) or an old-site photo too small for the slot (skipped in favour of the room's
+ * next photo). A room with no photo that fits is left out, and the next room takes its place.
+ */
+export function featuredRoomPhotos<R extends { slug: string; photos: readonly string[] }>(rooms: readonly R[]): { room: R; photo: string }[] {
+  const picked: { room: R; photo: string }[] = [];
+  for (const slug of FEATURED_ROOMS) {
+    const room = rooms.find((r) => r.slug === slug);
+    if (!room) continue;
+    const photo = pickFitting(room.photos, picked.length === 0 ? HOME_ROOM_SLOTS.lead : HOME_ROOM_SLOTS.item);
+    if (photo) picked.push({ room, photo });
+  }
+  return picked;
+}

@@ -13,7 +13,7 @@ import { RatingsStrip } from "@/components/site/sections/RatingsStrip";
 import { Reveal } from "@/components/site/sections/Reveal";
 import { Link } from "@/i18n/navigation";
 import { FACILITY_PHOTOS } from "@/lib/content/facility-photos";
-import { FEATURED_ROOMS, HOME_PHOTOS } from "@/lib/content/home-photos";
+import { HOME_PHOTOS, featuredRoomPhotos } from "@/lib/content/home-photos";
 import { HOME_AWARDS } from "@/lib/content/reviews";
 import type { Locale } from "@/lib/db/schema";
 import { hotelJsonLd, MAP_URL } from "@/lib/jsonld";
@@ -46,12 +46,8 @@ export default async function Home({ params }: Props) {
     loadProperty(),
     loadRooms(locale),
   ]);
-  // Featured rooms with a cover photo, in FEATURED_ROOMS order (the first one is the grid's wide lead).
-  const featured = FEATURED_ROOMS.flatMap((slug) => {
-    const room = rooms.find((r) => r.slug === slug);
-    return room?.image ? [{ ...room, image: room.image }] : [];
-  });
-  const [lead, ...items] = featured;
+  // Featured rooms, each with its first photo that fills its grid slot (the first shown is the wide lead).
+  const [lead, ...items] = featuredRoomPhotos(rooms);
   // The vertical tagline is Chinese on the zh-TW and en sites, native on ja and ko.
   const taglineLang = locale === "en" ? "zh-TW" : undefined;
   // storyLead + storyBody1 read as one statement; spaced scripts need a space between the sentences.
@@ -99,8 +95,8 @@ export default async function Home({ params }: Props) {
           {lead && (
             <Reveal>
               <PhotoGrid3
-                lead={{ src: lead.image, alt: lead.name }}
-                items={items.map((room) => ({ src: room.image, alt: "", caption: room.name, captionEn: room.name !== room.nameEn ? room.nameEn : undefined }))}
+                lead={{ src: lead.photo, alt: lead.room.name }}
+                items={items.map(({ room, photo }) => ({ src: photo, alt: "", caption: room.name, captionEn: room.name !== room.nameEn ? room.nameEn : undefined }))}
               >
                 <Link className="text-link" href="/rooms">
                   {t("allRooms", { count: rooms.length })}
