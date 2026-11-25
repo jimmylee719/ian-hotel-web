@@ -187,7 +187,7 @@ test("when the policy refund fits in the online money, it all goes back through 
 test("a staff cancel reports the desk's share, audits it, and an override may cover everything received", async () => {
   const { db, deps, gateway, frontDesk, manager, id, code, reservation, auditsOf } = await depositBooking();
   await recordFrontDeskPayment(db, frontDesk, id, cash(DEPOSIT), DAY);
-  expect(await staffCancelPreview(db, id, HALF)).toEqual({ refund: DEPOSIT, frontDeskRefundDue: 0, maxOverride: TOTAL });
+  expect(await staffCancelPreview(db, id, HALF)).toEqual({ refund: DEPOSIT, frontDeskRefundDue: 0, maxOverride: TOTAL, modifyRefundPending: false });
   expect(await staffCancel(deps, manager, id, { reason: "x", notifyGuest: false, refundOverride: TOTAL + 1 }, HALF))
     .toEqual({ ok: false, error: "OVERRIDE_EXCEEDS_PAID" });
   const refund = vi.spyOn(gateway, "refund");

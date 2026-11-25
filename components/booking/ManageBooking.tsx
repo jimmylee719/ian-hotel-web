@@ -70,7 +70,8 @@ export function ManageBooking({ code, hotelPhone, hotelEmail }: { code: string; 
       if (now?.status === "cancelled") setNotice({ kind: "info", text: t("cancelledNoRefund") });
       else if (now?.status === "confirmed") setNotice({ kind: "info", text: now.canCancel ? t("inProgress") : t("pastCheckIn") });
       else if (now) setNotice({ kind: "info", text: t("notCancellable", { status: s(`status_${now.status}`) }) });
-    } else if (json?.error === "REFUND_FAILED") setNotice({ kind: "error", text: t("refundFailed") });
+    } else if (json?.error === "MODIFICATION_REFUND_PENDING") setNotice({ kind: "info", text: t("changePending") });
+    else if (json?.error === "REFUND_FAILED") setNotice({ kind: "error", text: t("refundFailed") });
     else if (res?.status === 429) setNotice({ kind: "error", text: s("rateLimited") });
     else setNotice({ kind: "error", text: t("error") });
   }
@@ -122,7 +123,8 @@ export function ManageBooking({ code, hotelPhone, hotelEmail }: { code: string; 
               )}
             </>
           ) : (
-            <p>{view.status === "cancelled" ? s("cancelled") : view.status === "confirmed" ? t("pastCheckIn") : t("onlineOnlyConfirmed")}</p>
+            <p>{view.status === "cancelled" ? s("cancelled") : view.changePending ? t("changePending")
+              : view.status === "confirmed" ? t("pastCheckIn") : t("onlineOnlyConfirmed")}</p>
           )}
           <p className="muted small">{t("contact", { phone: hotelPhone, email: hotelEmail })}</p>
         </section>

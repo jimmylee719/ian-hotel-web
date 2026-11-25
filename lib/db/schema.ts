@@ -160,14 +160,17 @@ export const reservations = sqliteTable(
     cancelledAt: integer("cancelled_at"),
     /** Epoch ms of the latest payment start (create, or a retry with the same idempotency key). */
     lastChargeStartedAt: integer("last_charge_started_at"),
+    /** Cancellation and failed-booking refunds only; every refund (staff modifications too) is in the money module's `refunded`. */
     refundedAmount: integer("refunded_amount").notNull().default(0),
     /** Lower-cased guest email, for lookups. */
     guestEmailLower: text("guest_email_lower").notNull(),
     createdAt: ms("created_at"),
     updatedAt: ms("updated_at"),
     /**
-     * Of the cancellation refund, the part the front desk must hand back (front-desk money never goes back
-     * through the gateway). Fixed when the cancellation's refund is first planned; meaningful once cancelled.
+     * What the front desk must hand back to the guest (front-desk money never goes back through the gateway).
+     * Live booking: set by each staff modification to the overpayment its online refund could not cover (0 once
+     * a raise uses it up). Cancelled: that owed money plus the cancellation's own desk share, fixed when the
+     * cancellation's refund is first planned.
      */
     frontDeskRefundDue: integer("front_desk_refund_due").notNull().default(0),
     /** How many staff modifications this booking has had; the n-th one's refund key is `modify:<id>:<n>`. */

@@ -58,7 +58,11 @@ describe("renderEmail", () => {
       expect(same).toContain("NT$0");
     }
     expect(renderEmail("booking_modified", "en", { ...data, modification: lower }).text)
-      .toContain("NT$2,000 will be refunded to your original payment method; NT$1,000 will be returned to you at the front desk.");
+      .toContain("NT$2,000 will be refunded to your original payment method; NT$1,000 will be returned to you at the front desk; nothing more is due.");
+    // A deposit booking made cheaper: nothing to refund, the balance due shrinks.
+    for (const l of LOCALES)
+      expect(renderEmail("booking_modified", l, { ...data, modification: { difference: -6000, refunded: 0, frontDeskRefundDue: 0, balanceDue: 1000 } }).text)
+        .toContain("NT$1,000");
   });
 
   it("escapes html in user-supplied fields", () => {

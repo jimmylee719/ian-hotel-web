@@ -16,7 +16,7 @@ const handle = withAdmin<Route>("reservations.modify", async (ctx, req, { params
   const change = parseModificationChange((await req.json().catch(() => null)) as Record<string, unknown> | null);
   if (!change) return actionError("BAD_REQUEST");
   const r = await previewModification(await getDb(), ctx, id, change, new Date());
-  if (!r.ok) return actionError(r.error);
+  if (!r.ok) return actionError(r.error, r.detail);
   return Response.json(r, { headers: { "Cache-Control": "no-store" } });
 });
 

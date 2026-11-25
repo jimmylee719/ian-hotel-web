@@ -104,8 +104,9 @@ function guardedAudit(
  * another property's booking is NOT_FOUND). The amount is a positive integer no larger than the balance due;
  * edc needs the card's last four digits and the terminal's authorisation code (1–12 letters/digits); any last4
  * must be four digits; neither the auth code nor the note may hold something that looks like a card number.
- * The payment (kind front_desk, succeeded) and its audit row are one batch, both guarded in SQL by "open and the
- * amount still fits the balance": two desks taking the same balance, or a cancel claimed meanwhile, can't slip in.
+ * The payment (kind front_desk, succeeded), its audit row and a bump of the booking's updatedAt (its version, which
+ * staff modifications check) are one batch, all guarded in SQL by "open and the amount still fits the balance":
+ * two desks taking the same balance, or a cancel claimed meanwhile, can't slip in.
  */
 export async function recordFrontDeskPayment(
   db: Db, ctx: StaffContext, reservationId: string, p: FrontDeskPaymentInput, now: Date,
@@ -141,6 +142,8 @@ export async function recordFrontDeskPayment(
         'authCode', ${authCode}, 'note', ${note},
         'balanceDue', (select ${reservations.totalAmount} from ${reservations} where ${reservations.id} = ${res.id}) - ${receivedOf(res.id)} - ${p.amount})`,
     }, fits, now),
+    // The booking's version moves with its money, so a staff modification planned before this payment conflicts.
+    db.update(reservations).set({ updatedAt: now.getTime() }).where(and(eq(reservations.id, res.id), fits)),
     // Positional: payments' columns in schema order (id … createdAt, note). Every column is read back in tests.
     db.insert(payments).select(sql`select ${paymentId}, ${res.id}, 'front_desk', ${p.method}, ${p.amount}, 'succeeded',
       null, ${authCode}, ${last4}, null, null, ${now.getTime()}, ${note} where ${fits}`),
@@ -157,7 +160,7 @@ export async function recordFrontDeskPayment(
  * Void a front-desk payment taken today (Taipei) on an open booking (see DeskState): needs `payments.front_desk`
  * at the property and the owner or manager role. A cancelled (or otherwise closed) booking is NOT_VOIDABLE, one
  * whose cancellation has started is CANCEL_IN_PROGRESS. The row is kept and set to failed (so it no longer
- * counts as received), with an audit row in the same batch; both are guarded in SQL by "still succeeded and the
+ * counts as received), with an audit row and an updatedAt bump in the same batch; all are guarded in SQL by "still succeeded and the
  * booking still open", so a second void is ALREADY_VOIDED and a cancel claimed meanwhile wins.
  */
 export async function voidFrontDeskPayment(
@@ -186,6 +189,8 @@ export async function voidFrontDeskPayment(
       before: { status: "succeeded", method: row.method, amount: row.amount },
       after: { status: "failed", reason: why },
     }, guard, now),
+    // The booking's version moves with its money, so a staff modification planned before this void conflicts.
+    db.update(reservations).set({ updatedAt: now.getTime() }).where(and(eq(reservations.id, row.reservationId), guard)),
     db.update(payments).set({ status: "failed" }).where(and(eq(payments.id, row.id), eq(payments.status, "succeeded"), deskOpenSql(row.reservationId))),
   ]);
   const [won] = await db.select({ id: auditLog.id }).from(auditLog).where(eq(auditLog.id, auditId));

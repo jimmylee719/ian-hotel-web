@@ -17,7 +17,7 @@ import { quote, type AddonLine, type Promo, type Quote } from "@/lib/domain/quot
 import type { ModificationMoney } from "@/lib/email/templates";
 import type { StaffContext } from "./auth";
 import { deskOpenSql } from "./front-desk";
-import { balanceDue, moneyOf } from "./money-metrics";
+import { moneyOf, unsettledModifyRefund } from "./money-metrics";
 import { can } from "./permissions";
 
 /** The stay a staff modification moves a booking to. Room type and rate plan default to the booking's own. */
@@ -45,6 +45,9 @@ export function parseModificationChange(b: Record<string, unknown> | null): Modi
 }
 
 export type PreviewError = "NOT_FOUND" | "FORBIDDEN" | "NOT_MODIFIABLE" | "NOT_AVAILABLE" | "INVALID_INPUT";
+/** Why a booking is NOT_MODIFIABLE, when it is not just its state: OTA bookings change through the OTA / SiteMinder. */
+export type ModifyErrorDetail = "OTA_BOOKING";
+type Fail<E> = { ok: false; error: E; detail?: ModifyErrorDetail };
 
 export type ModificationPreview =
   | {
@@ -52,14 +55,18 @@ export type ModificationPreview =
       newQuote: Quote;
       /** New total minus old total, both from quote(). */
       difference: number;
-      /** A lower price: what goes back online, min(−difference, online net). */
+      /** What goes back online: the overpayment (received beyond the new total), up to the online net. */
       refundIfLower: number;
-      /** A lower price: the rest of −difference, which the front desk hands back. */
+      /** What the front desk owes the guest after the change: the overpayment the online refund cannot cover. */
       frontDeskRefundIfLower: number;
-      /** A higher price: the balance due after the change (collected at the front desk). */
+      /** A higher price: the balance due after the change (collected at the front desk); else 0. */
       balanceIfHigher: number;
+      /** The balance due after the change, whichever way the price moved (0 when overpaid). */
+      balanceDue: number;
+      /** The booking's version this preview was computed on; pass it to applyModification as expectedUpdatedAt. */
+      updatedAt: number;
     }
-  | { ok: false; error: PreviewError };
+  | Fail<PreviewError>;
 
 export type ApplyError = PreviewError | "PRICE_CHANGED" | "CONFLICT" | "REASON_REQUIRED" | "PAYMENTS_UNAVAILABLE";
 
@@ -71,13 +78,13 @@ export type ApplyResult =
       difference: number;
       /** Refunded online. 0 when the refund failed (see refundFailed). */
       refunded: number;
-      /** Added to the booking's frontDeskRefundDue by this modification. */
+      /** The booking's frontDeskRefundDue after this modification: what the desk owes the guest now. */
       frontDeskRefundDue: number;
       balanceDue: number;
       /** The online refund did not go through: staff were alerted; it waits on the refund reconciliation page. */
       refundFailed?: true;
     }
-  | { ok: false; error: ApplyError };
+  | Fail<ApplyError>;
 
 /** The refund row of a booking's n-th modification. */
 export const modifyKey = (reservationId: string, n: number) => `modify:${reservationId}:${n}`;
@@ -94,7 +101,9 @@ type Plan = {
   newQuote: Quote;
   difference: number;
   refundOnline: number;
+  /** The booking's frontDeskRefundDue after the change (SET, not added to). */
   frontDeskRefund: number;
+  /** After the change, ≥ 0. */
   balanceDue: number;
   /** The charge an online refund goes back against, and its method (set when refundOnline > 0). */
   chargeId?: string;
@@ -105,7 +114,15 @@ type Plan = {
  * What modifying the booking to `change` would cost, without changing anything. Needs `reservations.modify`
  * at the booking's property (another property's booking is NOT_FOUND). Only a booking that is confirmed, not
  * yet past check-in day (Taipei), not being cancelled and with no other modification in flight (channel sync
- * pending, or an unsettled modification refund) can be modified; otherwise NOT_MODIFIABLE.
+ * pending, or an unsettled modification refund) can be modified; otherwise NOT_MODIFIABLE. OTA bookings are
+ * NOT_MODIFIABLE (detail OTA_BOOKING): they are changed through the OTA / SiteMinder.
+ * Money (one model, against the money module's `received`, net of refunds):
+ * - overpaid = max(0, received − newTotal): only money actually paid beyond the new price goes back;
+ * - online refund = min(overpaid, online net, the paying charge's remaining);
+ * - frontDeskRefundDue is SET to overpaid − online refund: what the desk owes the guest right now. On a live
+ *   booking nothing else is ever owed back (desk payments cannot overpay; a cancel's desk share is fixed only
+ *   as it cancels), so a later raise that uses up the overpayment brings it back to 0;
+ * - when received ≤ newTotal (e.g. a deposit) a lower price refunds nothing: the balance due just shrinks.
  * The new stay is priced from current rates as a new booking would be (the booking's own rooms count as
  * available on the nights it already holds); its add-ons are kept at their booked prices and re-counted for the
  * new nights and guests; its promo code still applies, whatever its usage count.
@@ -115,10 +132,10 @@ export async function previewModification(
 ): Promise<ModificationPreview> {
   const p = await plan(db, ctx, reservationId, change, now);
   if (!p.ok) return p;
-  const { newQuote, difference, refundOnline, frontDeskRefund, balanceDue: due } = p.plan;
+  const { newQuote, difference, refundOnline, frontDeskRefund, balanceDue: due, res } = p.plan;
   return {
     ok: true, newQuote, difference, refundIfLower: refundOnline, frontDeskRefundIfLower: frontDeskRefund,
-    balanceIfHigher: difference > 0 ? Math.max(0, due) : 0,
+    balanceIfHigher: difference > 0 ? due : 0, balanceDue: due, updatedAt: res.updatedAt,
   };
 }
 
@@ -136,7 +153,11 @@ export async function previewModification(
  */
 export async function applyModification(
   deps: Deps, ctx: StaffContext, reservationId: string, change: ModificationChange,
-  opts: { expectedDifference: number; reason: string; paymentsUnavailable?: boolean }, now: Date,
+  opts: {
+    expectedDifference: number; reason: string; paymentsUnavailable?: boolean;
+    /** The preview's `updatedAt`: if the booking changed since (e.g. a desk payment), CONFLICT. */
+    expectedUpdatedAt?: number;
+  }, now: Date,
 ): Promise<ApplyResult> {
   const { db } = deps;
   if (!can(ctx.staff, "reservations.modify")) return { ok: false, error: "FORBIDDEN" };
@@ -146,6 +167,7 @@ export async function applyModification(
   if (!p.ok) return p;
   const pl = p.plan;
   const { res } = pl;
+  if (opts.expectedUpdatedAt !== undefined && res.updatedAt !== opts.expectedUpdatedAt) return { ok: false, error: "CONFLICT" };
   if (pl.difference !== opts.expectedDifference) return { ok: false, error: "PRICE_CHANGED" };
   if (opts.paymentsUnavailable && pl.refundOnline > 0) return { ok: false, error: "PAYMENTS_UNAVAILABLE" };
 
@@ -179,7 +201,7 @@ export async function applyModification(
       db.update(reservations).set({
         checkIn: change.checkIn, checkOut: change.checkOut, adults: change.adults, children: change.children,
         quote: pl.newQuote, totalAmount: pl.newQuote.total, modCount: n,
-        frontDeskRefundDue: sql`${reservations.frontDeskRefundDue} + ${pl.frontDeskRefund}`,
+        frontDeskRefundDue: pl.frontDeskRefund,
         holdExpiresAt: res.holdExpiresAt ?? at,
         // nextSyncAt = now: from this moment the retry job is the safety net for the channel modify.
         syncState: "pending", syncAttempts: 0, nextSyncAt: at, lastSyncError: null, updatedAt: at,
@@ -220,7 +242,7 @@ export async function applyModification(
   }
   await modifyWithChannel(deps, res.id, now);
   const money: ModificationMoney = {
-    difference: pl.difference, refunded: pl.refundOnline, frontDeskRefundDue: pl.frontDeskRefund, balanceDue: Math.max(0, pl.balanceDue),
+    difference: pl.difference, refunded: pl.refundOnline, frontDeskRefundDue: pl.frontDeskRefund, balanceDue: pl.balanceDue,
   };
   await notifyGuest(deps, res.id, "booking_modified", now, { modification: money }, String(n));
   return {
@@ -290,11 +312,6 @@ function modifiableSql(res: Reservation, today: ISODate): SQL {
     and not exists (${unsettledModifyRefund(res.id)})`;
 }
 
-/** SQL: a refund of one of the booking's modifications that has not succeeded yet. */
-const unsettledModifyRefund = (reservationId: string) =>
-  sql`select 1 from ${payments} where ${payments.reservationId} = ${reservationId} and ${payments.kind} = 'refund'
-    and ${payments.idempotencyKey} like ${`modify:${reservationId}:%`} and ${payments.status} <> 'succeeded'`;
-
 /** Why the booking cannot be modified now, or null if it can. */
 async function blocker(db: Db, reservationId: string, now: Date): Promise<"NOT_FOUND" | "NOT_MODIFIABLE" | null> {
   const [row] = await db.select({
@@ -332,10 +349,11 @@ const isCount = (v: unknown, min: number, max: number) => Number.isInteger(v) &&
 
 async function plan(
   db: Db, ctx: StaffContext, reservationId: string, change: ModificationChange, now: Date,
-): Promise<{ ok: true; plan: Plan } | { ok: false; error: PreviewError }> {
+): Promise<{ ok: true; plan: Plan } | Fail<PreviewError>> {
   if (!can(ctx.staff, "reservations.modify")) return { ok: false, error: "FORBIDDEN" };
   const [res] = await db.select().from(reservations).where(eq(reservations.id, reservationId));
   if (!res || !can(ctx.staff, "reservations.modify", res.propertyId)) return { ok: false, error: "NOT_FOUND" };
+  if (res.channel === "siteminder_ota") return { ok: false, error: "NOT_MODIFIABLE", detail: "OTA_BOOKING" };
   if (await blocker(db, res.id, now)) return { ok: false, error: "NOT_MODIFIABLE" };
 
   // The booking's rooms: one room type and rate plan (all bookings are made that way).
@@ -371,22 +389,22 @@ async function plan(
   const difference = newQuote.total - oldQuote.total;
 
   const money = await moneyOf(db, res.id);
+  const overpaid = Math.max(0, money.received - newQuote.total);
   let refundOnline = 0;
   let charge: Awaited<ReturnType<typeof refundableCharges>>[number] | undefined;
-  if (difference < 0 && money.onlineNet > 0) {
+  if (overpaid > 0 && money.onlineNet > 0) {
     const chargeId = await payingChargeId(db, res.id);
     charge = (await refundableCharges(db, res.id)).find((c) => c.id === chargeId);
     // The online net, and never more than the paying charge still holds.
-    refundOnline = Math.min(-difference, money.onlineNet, charge?.remaining ?? 0);
+    refundOnline = Math.min(overpaid, money.onlineNet, charge?.remaining ?? 0);
   }
-  const frontDeskRefund = difference < 0 ? -difference - refundOnline : 0;
-  // After the change: the new total against what was received, less what this change refunds online.
-  const due = balanceDue(newQuote.total, { ...money, received: money.received - refundOnline });
+  const frontDeskRefund = overpaid - refundOnline;
+  const due = Math.max(0, newQuote.total - money.received);
   return {
     ok: true,
     plan: {
       res, rooms, oldItem, offer, nights: stay.nights, newQuote, difference, refundOnline, frontDeskRefund,
-      balanceDue: due + frontDeskRefund,
+      balanceDue: due,
       ...(charge && refundOnline > 0 ? { chargeId: charge.id, chargeMethod: charge.method } : {}),
     },
   };

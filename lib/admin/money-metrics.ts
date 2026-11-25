@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, like, ne, sql, type SQL } from "drizzle-orm";
 import { payments } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 
@@ -49,6 +49,31 @@ export function summarizeMoney(rows: { kind: string; amount: number }[]): MoneyM
 
 /** What is still owed on a reservation: its total minus what was received. Negative when overpaid. */
 export const balanceDue = (total: number, m: MoneyMetrics): number => total - m.received;
+
+/**
+ * What the guest is owed back on a live booking: received beyond its total. Desk payments cannot overpay and
+ * online overpayments are refunded, so this is what a price-lowering staff modification left for the front
+ * desk to hand back (the booking's frontDeskRefundDue is kept equal to it). A cancel never applies its policy
+ * to this money: it is the guest's already.
+ */
+export const owedBack = (total: number, m: MoneyMetrics): number => Math.max(0, m.received - total);
+
+/**
+ * SQL subquery: a refund of one of the booking's staff modifications (`modify:<id>:<n>`) that has not succeeded.
+ * While one exists the booking's money is in motion: no further modification, and no cancel, may start.
+ */
+export const unsettledModifyRefund = (reservationId: string): SQL =>
+  sql`select 1 from ${payments} where ${payments.reservationId} = ${reservationId} and ${payments.kind} = 'refund'
+    and ${payments.idempotencyKey} like ${`modify:${reservationId}:%`} and ${payments.status} <> 'succeeded'`;
+
+/** Whether the booking has an unsettled modification refund (see unsettledModifyRefund). */
+export async function modifyRefundPending(db: Db, reservationId: string): Promise<boolean> {
+  const rows = await db.select({ id: payments.id }).from(payments).where(and(
+    eq(payments.reservationId, reservationId), eq(payments.kind, "refund"),
+    like(payments.idempotencyKey, `modify:${reservationId}:%`), ne(payments.status, "succeeded"),
+  )).limit(1);
+  return rows.length > 0;
+}
 
 /** SQL twin of `summarizeMoney().received`, for aggregation: which rows count ... */
 export const countsAsReceived: SQL = and(eq(payments.status, "succeeded"), inArray(payments.kind, MONEY_KINDS as unknown as MoneyKind[]))!;

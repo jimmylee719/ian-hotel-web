@@ -93,7 +93,7 @@ export async function handleCancelBooking(deps: Deps, code: string, req: Request
     const desk = r.frontDeskRefundDue ? { frontDeskRefundDue: r.frontDeskRefundDue } : {};
     return json(200, { refunded: r.refunded, ...desk, alreadyCancelled: r.alreadyCancelled });
   }
-  const status = r.error === "NOT_FOUND" ? 404 : r.error === "NOT_CANCELLABLE" ? 409 : 502;
+  const status = r.error === "NOT_FOUND" ? 404 : r.error === "NOT_CANCELLABLE" || r.error === "MODIFICATION_REFUND_PENDING" ? 409 : 502;
   return json(status, { error: r.error });
 }
 

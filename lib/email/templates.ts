@@ -32,7 +32,7 @@ export type ModificationMoney = {
   refunded: number;
   /** Handed back at the front desk (the part the online payment cannot cover). */
   frontDeskRefundDue: number;
-  /** What is still owed after the change, payable at the front desk. */
+  /** What is still owed after the change, payable at the front desk (0 when nothing is). */
   balanceDue: number;
 };
 
@@ -66,7 +66,8 @@ const copy: Record<Locale, Copy> = {
     settle: (m) => m.difference > 0
       ? `需補差額 ${formatTwd(m.difference)}，目前待付 ${formatTwd(m.balanceDue)}，請於入住時在櫃檯付款。`
       : m.difference < 0
-        ? [m.refunded > 0 ? `${formatTwd(m.refunded)} 將退回原付款方式` : "", m.frontDeskRefundDue > 0 ? `${formatTwd(m.frontDeskRefundDue)} 將由櫃檯退還` : ""]
+        ? [m.refunded > 0 ? `${formatTwd(m.refunded)} 將退回原付款方式` : "", m.frontDeskRefundDue > 0 ? `${formatTwd(m.frontDeskRefundDue)} 將由櫃檯退還` : "",
+          m.balanceDue > 0 ? `尚待付款 ${formatTwd(m.balanceDue)}，請於入住時在櫃檯付款` : "無須再付款"]
           .filter(Boolean).join("，") + "。"
         : "總金額不變。",
     sign: "期待與您相見",
@@ -117,7 +118,8 @@ const copy: Record<Locale, Copy> = {
     settle: (m) => m.difference > 0
       ? `An extra ${formatTwd(m.difference)} is due; the balance of ${formatTwd(m.balanceDue)} is payable at the front desk when you check in.`
       : m.difference < 0
-        ? [m.refunded > 0 ? `${formatTwd(m.refunded)} will be refunded to your original payment method` : "", m.frontDeskRefundDue > 0 ? `${formatTwd(m.frontDeskRefundDue)} will be returned to you at the front desk` : ""]
+        ? [m.refunded > 0 ? `${formatTwd(m.refunded)} will be refunded to your original payment method` : "", m.frontDeskRefundDue > 0 ? `${formatTwd(m.frontDeskRefundDue)} will be returned to you at the front desk` : "",
+          m.balanceDue > 0 ? `the balance of ${formatTwd(m.balanceDue)} is payable at the front desk when you check in` : "nothing more is due"]
           .filter(Boolean).join("; ") + "."
         : "The total is unchanged.",
     sign: "We look forward to welcoming you",
@@ -168,7 +170,8 @@ const copy: Record<Locale, Copy> = {
     settle: (m) => m.difference > 0
       ? `差額 ${formatTwd(m.difference)} が発生します。未払い額 ${formatTwd(m.balanceDue)} はチェックイン時にフロントでお支払いください。`
       : m.difference < 0
-        ? [m.refunded > 0 ? `${formatTwd(m.refunded)} を元のお支払い方法へご返金いたします` : "", m.frontDeskRefundDue > 0 ? `${formatTwd(m.frontDeskRefundDue)} はフロントにてご返金いたします` : ""]
+        ? [m.refunded > 0 ? `${formatTwd(m.refunded)} を元のお支払い方法へご返金いたします` : "", m.frontDeskRefundDue > 0 ? `${formatTwd(m.frontDeskRefundDue)} はフロントにてご返金いたします` : "",
+          m.balanceDue > 0 ? `未払い額 ${formatTwd(m.balanceDue)} はチェックイン時にフロントでお支払いください` : "追加のお支払いはございません"]
           .filter(Boolean).join("。") + "。"
         : "合計金額に変更はありません。",
     sign: "ご来館を心よりお待ちしております",
@@ -219,7 +222,8 @@ const copy: Record<Locale, Copy> = {
     settle: (m) => m.difference > 0
       ? `차액 ${formatTwd(m.difference)}이(가) 발생합니다. 미결제 금액 ${formatTwd(m.balanceDue)}은(는) 체크인 시 프런트에서 결제해 주세요.`
       : m.difference < 0
-        ? [m.refunded > 0 ? `${formatTwd(m.refunded)}은(는) 기존 결제 수단으로 환불됩니다` : "", m.frontDeskRefundDue > 0 ? `${formatTwd(m.frontDeskRefundDue)}은(는) 프런트에서 환불해 드립니다` : ""]
+        ? [m.refunded > 0 ? `${formatTwd(m.refunded)}은(는) 기존 결제 수단으로 환불됩니다` : "", m.frontDeskRefundDue > 0 ? `${formatTwd(m.frontDeskRefundDue)}은(는) 프런트에서 환불해 드립니다` : "",
+          m.balanceDue > 0 ? `미결제 금액 ${formatTwd(m.balanceDue)}은(는) 체크인 시 프런트에서 결제해 주세요` : "추가로 결제하실 금액은 없습니다"]
           .filter(Boolean).join(". ") + "."
         : "총 금액은 변동이 없습니다.",
     sign: "뵙게 되기를 진심으로 기대합니다",

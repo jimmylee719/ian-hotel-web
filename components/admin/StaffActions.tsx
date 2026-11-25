@@ -230,6 +230,7 @@ type ModifyOptions = {
 type ModifyPreview = {
   newQuote: { nights: number; total: number };
   difference: number; refundIfLower: number; frontDeskRefundIfLower: number; balanceIfHigher: number;
+  balanceDue: number; updatedAt: number;
 };
 
 /**
@@ -267,12 +268,14 @@ export function ModifyReservationAction({ reservationId, stay, options }: { rese
     if (!current) throw new Error("請先按「試算差額」，確認新的金額後再修改");
     if (!reason.trim()) throw new Error("請填寫修改原因");
     const r = await post<{ difference: number; refunded: number; frontDeskRefundDue: number; balanceDue: number; refundFailed?: boolean }>(
-      base, { ...form, expectedDifference: current.difference, reason });
-    show(r.difference > 0 ? `已修改，待收 ${formatMoney(r.balanceDue)}`
-      : r.difference < 0
-        ? `已修改，線上退款 ${formatMoney(r.refunded)}${r.frontDeskRefundDue ? `，另需由櫃檯退款 ${formatMoney(r.frontDeskRefundDue)}` : ""}`
-          + (r.refundFailed ? "（線上退款沒有完成，已通知管理者，請到退款對帳頁確認）" : "")
-        : "已修改，金額不變");
+      base, { ...form, expectedDifference: current.difference, expectedUpdatedAt: current.updatedAt, reason });
+    const parts = [
+      r.refunded > 0 ? `線上退款 ${formatMoney(r.refunded)}` : "",
+      r.frontDeskRefundDue > 0 ? `需由櫃檯退款 ${formatMoney(r.frontDeskRefundDue)}` : "",
+      r.balanceDue > 0 ? `待收 ${formatMoney(r.balanceDue)}` : "",
+    ].filter(Boolean);
+    show(`已修改${parts.length ? `，${parts.join("，")}` : "，沒有待收或待退款項"}`
+      + (r.refundFailed ? "（線上退款沒有完成，已通知管理者，請到退款對帳頁確認）" : ""));
     setPreview(null);
     router.refresh();
   }
@@ -303,11 +306,9 @@ export function ModifyReservationAction({ reservationId, stay, options }: { rese
             <p aria-live="polite">
               新總額 <strong>{formatMoney(current.newQuote.total)}</strong>（{current.newQuote.nights} 晚），差額{" "}
               <strong>{formatMoney(current.difference)}</strong>：
-              {current.difference > 0 ? <>待收增加，修改後待收 <strong>{formatMoney(current.balanceIfHigher)}</strong>，由櫃檯收款。</>
-                : current.difference < 0 ? (
-                  <>線上退回 <strong>{formatMoney(current.refundIfLower)}</strong>
-                    {current.frontDeskRefundIfLower > 0 ? <>，另 <strong>{formatMoney(current.frontDeskRefundIfLower)}</strong> 需由櫃檯退還</> : null}。</>
-                ) : <>金額不變。</>}
+              {current.refundIfLower > 0 ? <>線上退回 <strong>{formatMoney(current.refundIfLower)}</strong>；</> : null}
+              {current.frontDeskRefundIfLower > 0 ? <>櫃檯需退還 <strong>{formatMoney(current.frontDeskRefundIfLower)}</strong>；</> : null}
+              修改後待收 <strong>{formatMoney(current.balanceDue)}</strong>（由櫃檯收款）。
             </p>
           ) : preview ? <p className="adm-muted">內容已變更，請重新試算。</p> : null}
           <label htmlFor="mod-reason">修改原因（必填）</label>

@@ -1,9 +1,10 @@
 import { eq } from "drizzle-orm";
-import { alreadyCancelled, cancelConfirmed, plannedCancelRefund, refundTotal } from "@/lib/booking/manage";
-import { receivedAmount, type Deps } from "@/lib/booking/notify";
+import { alreadyCancelled, cancelBase, cancelConfirmed, plannedCancelRefund, refundTotal } from "@/lib/booking/manage";
+import type { Deps } from "@/lib/booking/notify";
 import { reservations } from "@/lib/db/schema";
 import { todayInTaipei } from "@/lib/domain/dates";
 import { recordAudit } from "./audit";
+import { modifyRefundPending } from "./money-metrics";
 import type { StaffContext } from "./auth";
 import { can } from "./permissions";
 
@@ -11,8 +12,9 @@ export type StaffCancelOptions = {
   /** Required: why staff cancelled (kept in the audit log). */
   reason: string;
   /**
-   * Refund this amount in all instead of the policy's (needs `reservations.refund_override`): an integer from 0
-   * to the total received. As with the policy, the online net goes back through the gateway and the rest is
+   * Refund this amount instead of the policy's (needs `reservations.refund_override`): an integer from 0 to the
+   * cancel base (the total received minus money already owed back after a staff modification, which is refunded
+   * at the front desk on top, whatever the override). As with the policy, the online net goes back through the gateway and the rest is
    * `frontDeskRefundDue`. Used only when this call creates the cancellation's refund intent; if one already
    * exists (e.g. an earlier guest attempt), its split wins and the result says `overrideIgnored`.
    */
@@ -24,7 +26,7 @@ export type StaffCancelOptions = {
 
 export type StaffCancelError =
   | "NOT_FOUND" | "FORBIDDEN" | "NOT_CANCELLABLE" | "REFUND_FAILED" | "OVERRIDE_EXCEEDS_PAID" | "INVALID_OVERRIDE"
-  | "REASON_REQUIRED" | "PAYMENTS_UNAVAILABLE";
+  | "REASON_REQUIRED" | "PAYMENTS_UNAVAILABLE" | "MODIFICATION_REFUND_PENDING";
 
 export type StaffCancelResult =
   | {
@@ -59,7 +61,7 @@ export async function staffCancel(
   if (override !== undefined) {
     if (!can(ctx.staff, "reservations.refund_override", res.propertyId)) return { ok: false, error: "FORBIDDEN" };
     if (!Number.isInteger(override) || override < 0) return { ok: false, error: "INVALID_OVERRIDE" };
-    if (override > await receivedAmount(db, res.id)) return { ok: false, error: "OVERRIDE_EXCEEDS_PAID" };
+    if (override > await cancelBase(db, res)) return { ok: false, error: "OVERRIDE_EXCEEDS_PAID" };
   }
 
   const result = await run();
@@ -97,14 +99,18 @@ export async function staffCancel(
 
 /**
  * For the cancel dialog: what a cancel now would refund in all by the rules (or the existing intent's split),
- * how much of that the front desk hands back, and the most an override may refund (the total received).
- * Null unless the booking can be cancelled.
+ * how much of that the front desk hands back, and the most an override may refund (the cancel base).
+ * `modifyRefundPending`: a staff modification's refund has not settled, so a cancel would be refused
+ * (MODIFICATION_REFUND_PENDING) until it is reconciled. Null unless the booking is confirmed.
  */
 export async function staffCancelPreview(
   db: Deps["db"], reservationId: string, now: Date,
-): Promise<{ refund: number; frontDeskRefundDue: number; maxOverride: number } | null> {
+): Promise<{ refund: number; frontDeskRefundDue: number; maxOverride: number; modifyRefundPending: boolean } | null> {
   const [res] = await db.select().from(reservations).where(eq(reservations.id, reservationId));
   if (!res || res.status !== "confirmed") return null;
   const plan = await plannedCancelRefund(db, res, now);
-  return { refund: refundTotal(plan), frontDeskRefundDue: plan.frontDesk, maxOverride: await receivedAmount(db, res.id) };
+  return {
+    refund: refundTotal(plan), frontDeskRefundDue: plan.frontDesk, maxOverride: await cancelBase(db, res),
+    modifyRefundPending: await modifyRefundPending(db, res.id),
+  };
 }

@@ -31,11 +31,18 @@ const MESSAGES: Record<string, [status: number, message: string]> = {
   NOT_MODIFIABLE: [409, "這筆訂單目前不能修改（只有入住日以前、已確認、沒有在取消，也沒有其他修改在處理中的訂單可以修改）。"],
   NOT_AVAILABLE: [409, "新的日期或房型沒有空房。"],
   PRICE_CHANGED: [409, "價格在試算後變動了，請重新試算再確認。"],
-  CONFLICT: [409, "這筆訂單剛被其他人修改過，請重新整理後再試。"],
+  CONFLICT: [409, "這筆訂單剛被其他人修改過（或剛登錄了櫃檯收款），請重新試算後再試。"],
+  MODIFICATION_REFUND_PENDING: [409, "這筆訂單有修改產生的退款尚未完成，請先到退款對帳頁（/admin/refunds）處理後再取消。"],
 };
 
-/** The JSON error response for `code`, `{ error, message }`. */
-export function actionError(code: string): Response {
-  const [status, message] = MESSAGES[code] ?? [500, "操作失敗，請再試一次。"];
-  return Response.json({ error: code, message }, { status, headers: { "Cache-Control": "no-store" } });
+/** Messages for an error's `detail`, when it says more than the code. */
+const DETAIL_MESSAGES: Record<string, string> = {
+  OTA_BOOKING: "這是 OTA 通路的訂單，請到 OTA 或 SiteMinder 修改。",
+};
+
+/** The JSON error response for `code`, `{ error, message }` (plus `detail` when given). */
+export function actionError(code: string, detail?: string): Response {
+  const [status, fallback] = MESSAGES[code] ?? [500, "操作失敗，請再試一次。"];
+  const message = (detail && DETAIL_MESSAGES[detail]) || fallback;
+  return Response.json({ error: code, message, ...(detail ? { detail } : {}) }, { status, headers: { "Cache-Control": "no-store" } });
 }

@@ -358,6 +358,7 @@
     "refundFailed": "The refund couldn't be completed automatically, so the booking isn't cancelled yet. Our front desk has been alerted and will email you.",
     "onlineOnlyConfirmed": "Only confirmed bookings can be cancelled online.",
     "pastCheckIn": "This booking can no longer be cancelled online after the check-in day. Please contact the front desk.",
+    "changePending": "A change to this booking is still being processed, so it can't be cancelled online right now. Please contact the hotel.",
     "contact": "Questions? Call {phone} or email {email}.",
     "error": "That didn't work. Please try again shortly."
   }

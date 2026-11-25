@@ -87,7 +87,9 @@ export default async function Page({
   const canTakePayment = deskOpen && d.money.balanceDue !== null && d.money.balanceDue > 0
     && can(ctx.staff, "payments.front_desk", propertyId);
   // The server re-checks everything (including no other modification in flight); this only hides a button that cannot work.
-  const modifyOptions = deskOpen && todayInTaipei(now) <= r.checkIn && can(ctx.staff, "reservations.modify", propertyId)
+  // OTA bookings are changed through the OTA / SiteMinder, not here.
+  const modifyOptions = deskOpen && r.channel !== "siteminder_ota" && todayInTaipei(now) <= r.checkIn
+    && can(ctx.staff, "reservations.modify", propertyId)
     ? await modifyFormOptions(db, propertyId, r.id) : null;
 
   return (
@@ -98,7 +100,12 @@ export default async function Page({
       </h1>
 
       <div className="adm-actions" role="group" aria-label="訂單操作">
-        {cancelPreview ? (
+        {cancelPreview?.modifyRefundPending ? (
+          <span>
+            <button type="button" className="adm-btn" disabled aria-describedby="cancel-blocked">取消</button>{" "}
+            <span id="cancel-blocked" className="adm-muted">修改產生的退款尚未完成，請先到<Link href="/admin/refunds">退款對帳</Link>處理。</span>
+          </span>
+        ) : cancelPreview ? (
           <CancelReservationAction reservationId={r.id} refund={cancelPreview.refund}
             frontDeskRefundDue={cancelPreview.frontDeskRefundDue} maxOverride={cancelPreview.maxOverride}
             canOverride={can(ctx.staff, "reservations.refund_override", propertyId)} />
