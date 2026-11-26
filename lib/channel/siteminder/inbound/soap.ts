@@ -61,6 +61,14 @@ export function child(node: unknown, name: string): XmlNode | string | undefined
   return isNode(v) || typeof v === "string" ? v : undefined;
 }
 
+/** Every child element `name` of `node`, in document order (none → []). Text-only children are skipped. */
+export function children(node: unknown, name: string): XmlNode[] {
+  if (!isNode(node)) return [];
+  const v = node[name];
+  const all = Array.isArray(v) ? v : v === undefined ? [] : [v];
+  return all.map((x) => (x === "" ? {} : x)).filter(isNode);
+}
+
 /** Follow a path of child element names. */
 export function path(node: unknown, ...names: string[]): XmlNode | string | undefined {
   let cur: unknown = node;
@@ -146,6 +154,8 @@ export function soapEnvelope(bodyXml: string): string {
 /**
  * Which TimeStamp an RS carries. [RR]: OTA_HotelAvailRS@TimeStamp is when the response was generated.
  * §4.3 ([AR][RATES]): AvailNotifRS and RateAmountNotifRS carry the request's TimeStamp. Any other RS: generated.
+ * SITEMINDER-OPEN-Q21: [RATES]' field table calls the RS TimeStamp the response's generation time, its sample reuses
+ * the request's; we follow the samples.
  */
 export type TimeStampPolicy = "generated" | "echo";
 export const RS_TIMESTAMP: Readonly<Record<string, TimeStampPolicy>> = {

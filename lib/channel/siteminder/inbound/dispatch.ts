@@ -2,6 +2,8 @@ import { checkRate, clientIp, retryAfterSec } from "@/lib/api/rate-limit";
 import type { Db } from "@/lib/db/types";
 import { log } from "@/lib/runtime/log";
 import { authFailure, soapFault, soapResponse } from "./errors";
+import type { OpsDeps } from "@/lib/ops/alerts";
+import { handleAvailNotif, handleRateAmountNotif } from "./ari";
 import { handleRoomsAndRates } from "./rooms-and-rates";
 import { MalformedRequestError, parseEnvelope, usernameToken, type XmlNode } from "./soap";
 
@@ -18,16 +20,28 @@ export type InboundDeps = {
   /** Our credentials for SiteMinder's calls (secrets). Unset or empty = every request is refused. */
   username?: string;
   password?: string;
+  /** Ops alerts (repeated ARI rejections). Unset = none. */
+  ops?: OpsDeps;
+  /** Keep work running after the response (the Worker's ctx.waitUntil). Unset = it runs before the response. */
+  defer?: (work: Promise<unknown>) => void;
 };
 
-export type InboundContext = { db: Db; root: XmlNode; now: Date };
+export type InboundContext = {
+  db: Db; root: XmlNode; now: Date; ops?: OpsDeps;
+  /** See InboundDeps.defer. */
+  defer?: (work: Promise<unknown>) => void;
+  /** Without `defer`: work started by the handler, awaited by the endpoint before it answers. */
+  pending?: Promise<unknown>[];
+};
 
 /** Answers one OTA request root with its RS element (the SOAP envelope is added by the endpoint). */
 export type InboundHandler = (ctx: InboundContext) => Promise<string>;
 
-/** Root element → handler. Task 4 adds OTA_HotelAvailNotifRQ and OTA_HotelRateAmountNotifRQ here. */
+/** Root element → handler: Rooms and Rates, and the two ARI messages (doc §4). */
 export const HANDLERS: Readonly<Record<string, InboundHandler>> = {
   OTA_HotelAvailRQ: handleRoomsAndRates,
+  OTA_HotelAvailNotifRQ: handleAvailNotif,
+  OTA_HotelRateAmountNotifRQ: handleRateAmountNotif,
 };
 
 /**
@@ -111,8 +125,11 @@ export async function handleSiteMinderInbound(deps: InboundDeps, req: Request, n
     log.warn(`siteminder inbound: unsupported message ${shown}`);
     return soapFault(400, `Unsupported message: ${shown}`);
   }
+  const pending: Promise<unknown>[] = [];
   try {
-    return soapResponse(await handler({ db: deps.db, root, now }));
+    const rs = await handler({ db: deps.db, root, now, ops: deps.ops, defer: deps.defer, pending });
+    await Promise.all(pending);
+    return soapResponse(rs);
   } catch (e) {
     log.error(`siteminder inbound: ${shown} failed`, e);
     return soapFault(500, "Internal error");

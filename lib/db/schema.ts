@@ -103,8 +103,19 @@ export const ariDaily = sqliteTable(
     closedToArrival: bool("closed_to_arrival"),
     closedToDeparture: bool("closed_to_departure"),
     stopSell: bool("stop_sell"),
+    /** Longest stay arriving on this date (SiteMinder SetMaxLOS); null = no limit. */
+    maxStay: integer("max_stay"),
+    /** Stay Through (SetForwardMinStay / SetForwardMaxStay): every stay covering this night must be at least / at most this long; null = no limit. */
+    minStayThrough: integer("min_stay_through"),
+    maxStayThrough: integer("max_stay_through"),
     source: text("source", { enum: ["siteminder", "local"] }).notNull(),
     syncedAt: ms("synced_at"),
+    /**
+     * The SiteMinder message TimeStamp (epoch ms, lib/channel/siteminder/inbound/ari.ts orderingTs) that last set this
+     * night's restrictions / its price: an older message never overwrites a newer one. Null = never set by SiteMinder.
+     */
+    restrictionsSourceTs: integer("restrictions_source_ts"),
+    priceSourceTs: integer("price_source_ts"),
   },
   (t) => [
     primaryKey({ columns: [t.unitTypeId, t.ratePlanId, t.date] }),
@@ -125,6 +136,8 @@ export const inventoryDaily = sqliteTable(
     available: integer("available").notNull(),
     source: text("source", { enum: ["siteminder", "local"] }).notNull(),
     syncedAt: ms("synced_at"),
+    /** The SiteMinder message TimeStamp (epoch ms) that last set `available`; see ariDaily.restrictionsSourceTs. */
+    sourceTs: integer("source_ts"),
   },
   (t) => [
     primaryKey({ columns: [t.unitTypeId, t.date] }),
@@ -467,3 +480,30 @@ export const channelLeases = sqliteTable("channel_leases", {
   holder: text("holder").notNull(),
   until: ms("until"),
 });
+
+/**
+ * Every ARI message SiteMinder sent us that passed authentication (lib/channel/siteminder/inbound/ari.ts), for
+ * /admin/system and the repeated-rejection ops alert. Never the XML itself. Rows older than ARI_LOG_KEEP_MS are pruned.
+ */
+export const channelAriMessages = sqliteTable(
+  "channel_ari_messages",
+  {
+    id: id(),
+    at: ms("at"),
+    /** Null when the HotelCode matched no property. */
+    propertyId: text("property_id"),
+    /** The request root, e.g. OTA_HotelAvailNotifRQ. */
+    messageType: text("message_type").notNull(),
+    echoToken: text("echo_token"),
+    /** Day rows the message expands to (one per day per room type / rate plan). */
+    days: integer("days").notNull(),
+    outcome: text("outcome", { enum: ["applied", "rejected"] }).notNull(),
+    /** The OTA error we answered with (rejected only). */
+    errorCode: integer("error_code"),
+    errorText: text("error_text"),
+    /** Room type / rate plan codes we answered 402 / 249 for. */
+    rejectedCodes: text("rejected_codes", { mode: "json" }).$type<{ kind: "room" | "rate"; code: string }[]>().notNull().default(sql`'[]'`),
+    durationMs: integer("duration_ms").notNull(),
+  },
+  (t) => [index("channel_ari_messages_at").on(t.at)],
+);

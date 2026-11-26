@@ -219,11 +219,11 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
 | `Restriction="Arrival"` | `closedToArrival` | `ari_daily.closed_to_arrival` | |
 | `Restriction="Departure"` | `closedToDeparture` | `ari_daily.closed_to_departure` | |
 | `SetMinLOS @Time` | `minStay` | `ari_daily.min_stay` | Time=1 等於沒有限制 |
-| `SetMaxLOS @Time` / 沒帶 Time | **沒有欄位** | **沒有欄位** | 認證情境 [TC] 有測最長住宿。要新增欄位，或在認證時申請把它移除 [AR] |
-| `SetForwardMinStay` / `SetForwardMaxStay` | **沒有欄位** | **沒有欄位** | 選用功能。不支援就回 Success 並忽略 [AR] |
+| `SetMaxLOS @Time` / 沒帶 Time | `maxStay`（null = 清除） | `ari_daily.max_stay`（NULL = 不限） | 0025 新增。認證情境 [TC] 有測最長住宿 |
+| `SetForwardMinStay` / `SetForwardMaxStay` | `minStayThrough` / `maxStayThrough` | `ari_daily.min_stay_through` / `max_stay_through` | 0025 新增。住宿涵蓋的每一晚都要符合 |
 | `BaseByGuestAmt @AmountAfterTax`（PDP，沒有 NumberOfGuests 的那一筆） | `price` | `ari_daily.price`（整數） | 收到 decimal 要換成整數，換算方式見 Q8。單人折扣和加人費用目前沒有欄位（**inferred**：選 PDP，不開這兩個功能） |
 | `RateDescription/Text` | — | — | 選用 |
-| 請求的 `@TimeStamp` | `sourceTs`（Task 4 計畫新增） | `*.source_ts`（計畫新增） | **inferred**：文件沒有序號機制。[FAQ] 只寫每間飯店的更新是單執行緒、只送最新版本。能不能拿 TimeStamp 判斷先後，見 Q5 |
+| 請求的 `@TimeStamp` | `applyAriUpdates(..., { sourceTs })` | `inventory_daily.source_ts`、`ari_daily.restrictions_source_ts`、`ari_daily.price_source_ts` | **inferred**：文件沒有序號機制。[FAQ] 只寫每間飯店的更新是單執行緒、只送最新版本。能不能拿 TimeStamp 判斷先後，見 Q5。三個時間分開存，因為可售數量／限制和價格是兩種訊息 |
 
 - **未知代碼**：
   - 計畫原本寫「記錄下來、不套用、其他照常套用、回成功」，**和文件衝突**。文件**規定**要回 402 或 249 錯誤，SiteMinder 才會停用並通知飯店 [ERR-G]。
@@ -232,7 +232,27 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
 - **壞掉的 XML**：計畫要求回錯誤、一筆都不套用。文件沒有規定「XML 無法解析」時要回什麼碼（Q7）。
 - **大小限制**：計畫設 1 MB 上限。一則最多 210 天、一個房型，PDP 格式不會超過 1 MB（**inferred**）。但 OBP 每筆可以到 50 個 BaseByGuestAmt，而且 SiteMinder 可以把批次調大，所以上限要保守（**inferred**）。
 - **401 / 413**：計畫寫帳密錯回 HTTP 401。文件要求的是 SOAP 錯誤 Type 4 / Code 448（應用層錯誤）。HTTP 狀態碼文件沒寫，推測是 200（**inferred**，Q7）。超過大小上限屬於伺服器層級，可以回 HTTP 413（**inferred**）。
-- **速度**：要在 1–2 秒內回應，20 秒是硬上限 [REQ]。一則 210 天、數個價格方案，大約幾百筆寫入，D1 分批寫入應該做得到（**inferred**）。如果做不到，就先存進 Cloudflare Queue 再回 Success。
+- **速度**：要在 1–2 秒內回應，20 秒是硬上限 [REQ]。一則 210 天、數個價格方案，大約幾百筆寫入，D1 分批寫入應該做得到（**inferred**）。如果做不到，就先存進 Cloudflare Queue 再回 Success。實作和計算見 4.6。
+
+### 4.6 我們的實作（Task 4，`lib/channel/siteminder/inbound/ari.ts`、`lib/db/ari-sync.ts`）
+- 2026-11-27 重讀 [AR][RATES] 補充：
+  - `OTA_HotelAvailNotifRQ` 的 `StatusApplicationControl @RatePlanCode` 是必填（M=1），即使房型層級的可售數量會忽略它 [AR]；`OTA_HotelRateAmountNotifRQ` 的 `@RatePlanCode` 卻是 0..1 [RATES]。價格一定要對到我們的方案，所以我們兩種訊息的價格／限制都要求帶 RatePlanCode（缺少回 10/321），只有單純的 BookingLimit 可以不帶（Q8、Q20）。
+  - `RateAmountMessage` 裡 `Rate` 只有一個（M=1）；同一則訊息只有一間飯店、一個房型 [RATES][AR]。我們不檢查「只有一個房型」，多個房型照樣處理。
+  - [AR] 範例：第一個 `AvailStatusMessage` 同時帶 `BookingLimit` 和 `RestrictionStatus Status="Open"`，其他範例各帶一種（LOS、CTA、CTD）。沒有 `BookingLimitMessageType`。
+  - [AR] 沒有定義日期或數值錯誤的錯誤碼。
+  - [RATES] 的欄位表把 RS 的 `TimeStamp` 寫成「回應產生的時間」，範例卻沿用請求的值。我們照 4.3 回請求的 TimeStamp（`soap.ts RS_TIMESTAMP`），見 Q21。
+- **整則驗證**：任何錯誤都整則不套用、回 `<Errors>`（HTTP 200）：未知房型 12/402、未知方案 12/249（文字一字不差）；HotelCode 6/392；缺欄位 10/321 `Required field missing: …`；值不能用（日期不存在、End 早於 Start、單段超過 750 天、BookingLimit 不是非負整數、LOS Time 不在 1–9999、Status 不是 Open/Close、價格 ≤ 0、幣別不是館別的幣別、整則超過 20,000 個日列）3/450 `Unable to process: …`（Q7）。PDP 的包含人數不等於房型的 `maxOccupancy` 回 12/137 `Invalid included occupancy: expecting N`。
+- 不支援的限制類型（未知的 `Restriction` 或 `MinMaxMessageType`）照文件忽略，其他照常套用、回 Success。
+- **日期**：`@Start..@End` 頭尾都算，展開成每天一筆（飯店當地日期，不換時區）。
+- **可售數量**：房型層級，`inventory_daily`；只帶 BookingLimit 的元素不看 RatePlanCode（未知的方案代碼也不報 249，Q20）。
+- **價格（PDP）**：取沒有 `NumberOfGuests`、或 `NumberOfGuests` = 房型 `maxOccupancy` 的那一筆 `AmountAfterTax`，四捨五入成整數；`NumberOfGuests="1"`（單人折扣）和 `AdditionalGuestAmounts` 忽略（Q8）。
+- **限制**：Stop Sell、CTA、CTD、Min/Max LOS、Stay Through Min/Max 都存在 `ari_daily`（每個房型 × 方案）。限制比價格先到時，先建一筆 price 0 的列（0 元永遠不賣），價格到了才可以訂。最長住宿和 Stay Through 沒帶 Time 代表清除（NULL）。
+- **在訂房搜尋生效**：`lib/domain/availability.ts evaluateOffer`（官網搜尋、報價、訂房建立、後台修改都經過 `searchAvailability`）：任何一晚 Stop Sell 不賣；入住那晚的 CTA、Min LOS、Max LOS；退房日的 CTD；住宿涵蓋的每一晚的 Stay Through Min/Max。
+- **順序（Q5）**：`orderingTs`：請求的 TimeStamp（沒帶或看不懂時用我們收到的時間；超過我們時鐘 10 分鐘以上的未來時間會被壓到 +10 分鐘）。某一天的可售數量／價格／限制只有在這個時間 ≥ 已存的時間才寫入（條件式 upsert），所以比較舊的訊息不會蓋掉比較新的；相同時間照樣套用。被略過的天數不算錯誤。
+- **部分套用（Q6）**：`PARTIAL_APPLY_ON_UNKNOWN_RATE = false`：有未知方案就整則不套用。
+- **D1 計算**：D1 每個 query 最多 100 個 bound parameter，每次 Worker 呼叫最多 1000 個 query（Free 方案 50），一個 batch 是一個 transaction。如果每天一句，210 天 × 8 房型 = 1680 句，超過上限。所以每句用一個 JSON 參數（`json_each`）帶最多 500 個日列（約 60 KB，遠低於 2 MB），一則 1680 日列的可售數量＋限制是 4 + 8 句、價格 4 句，加上訊息紀錄 2 句，**一個 batch、一個 transaction**（上限 100 句，`ARI_MAX_ROWS` = 20,000 日列保證放得進一個 batch）。整個請求的 query 數約 20。測試（better-sqlite3）：210 天 × 8 房型、每段 7 天，可售數量＋限制約 40 ms，價格約 12 ms。D1 的實際延遲要在 staging 量（**inferred**：一個 batch 應該在 1 秒內）。
+- **觀察**：每則通過驗證的 ARI 訊息寫一列 `channel_ari_messages`（時間、訊息種類、日列數、結果、錯誤碼、被拒的代碼，不存 XML，保留 30 天）。後台 `/admin/system` 顯示最近一則和最近 7 天被拒的代碼。一小時內被拒 3 則就通知 ops（`ari_rejected`，`notifyOps` 每小時最多一封，回應之後才寄）。注意：被拒的 ARI SiteMinder 每 2 分鐘重送，而且後面的更新會排在它後面 [FAQ]，所以被拒會讓那間飯店的 ARI 全部停住。
+- log 經過 `redact()`，只有訊息種類、EchoToken、天數、錯誤碼和被拒的代碼，不含 XML 和帳密。
 
 ### 4.5 Rooms and Rates（`OTA_HotelAvailRQ` → `OTA_HotelAvailRS`）[RR][QS]
 - **請求**：`AvailRequestSegments/AvailRequestSegment AvailReqType="Room"/HotelSearchCriteria/Criterion/HotelRef @HotelCode`，root 帶 `AvailRatesOnly="true"`。
@@ -398,6 +418,10 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
     - 中文：已付金額放在 `ResGlobalInfo/DepositPayments` 底下對不對？全額預付也這樣送嗎？（[RES] 的範例只有 DepositPayments 這一段，沒有寫上層元素，見 3.3。）
 19. **Q19（SOAPAction）** Which `SOAPAction` HTTP header value does the reservation endpoint expect (SOAP 1.1)? We send `""`.
     - 中文：推訂單時 HTTP header `SOAPAction` 要帶什麼值？（文件沒寫，目前送 `""`；WSDL 拿到後確認。）
+20. **Q20（可售數量層級）** We treat `BookingLimit` as room-type level (the default per your docs) and ignore `RatePlanCode` for it. Can a hotel switch our channel to rate-plan-level availability without telling us, and how would we notice? Should an `AvailStatusMessage` carrying only `BookingLimit` with an unknown `RatePlanCode` get Code 249?
+    - 中文：可售數量我們當成房型層級，忽略方案代碼。飯店會不會自己改成方案層級？只帶 BookingLimit、方案代碼不認得時要不要回 249？（目前不回。）
+21. **Q21（ARI 回應的 TimeStamp）** For `OTA_HotelAvailNotifRS` / `OTA_HotelRateAmountNotifRS`, should `TimeStamp` be the request's (as in your samples) or the time we generated the response (as the Rates field table says)?
+    - 中文：ARI 回應的 TimeStamp 要帶請求的，還是我們產生回應的時間？（目前帶請求的。）
 
 ## 8. 影響設計的發現（給 Task 3、4 實作者）
 
@@ -418,7 +442,7 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
    - 特殊需求和備註
    - 訂房人（Customer）
 9. **未知代碼要回錯誤**（402 / 249），不能吞掉後回 Success，因為 SiteMinder 的 auto-disable 機制靠這些錯誤運作 [ERR-G]。錯誤描述要一字不差。
-10. **ARI 是日期區間**（inclusive），要展開成每天一筆。可售數量是房型層級，不需要價格方案代碼，`applyAriUpdates` 現在要求兩個代碼都要認得，要修改。另外有最長住宿和 Stay Through 兩種限制，我們沒有對應欄位。
+10. **ARI 是日期區間**（inclusive），要展開成每天一筆。可售數量是房型層級，不需要價格方案代碼，`applyAriUpdates` 現在要求兩個代碼都要認得，要修改。另外有最長住宿和 Stay Through 兩種限制，我們沒有對應欄位。（2026-11-27 Task 4 已處理：見 4.6，migration 0025。）
 11. **Cloudflare 預設會擋 SiteMinder 的 User-Agent**（403 / 1010）。上線前要設定 WAF 放行規則 [REQ]，這是 DEPLOY 檢查清單上要加的一步。
 12. **逾時設定**：我們推訂單的逾時要在 60–120 秒之間 [ERR-G]，現在的 `CHANNEL_MAX_TIMEOUT_MS` = 60 秒，剛好在下限。SiteMinder 呼叫我們時，我們要在 20 秒內回應，目標是 1–2 秒 [REQ]。
 13. **計價模式只能選一種**：`ari_daily.price` 是單一價格，選 PDP 最自然（**inferred**）。

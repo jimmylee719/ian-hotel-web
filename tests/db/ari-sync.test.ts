@@ -35,3 +35,21 @@ test("a price-only update keeps the existing availability", async () => {
   expect((await db.select().from(ariDaily))[0].price).toBe(2500);
   expect((await db.select().from(inventoryDaily))[0].available).toBe(4);
 });
+
+test("availability needs no rate plan; restrictions without a price make an unsellable (price 0) row; older updates are ignored", async () => {
+  const { db, propertyId } = await setup();
+  const r = await applyAriUpdates(db, propertyId, [
+    { smRoomCode: "MIX", date: "2026-12-01", available: 4 },
+    { smRoomCode: "MIX", smRatePlanCode: "DIRECT", date: "2026-12-01", stopSell: true, maxStay: 3 },
+    { smRoomCode: "MIX", date: "2026-12-02", stopSell: true },
+  ], new Date(), { sourceTs: 2000 });
+  expect(r).toEqual({ applied: 2, unknownCodes: [], rejected: [{ smRoomCode: "MIX", date: "2026-12-02", reason: "NO_RATE_PLAN" }] });
+  expect((await db.select().from(inventoryDaily))[0]).toMatchObject({ available: 4, sourceTs: 2000 });
+  expect((await db.select().from(ariDaily))[0]).toMatchObject({ price: 0, stopSell: true, maxStay: 3, restrictionsSourceTs: 2000 });
+  await applyAriUpdates(db, propertyId, [
+    { smRoomCode: "MIX", date: "2026-12-01", available: 9 },
+    { smRoomCode: "MIX", smRatePlanCode: "DIRECT", date: "2026-12-01", stopSell: false, price: 1500 },
+  ], new Date(), { sourceTs: 1000 });
+  expect((await db.select().from(inventoryDaily))[0].available).toBe(4);
+  expect((await db.select().from(ariDaily))[0]).toMatchObject({ stopSell: true, price: 1500, priceSourceTs: 1000 });
+});

@@ -72,6 +72,27 @@ export default async function Page() {
           {counts(s.paymentVerdicts24h, VERDICT_LABELS)}
         </section>
         <section className="adm-card">
+          <h2 className="adm-h2">SiteMinder ARI（房量、房價、限制）</h2>
+          {s.ari.last ? (
+            <dl className="adm-dl">
+              <dt>最近一次收到</dt><dd className="adm-num">{time(s.ari.last.at)}</dd>
+              <dt>訊息</dt><dd><code>{s.ari.last.messageType}</code></dd>
+              <dt>天數（房型／方案 × 日）</dt><dd className="adm-num">{s.ari.last.days}</dd>
+              <dt>結果</dt>
+              <dd>{s.ari.last.outcome === "applied"
+                ? <span className="adm-badge adm-badge-green">已套用</span>
+                : <><span className="adm-badge adm-badge-red">已拒絕</span> <code>{s.ari.last.errorCode ?? ""} {s.ari.last.errorText ?? ""}</code></>}</dd>
+              <dt>最近 24 小時被拒</dt><dd className="adm-num">{s.ari.rejected24h}</dd>
+            </dl>
+          ) : <p className="adm-muted">還沒有收到 ARI</p>}
+          {s.ari.rejectedCodes.length ? (
+            <>
+              <p>最近 7 天被拒的代碼（SiteMinder 會停用這些房型／方案，請確認對應）：</p>
+              <ul>{s.ari.rejectedCodes.map((c) => <li key={`${c.kind}|${c.code}`}>{c.kind === "room" ? "房型" : "方案"} <code>{c.code}</code>（{time(c.at)}）</li>)}</ul>
+            </>
+          ) : null}
+        </section>
+        <section className="adm-card">
           <h2 className="adm-h2">資料庫 migration</h2>
           <dl className="adm-dl">
             <dt>已套用</dt><dd className="adm-num">{s.migrations.applied} / {s.migrations.expected}</dd>

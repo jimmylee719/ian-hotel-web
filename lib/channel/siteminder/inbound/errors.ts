@@ -10,9 +10,11 @@ export const OTA_ERRORS = {
   AUTH: { type: 4, code: 448, text: "Invalid Username and/or Password" },
   /** HotelCode we do not have: SiteMinder disables the whole hotel's connection. */
   HOTEL_NOT_FOUND: (hotelCode: string) => ({ type: 6, code: 392, text: `Hotel not found for HotelCode=${hotelCode}` }),
-  /** Task 4 (ARI): unknown InvTypeCode / RatePlanCode. */
+  /** ARI (inbound/ari.ts): unknown InvTypeCode / RatePlanCode. AvailNotifRS, RateAmountNotifRS. */
   ROOM_NOT_FOUND: { type: 12, code: 402, text: "Room type code not found for this hotel" },
   RATE_NOT_FOUND: { type: 12, code: 249, text: "Rate code not found for this hotel" },
+  /** PDP: an included occupancy (BaseByGuestAmt@NumberOfGuests) other than the room type's. RateAmountNotifRS. */
+  INVALID_INCLUDED_OCCUPANCY: (expecting: number) => ({ type: 12, code: 137, text: `Invalid included occupancy: expecting ${expecting}` }),
   /**
    * SITEMINDER-OPEN-Q7: a required element or attribute is missing from an otherwise valid request. The docs list
    * EWT 10 "Required field missing" and ERR 321 "Required field missing" [EWT][EC] but give no rule for using them

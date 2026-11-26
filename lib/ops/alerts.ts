@@ -15,12 +15,10 @@ import { redact } from "@/lib/runtime/redact";
  *   (reconcileAlertDetail; lib/jobs/cron.ts);
  * - channel_sync_failed: the 5-minute cron alerted staff about bookings whose channel hand-off keeps failing
  *   (3 failures in a row, then daily; lib/jobs/sync-retry.ts) or stopped on a non-retryable error;
- * - ari_unknown_code: the SiteMinder ARI push carried codes we do not map.
- *   TODO(Plan 4 Task 4): the ARI inbound endpoint does not exist yet. When it does, call
- *   `notifyOps(buildOpsDeps(env, db), { kind: "ari_unknown_code", detail: "<the unknown room/rate codes>" })`
- *   after answering the push (never let the email delay or fail the response).
+ * - ari_rejected: SiteMinder ARI messages keep being rejected (unknown codes, bad values; ARI_REJECTION_ALERT_COUNT
+ *   within an hour; lib/channel/siteminder/inbound/ari.ts, after the answer).
  */
-export type OpsAlertKind = "cron_failed" | "config_refused" | "reconcile_mismatch" | "channel_sync_failed" | "ari_unknown_code";
+export type OpsAlertKind = "cron_failed" | "config_refused" | "reconcile_mismatch" | "channel_sync_failed" | "ari_rejected";
 
 /** `scope` splits one kind into separately limited alerts (e.g. per job). `detail` is redacted before it is sent. */
 export type OpsAlert = { kind: OpsAlertKind; detail: string; scope?: string };
@@ -39,7 +37,7 @@ const TITLES: Record<OpsAlertKind, string> = {
   config_refused: "設定被拒絕，網站與排程已停止",
   reconcile_mismatch: "對帳發現不一致，需人工處理",
   channel_sync_failed: "訂單尚未同步到 SiteMinder，需人工處理",
-  ari_unknown_code: "ARI 推送含未知代碼",
+  ari_rejected: "SiteMinder ARI 推送連續被拒絕",
 };
 
 /**

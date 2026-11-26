@@ -34,7 +34,7 @@ test("each kind (and scope) has its own hourly limit; every OPS_EMAILS address g
   await notifyOps(deps, { kind: "cron_failed", scope: CRON_JOB, detail: "a" }, NOW);
   await notifyOps(deps, { kind: "cron_failed", scope: GATEWAY_RECONCILE_JOB, detail: "b" }, NOW);
   await notifyOps(deps, { kind: "reconcile_mismatch", scope: CHANNEL_RECONCILE_JOB, detail: "c" }, NOW);
-  await notifyOps(deps, { kind: "ari_unknown_code", detail: "d" }, NOW);
+  await notifyOps(deps, { kind: "ari_rejected", detail: "d" }, NOW);
   expect(email.sent).toHaveLength(8);
   expect(email.sent.map((e) => e.to).sort()).toEqual([...Array(4).fill("dev@nk.test"), ...Array(4).fill("ops@nk.test")]);
   expect(email.sent[0].subject).toContain("production");

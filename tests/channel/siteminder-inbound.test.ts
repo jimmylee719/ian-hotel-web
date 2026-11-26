@@ -191,7 +191,7 @@ describe("protocol", () => {
   });
 
   test("Object prototype names are not handlers", async () => {
-    expect(Object.keys(HANDLERS)).toEqual(["OTA_HotelAvailRQ"]);
+    expect(Object.keys(HANDLERS)).toEqual(["OTA_HotelAvailRQ", "OTA_HotelAvailNotifRQ", "OTA_HotelRateAmountNotifRQ"]);
     const r = await (await setup()).call(RR.replace(/OTA_HotelAvailRQ/g, "constructor"));
     expect(r.status).toBe(400);
   });

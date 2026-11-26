@@ -1,13 +1,20 @@
 import type { ISODate } from "@/lib/domain/dates";
 
-/** One day of availability/rates/restrictions as SiteMinder sends it. Omitted fields are unchanged. */
+/**
+ * One day of availability/rates/restrictions as SiteMinder sends it (lib/db/ari-sync.ts). Omitted fields are
+ * unchanged. Availability is per room type and needs no rate plan (doc §4.1); price and restrictions need one.
+ */
 export type AriUpdate = {
   smRoomCode: string;
-  smRatePlanCode: string;
+  smRatePlanCode?: string;
   date: ISODate;
   available?: number;
   price?: number;
   minStay?: number;
+  /** null clears the limit (SetMaxLOS / SetForwardMaxStay without Time). */
+  maxStay?: number | null;
+  minStayThrough?: number | null;
+  maxStayThrough?: number | null;
   closedToArrival?: boolean;
   closedToDeparture?: boolean;
   stopSell?: boolean;
