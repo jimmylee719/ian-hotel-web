@@ -646,4 +646,380 @@ info@nkhostel.com／+886 2 2769 0200`,
 info@nkhostel.com / +886 2 2769 0200`,
     },
   },
+
+  // Brand and company layer (docs/superpowers/specs/2026-11-26-brand-company-layer-design.md). Every statement is
+  // taken from existing content: the old home page, news-281/183/181, the facilities, access, attractions and groups
+  // pages, the FAQ, rooms.intro, lib/content/reviews.ts and the property row. Company facts the site does not have
+  // (legal name, tax ID, hotel licence number, founding year, representative) are left for the owner to add in /admin.
+  about: {
+    title: { "zh-TW": "品牌故事", en: "Our story", ja: "ブランドストーリー", ko: "브랜드 스토리" },
+    body: {
+      "zh-TW": `旅行，是一種生活的延伸。
+
+## 我們的信念
+我們相信旅行是生活的延伸，是一種體會世界的態度。
+
+但誰說旅途中就不能回家？在小公館，我們想分享的不只是一個睡覺休息的地方，而是一個有溫度、有情感、有記憶的「家」。
+
+## 用心佈置
+我們用為家人挑選的心情，選擇每一項家居用品，用心佈置每一個角落。我們相信，一個舒服、放鬆的空間，可以引發人與人之間美好的情感交流。
+
+從一個人的旅艙，到一家人或一群朋友的連通房，每一間都鋪上 350 織精梳棉寢具。
+
+## 在這裡留下的故事
+2019 年 4 月連假，五支高中籃球隊入住小公館。那一年 HBL 高中乙級籃球聯賽的男子組與女子組冠軍，都出自住在這裡的球隊。
+
+自由車選手李冠賢（單車阿賢）為參加國際單車環島 48 小時極限挑戰賽，也曾入住小公館的混合旅艙。
+
+我們等待每一位造訪的旅客，在小公館留下更多故事。`,
+      en: `Travel is an extension of life.
+
+## What we believe
+We believe travel is an extension of life, a way of meeting the world.
+
+Yet who says you cannot come home while you travel? What we want to share at NK Hostel is more than a place to sleep: it is a home, a space with warmth, feeling and memories.
+
+## Furnished with care
+We chose every household item as we would for our own family, and furnished every corner with care. We believe a comfortable, relaxing space brings people closer to one another.
+
+From a capsule for one to a connecting room for a family or a group of friends, every bed is made up with 350-thread-count combed cotton.
+
+## Stories left here
+During the April holiday weekend of 2019, five high school basketball teams stayed at NK Hostel. That year, both the boys' and the girls' champions of the HBL high school Division B league came from teams staying here.
+
+Cyclist Lee Kuan-hsien stayed in one of our mixed capsules when he came to take part in an international 48-hour round-the-island cycling challenge.
+
+We look forward to every guest who comes to leave more stories at NK Hostel.`,
+      ja: `旅は、暮らしの延長です。
+
+## 私たちの信念
+旅は暮らしの延長であり、世界にふれるひとつの姿勢だと私たちは考えています。
+
+けれども、旅の途中に帰る場所があってもよいはずです。小公館がお届けしたいのは、ただ眠るための場所ではなく、ぬくもりと思いと記憶のある「家」です。
+
+## 心を込めたしつらえ
+家族のために選ぶような気持ちで家具や日用品を一つひとつ選び、すべての空間を丁寧にしつらえました。心地よくくつろげる空間は、人と人とのあたたかな交流を生むと考えています。
+
+おひとり様用のカプセルから、ご家族やグループ向けのコネクティングルームまで、すべてのベッドに 350 番手のコーマ綿の寝具をご用意しています。
+
+## ここで生まれた物語
+2019 年 4 月の連休には、高校バスケットボールの 5 チームが小公館に宿泊しました。その年の HBL 高校バスケットボールリーグ乙級の男子・女子の優勝は、いずれもここに宿泊したチームでした。
+
+自転車選手の李冠賢選手も、台湾一周 48 時間の国際自転車チャレンジに参加する際、小公館の男女共用カプセルに宿泊しました。
+
+これからも、小公館を訪れるすべての旅人とともに、新しい物語を重ねてまいります。`,
+      ko: `여행은 삶의 연장입니다.
+
+## 우리의 믿음
+우리는 여행이 삶의 연장이며 세상을 만나는 하나의 태도라고 믿습니다.
+
+하지만 여행 중에는 집에 돌아갈 수 없다고 누가 말했을까요? 소공관이 나누고 싶은 것은 그저 잠만 자는 곳이 아니라, 온기와 정과 추억이 있는 '집'입니다.
+
+## 정성스러운 공간
+가족을 위해 고르는 마음으로 모든 가구와 생활용품을 하나하나 고르고, 구석구석 정성껏 꾸몄습니다. 편안하고 여유로운 공간이 사람과 사람 사이의 따뜻한 교류를 만든다고 믿습니다.
+
+혼자를 위한 캡슐부터 가족이나 친구들을 위한 커넥팅룸까지, 모든 침대에 350수 코마 면 침구를 갖췄습니다.
+
+## 이곳에 남은 이야기
+2019년 4월 연휴에는 고등학교 농구팀 다섯 팀이 소공관에 머물렀습니다. 그해 HBL 고교 농구 리그 을급 남자부와 여자부 우승은 모두 이곳에 머문 팀이 차지했습니다.
+
+사이클 선수 리관셴 선수도 48시간 대만 일주 국제 자전거 챌린지에 참가하면서 소공관의 혼성 캡슐에 머물렀습니다.
+
+앞으로도 소공관을 찾는 모든 여행자와 함께 더 많은 이야기를 쌓아 가겠습니다.`,
+    },
+  },
+
+  sustainability: {
+    title: { "zh-TW": "永續與在地", en: "Sustainability and community", ja: "サステナビリティと地域", ko: "지속 가능성과 지역" },
+    body: {
+      "zh-TW": `自 2025 年起，我們與住客一起減少一次性用品。
+
+## 減塑
+配合環境部的旅宿業減塑規定，自 2025 年 1 月 1 日起，一次性備品改放在大廳，採誠實商店自取付費：
+- 牙膏牙刷組 NT$10
+- 浴帽 NT$10
+- 刮鬍刀 NT$10
+- 梳子 NT$10
+
+房內不提供瓶裝水，改放冷水瓶，各樓層的飲水機都可以取用飲用水。
+
+## 在地連結
+小公館位於台北市松山區南京東路五段，捷運南京三民站 4 號出口步行約 8 分鐘，樓下就有公車站。
+
+饒河街觀光夜市步行約 5 分鐘，入口就在百年媽祖廟松山慈祐宮旁；沿著基隆河，可以散步或騎單車到彩虹河濱公園。
+
+周邊另有銀行、電信門市、穆斯林友善餐廳與親子遊樂場，可向櫃台索取地圖。
+
+## 與旅人同行
+我們接待班級旅行、球隊與員工訓練的團體住宿，也提供半月租與月租的長住方案。
+
+2019 年 HBL 高中乙級籃球聯賽期間，五支高中籃球隊住在小公館，員工們也一路關心他們的比賽與作息。自由車選手李冠賢也曾在此準備國際單車環島 48 小時極限挑戰賽。`,
+      en: `Since 2025 we have been cutting single-use items together with our guests.
+
+## Less plastic
+In line with Taiwan's Ministry of Environment rules on plastic reduction in hotels, from 1 January 2025 single-use toiletries are kept in the lobby on an honesty-box basis:
+- Toothbrush and toothpaste NT$10
+- Shower cap NT$10
+- Razor NT$10
+- Comb NT$10
+
+Rooms have no bottled water; instead there is a jug, and every floor has a water dispenser for refills.
+
+## Part of the neighbourhood
+NK Hostel is on Sec. 5, Nanjing E. Rd in Songshan District, Taipei, about 8 minutes' walk from exit 4 of Nanjing Sanmin MRT station, with a bus stop right outside.
+
+Raohe Street Night Market is about 5 minutes' walk away, its gate beside the centuries-old Songshan Ciyou Temple, and you can walk or cycle along the Keelung River to Rainbow Riverside Park.
+
+Banks, mobile phone shops, Muslim-friendly restaurants and playgrounds are all nearby; the front desk has a map.
+
+## Alongside travellers
+We host group stays for school trips, sports teams and staff training, and offer half-month and monthly long stays.
+
+During the 2019 HBL high school Division B basketball league, five high school teams stayed at NK Hostel, and our staff followed both their games and their rest. Cyclist Lee Kuan-hsien also prepared here for an international 48-hour round-the-island cycling challenge.`,
+      ja: `2025 年から、ゲストの皆さまとともに使い捨て用品の削減に取り組んでいます。
+
+## プラスチック削減
+環境部の宿泊施設におけるプラスチック削減規定に基づき、2025 年 1 月 1 日より使い捨てアメニティはロビーに置き、セルフサービスの料金箱方式としています。
+- 歯ブラシ・歯磨き粉セット NT$10
+- シャワーキャップ NT$10
+- カミソリ NT$10
+- くし NT$10
+
+客室にはペットボトル入りの水を置かず、ピッチャーをご用意しています。各階のウォーターサーバーで飲料水をお汲みいただけます。
+
+## 地域とのつながり
+小公館は台北市松山区南京東路五段にあり、MRT 南京三民駅 4 番出口から徒歩約 8 分、建物の前にバス停があります。
+
+饒河街観光夜市へは徒歩約 5 分で、入口は歴史ある媽祖廟・松山慈祐宮のすぐ横です。基隆河沿いを散歩やサイクリングで彩虹河浜公園まで行くこともできます。
+
+周辺には銀行、携帯ショップ、ムスリムフレンドリーなレストラン、子ども向けの遊び場もあります。地図はフロントでお渡ししています。
+
+## 旅人とともに
+修学旅行、スポーツチーム、社員研修などの団体宿泊をお受けしているほか、半月・1 か月の長期滞在プランもご用意しています。
+
+2019 年の HBL 高校バスケットボールリーグ乙級の期間中には高校の 5 チームが小公館に宿泊し、スタッフも試合や日々の様子を見守りました。自転車選手の李冠賢選手も、ここで台湾一周 48 時間の国際自転車チャレンジに備えました。`,
+      ko: `2025년부터 투숙객 여러분과 함께 일회용품을 줄이고 있습니다.
+
+## 플라스틱 줄이기
+환경부의 숙박업 플라스틱 감축 규정에 따라 2025년 1월 1일부터 일회용 어메니티는 로비에 비치하고, 무인 계산함 방식으로 유료 제공합니다.
+- 칫솔·치약 세트 NT$10
+- 샤워캡 NT$10
+- 면도기 NT$10
+- 빗 NT$10
+
+객실에는 생수병 대신 물병을 두며, 층마다 있는 정수기에서 식수를 받으실 수 있습니다.
+
+## 지역과 함께
+소공관은 타이베이시 쑹산구 난징동로 5단에 있으며, MRT 난징싼민역 4번 출구에서 걸어서 약 8분, 건물 앞에 버스 정류장이 있습니다.
+
+라오허제 야시장은 걸어서 약 5분 거리로, 입구가 유서 깊은 마조 사원인 쑹산츠유궁 바로 옆입니다. 지룽강을 따라 무지개 강변공원까지 산책하거나 자전거를 탈 수 있습니다.
+
+주변에 은행, 통신사 매장, 무슬림 친화 식당, 어린이 놀이터도 있습니다. 지도는 프런트에서 받으실 수 있습니다.
+
+## 여행자와 함께
+수학여행, 스포츠 팀, 직원 연수를 위한 단체 숙박을 받고 있으며, 보름·한 달 장기 투숙 상품도 운영합니다.
+
+2019년 HBL 고교 농구 리그 을급 기간에는 고등학교 농구팀 다섯 팀이 소공관에 머물렀고, 직원들도 경기와 일과를 함께 살폈습니다. 사이클 선수 리관셴 선수도 이곳에서 48시간 대만 일주 국제 자전거 챌린지를 준비했습니다.`,
+    },
+  },
+
+  company: {
+    title: { "zh-TW": "公司資訊", en: "Company information", ja: "会社概要", ko: "회사 정보" },
+    body: {
+      "zh-TW": `小公館人文旅舍的基本資訊。
+
+## 品牌名稱
+小公館人文旅舍（NK Hostel）
+
+## 地址
+105 台北市松山區南京東路五段 399 號 5 樓（南京商務大樓）
+
+## 電話
++886 2 2769 0200
+
+## Email
+info@nkhostel.com
+
+## 櫃台服務
+5 樓櫃台 24 小時服務。
+
+## 入住／退房時間
+入住 15:00 起，退房 11:00 前。
+
+## 房型
+8 種房型，從個人旅艙、四人與六人客房，迷你、經典與景緻雙人套房，到行政四人連通房。
+
+## 公共空間樓層
+- 5 樓：交誼廳、NK BAR、共用廚房與公共露臺
+- 8 樓（限 8 樓住客）：交誼廳、吧台區、自助洗衣房
+- 14 樓：頂樓露臺與花園（限景緻與經典雙人套房住客）`,
+      en: `Key facts about NK Hostel.
+
+## Brand name
+NK Hostel (小公館人文旅舍)
+
+## Address
+5F, Nanjing Business Building, No. 399, Sec. 5, Nanjing E. Rd, Songshan Dist., Taipei 105, Taiwan
+
+## Phone
++886 2 2769 0200
+
+## Email
+info@nkhostel.com
+
+## Front desk
+The 5th-floor front desk is open 24 hours.
+
+## Check-in and check-out
+Check-in from 15:00, check-out by 11:00.
+
+## Rooms
+Eight room types: capsule beds, rooms for four and six, Mini, Classic and Deluxe double rooms, and a connecting room for four.
+
+## Shared spaces
+- 5F: lounge, NK BAR, shared kitchen and terrace
+- 8F (8th-floor guests only): lounge, bar table, self-service laundry
+- 14F: rooftop terrace and garden (Deluxe and Classic Room guests only)`,
+      ja: `小公館人文旅舎の概要です。
+
+## ブランド名
+小公館人文旅舎（NK Hostel）
+
+## 所在地
+〒105 台湾台北市松山区南京東路五段 399 号 南京商務ビル 5 階
+
+## 電話
++886 2 2769 0200
+
+## メール
+info@nkhostel.com
+
+## フロント
+5 階のフロントは 24 時間対応です。
+
+## チェックイン・チェックアウト
+チェックインは 15:00 から、チェックアウトは 11:00 までです。
+
+## 客室
+カプセルベッド、4 人部屋と 6 人部屋、ミニ・クラシック・デラックスのダブルルーム、4 名用コネクティングルームの 8 タイプです。
+
+## 共用スペース
+- 5 階：ラウンジ、NK BAR、共用キッチン、テラス
+- 8 階（8 階にご宿泊のお客様専用）：ラウンジ、バーテーブル、セルフランドリー
+- 14 階：屋上テラスとガーデン（デラックスルームとクラシックルームのお客様専用）`,
+      ko: `소공관 인문여관의 기본 정보입니다.
+
+## 브랜드명
+소공관 인문여관(NK Hostel, 小公館人文旅舍)
+
+## 주소
+대만 타이베이시 쑹산구 난징동로 5단 399호 난징상무빌딩 5층 (우편번호 105)
+
+## 전화
++886 2 2769 0200
+
+## 이메일
+info@nkhostel.com
+
+## 프런트
+5층 프런트는 24시간 운영합니다.
+
+## 체크인·체크아웃
+체크인은 15:00부터, 체크아웃은 11:00까지입니다.
+
+## 객실
+캡슐 베드, 4인실과 6인실, 미니·클래식·디럭스 더블룸, 4인 커넥팅룸의 8종입니다.
+
+## 공용 공간
+- 5층: 라운지, NK BAR, 공용 주방, 테라스
+- 8층(8층 투숙객 전용): 라운지, 바 테이블, 셀프 세탁실
+- 14층: 옥상 테라스와 정원(디럭스룸과 클래식룸 투숙객 전용)`,
+    },
+  },
+
+  partners: {
+    title: { "zh-TW": "投資與合作", en: "Investors and partners", ja: "投資・提携のご相談", ko: "투자 및 제휴" },
+    body: {
+      "zh-TW": `給投資人與合作夥伴的小公館簡介。
+
+## 品牌定位
+小公館人文旅舍位於台北市松山區南京東路五段，鄰近捷運南京三民站，步行可到饒河街夜市與松山車站。
+
+8 種房型從一個人的旅艙到一家人或一群朋友的連通房，接待個人旅客、團體與長住住客；公共空間分布在 5 樓、8 樓與 14 樓。
+
+## 住客肯定
+各訂房平台上的住客評分與獎項：
+- Hostelworld：住客評分 9.7／10
+- Agoda：住客評分 9.2／10
+- Hotels.com：住客評分 9.2／10（2019）
+- Booking.com：住客評價獎 9.1／10（2021）
+- 攜程 Ctrip：住客評分 4.7／5
+- Expedia：住客評分獎 4.6／5（2018）
+- Tripadvisor：旅行者之選（2019）
+- Airbnb：超讚房東
+
+## 洽談合作
+投資、合作或其他業務洽詢，歡迎來信，主旨請註明「投資與合作洽詢」。`,
+      en: `An introduction to NK Hostel for investors and partners.
+
+## Positioning
+NK Hostel is on Sec. 5, Nanjing E. Rd in Songshan District, Taipei, near Nanjing Sanmin MRT station and within walking distance of Raohe Street Night Market and Songshan Station.
+
+Eight room types, from a capsule for one to a connecting room for a family or a group of friends, serve independent travellers, groups and long-stay guests. Shared spaces are on the 5th, 8th and 14th floors.
+
+## Guest recognition
+Guest ratings and awards on the booking platforms:
+- Hostelworld: guest rating 9.7/10
+- Agoda: guest rating 9.2/10
+- Hotels.com: guest rating 9.2/10 (2019)
+- Booking.com: Traveller Review Award, 9.1/10 (2021)
+- Ctrip: guest rating 4.7/5
+- Expedia: Guest Rated Award, 4.6/5 (2018)
+- Tripadvisor: Travellers' Choice (2019)
+- Airbnb: Superhost
+
+## Get in touch
+For investment, partnership or other business enquiries, please email us with the subject "Investment and partnership enquiry".`,
+      ja: `投資家・提携先の皆さまに向けた小公館のご紹介です。
+
+## ブランドの位置づけ
+小公館人文旅舎は台北市松山区南京東路五段にあり、MRT 南京三民駅に近く、饒河街夜市と松山駅へも徒歩圏内です。
+
+おひとり様用のカプセルからご家族やグループ向けのコネクティングルームまで 8 タイプの客室で、個人のお客様、団体、長期滞在のお客様をお迎えしています。共用スペースは 5 階、8 階、14 階にございます。
+
+## ゲストからの評価
+各予約サイトでいただいている評価と受賞歴です。
+- Hostelworld：ゲスト評価 9.7／10
+- Agoda：ゲスト評価 9.2／10
+- Hotels.com：ゲスト評価 9.2／10（2019 年）
+- Booking.com：トラベラーレビューアワード 9.1／10（2021 年）
+- Ctrip：ゲスト評価 4.7／5
+- Expedia：ゲスト評価アワード 4.6／5（2018 年）
+- Tripadvisor：トラベラーズチョイス（2019 年）
+- Airbnb：スーパーホスト
+
+## お問い合わせ
+投資・提携その他のご相談は、件名に「投資・提携のご相談」とご記入のうえ、メールでお問い合わせください。`,
+      ko: `투자자와 제휴 파트너를 위한 소공관 소개입니다.
+
+## 브랜드 포지셔닝
+소공관 인문여관은 타이베이시 쑹산구 난징동로 5단에 있으며, MRT 난징싼민역과 가깝고 라오허제 야시장과 쑹산역까지 걸어서 갈 수 있습니다.
+
+혼자를 위한 캡슐부터 가족이나 친구들을 위한 커넥팅룸까지 8종의 객실로 개인 여행자, 단체, 장기 투숙객을 맞이합니다. 공용 공간은 5층, 8층, 14층에 있습니다.
+
+## 투숙객 평가
+각 예약 사이트에서 받은 평점과 수상 내역입니다.
+- Hostelworld: 투숙객 평점 9.7/10
+- Agoda: 투숙객 평점 9.2/10
+- Hotels.com: 투숙객 평점 9.2/10 (2019년)
+- Booking.com: 트래블러 리뷰 어워드 9.1/10 (2021년)
+- Ctrip: 투숙객 평점 4.7/5
+- Expedia: 게스트 평가 어워드 4.6/5 (2018년)
+- Tripadvisor: 트래블러스 초이스 (2019년)
+- Airbnb: 슈퍼호스트
+
+## 제휴 문의
+투자, 제휴 및 기타 사업 문의는 제목에 '투자 및 제휴 문의'라고 적어 이메일로 보내 주시기 바랍니다.`,
+    },
+  },
 };

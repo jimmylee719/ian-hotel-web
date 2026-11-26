@@ -86,7 +86,13 @@ export default async function Home({ params }: Props) {
           <h2 id="story-title" className="chapter-title">
             {t("storyTitle")}
           </h2>
-          <p className="home-statement-text">{statement}</p>
+          <div>
+            <p className="home-statement-text">{statement}</p>
+            <Link className="text-link" href="/about">
+              {t("storyMore")}
+              <span aria-hidden="true"> →</span>
+            </Link>
+          </div>
         </section>
       </Band>
 
@@ -155,6 +161,7 @@ export default async function Home({ params }: Props) {
           <p className="home-ratings-more">
             <Link className="text-link" href="/reviews">
               {t("reviewsMore")}
+              <span aria-hidden="true"> →</span>
             </Link>
           </p>
         </section>

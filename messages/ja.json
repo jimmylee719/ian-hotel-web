@@ -34,7 +34,11 @@
     "groups": "団体・長期滞在",
     "faq": "よくある質問",
     "news": "お知らせ",
-    "reviews": "口コミ・評価"
+    "reviews": "口コミ・評価",
+    "about": "ブランドストーリー",
+    "sustainability": "サステナビリティ",
+    "company": "会社概要",
+    "partners": "投資・提携"
   },
   "home": {
     "taglineFirst": "旅は",
@@ -59,7 +63,8 @@
     "openMap": "Google マップで開く",
     "chapterRoomsEn": "Rooms",
     "chapterSpacesEn": "Shared spaces",
-    "chapterAccessEn": "Getting here"
+    "chapterAccessEn": "Getting here",
+    "storyMore": "ブランドストーリーを読む"
   },
   "booking": {
     "title": "空室を検索",
@@ -92,7 +97,8 @@
     "terms": "予約規約",
     "copyright": "小公館人文旅舎 NK Hostel",
     "siteLinks": "サイト案内",
-    "manageBooking": "予約の確認"
+    "manageBooking": "予約の確認",
+    "aboutTitle": "小公館について"
   },
   "amenities": {
     "wifi": "無料 Wi-Fi",
@@ -170,7 +176,14 @@
     "termsDescription": "小公館人文旅舍の公式サイト予約規約：お支払い、キャンセル、返金について。",
     "photoAlt": "{title}、写真 {n}",
     "addressTitle": "住所",
-    "facilityPhotos": "共用スペースの写真"
+    "facilityPhotos": "共用スペースの写真",
+    "aboutDescription": "小公館人文旅舎のブランドストーリー。旅は暮らしの延長であり、旅の途中にも帰る場所を。家族のために選ぶ気持ちでしつらえた空間と、ここで生まれた物語をご紹介します。",
+    "sustainabilityDescription": "小公館のサステナビリティと地域。2025 年からの使い捨てアメニティのセルフサービス化と客室のペットボトル水の廃止、そして南京東路五段の街についてご紹介します。",
+    "companyDescription": "小公館人文旅舎の会社概要：ブランド名、所在地、電話、メール、24 時間対応のフロント、チェックイン・チェックアウト時間、客室タイプ、共用スペースのフロア。",
+    "partnersDescription": "投資家・提携先の皆さまへ：小公館人文旅舎のブランドの位置づけ、各予約サイトでの評価と受賞歴、お問い合わせ方法をご案内します。",
+    "partnersMailSubject": "投資・提携のご相談",
+    "partnersMailLink": "メールでお問い合わせ",
+    "partnersReviewsLink": "各サイトの受賞証明を見る"
   },
   "facilityPhoto": {
     "bar": "5 階 NK BAR のカウンター",

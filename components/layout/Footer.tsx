@@ -14,7 +14,7 @@ export const SOCIAL = [
   { key: "line", href: "https://line.me/R/ti/p/3_Pw43MsVn" },
 ] as const;
 
-/** Footer links, split into the main column and the secondary column (spec §5.2 "Ink footer"). */
+/** Footer links, split into the main column and the secondary column (spec §5.2 "Ink footer"), then the about column. */
 const FOOTER_MAIN_LINKS = [
   ["rooms", "/rooms"],
   ["facilities", "/facilities"],
@@ -24,12 +24,20 @@ const FOOTER_MAIN_LINKS = [
 ] as const;
 
 const FOOTER_MORE_LINKS = [
-  ["reviews", "/reviews"],
   ["news", "/news"],
   ["groups", "/groups"],
 ] as const;
 
-/** Rendered inside the ink footer band (app/[locale]/layout.tsx): brand + contact, main links, secondary links. */
+/** The "About NK" column: the brand and company layer, plus the reviews page. */
+const FOOTER_ABOUT_LINKS = [
+  ["about", "/about"],
+  ["sustainability", "/sustainability"],
+  ["reviews", "/reviews"],
+  ["company", "/company"],
+  ["partners", "/partners"],
+] as const;
+
+/** Rendered inside the ink footer band (app/[locale]/layout.tsx): brand + contact, main links, secondary links, about. */
 export async function Footer({ locale }: { locale: Locale }) {
   const t = await getTranslations({ locale, namespace: "footer" });
   const h = await getTranslations({ locale, namespace: "header" });
@@ -87,6 +95,16 @@ export async function Footer({ locale }: { locale: Locale }) {
               <Link href="/terms">{t("terms")}</Link>
             </li>
           </ul>
+          <div className="foot-about">
+            <h3 className="foot-col-title">{t("aboutTitle")}</h3>
+            <ul>
+              {FOOTER_ABOUT_LINKS.map(([k, href]) => (
+                <li key={k}>
+                  <Link href={href}>{nav(k)}</Link>
+                </li>
+              ))}
+            </ul>
+          </div>
         </nav>
       </div>
       <p className="foot-legal">

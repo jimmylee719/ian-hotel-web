@@ -34,7 +34,11 @@
     "groups": "Groups",
     "faq": "FAQ",
     "news": "News",
-    "reviews": "Reviews"
+    "reviews": "Reviews",
+    "about": "Our story",
+    "sustainability": "Sustainability",
+    "company": "Company",
+    "partners": "Investors and partners"
   },
   "home": {
     "taglineFirst": "旅行",
@@ -59,7 +63,8 @@
     "openMap": "Open in Google Maps",
     "chapterRoomsEn": "Rooms",
     "chapterSpacesEn": "Shared spaces",
-    "chapterAccessEn": "Getting here"
+    "chapterAccessEn": "Getting here",
+    "storyMore": "Read our story"
   },
   "booking": {
     "title": "Check availability",
@@ -92,7 +97,8 @@
     "terms": "Booking terms",
     "copyright": "NK Hostel 小公館人文旅舍",
     "siteLinks": "Site links",
-    "manageBooking": "Manage booking"
+    "manageBooking": "Manage booking",
+    "aboutTitle": "About NK"
   },
   "amenities": {
     "wifi": "Free Wi-Fi",
@@ -170,7 +176,14 @@
     "termsDescription": "NK Hostel direct booking terms: payment, cancellation and refunds.",
     "photoAlt": "{title}, photo {n}",
     "addressTitle": "Address",
-    "facilityPhotos": "Photos of the shared spaces"
+    "facilityPhotos": "Photos of the shared spaces",
+    "aboutDescription": "The story of NK Hostel: travel as an extension of life, a home while you travel, every corner furnished with care, and the stories guests have left here.",
+    "sustainabilityDescription": "Sustainability at NK Hostel: single-use toiletries on an honesty-box basis and no bottled water in rooms since 2025, and our neighbourhood on Sec. 5, Nanjing E. Rd.",
+    "companyDescription": "NK Hostel company information: brand name, address, phone, email, 24-hour front desk, check-in and check-out times, room types and shared-space floors.",
+    "partnersDescription": "For investors and partners: NK Hostel's positioning, guest ratings and awards on the booking platforms, and how to get in touch.",
+    "partnersMailSubject": "Investment and partnership enquiry",
+    "partnersMailLink": "Email us",
+    "partnersReviewsLink": "See the certificates from each platform"
   },
   "facilityPhoto": {
     "bar": "The NK BAR counter on 5F",

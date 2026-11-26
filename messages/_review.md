@@ -33,6 +33,7 @@ locale on purpose.
 | `reviews.*` (Task 8); award names follow the wording on each platform's certificate | MT | MT | MT |
 | `inquiry.*` (Task 8, group inquiry form) | MT | MT | MT |
 | `book.*`, `checkout.*`, `bookingStatus.*`, `manage.*`, `footer.manageBooking` (Task 9, booking flow: search results, details form, payment return, manage booking) | MT | MT | MT |
+| `nav.about`, `nav.sustainability`, `nav.company`, `nav.partners`, `footer.aboutTitle`, `home.storyMore`, `pages.aboutDescription`, `pages.sustainabilityDescription`, `pages.companyDescription`, `pages.partnersDescription`, `pages.partnersMailSubject`, `pages.partnersMailLink`, `pages.partnersReviewsLink` (brand and company layer) | MT | MT | MT |
 
 zh-TW keys that are NEW (not on the old site): `meta.title`, `meta.description`, `home.intro`,
 `home.heroCaption`, `home.heroAlt` (from design/proposals/a.html), `footer.nearMrt`, `booking.*`,
@@ -67,6 +68,10 @@ unless stated.
 | `groups` | EDIT (group.php + group2.php) | EDIT of old /en/ text + MT | MT | MT | long-stay: old zh page said 15 nights, old en page said 30 nights; both are offered in the copy |
 | `privacy` | NEW | NEW | NEW | NEW | needs legal review (Taiwan PDPA) |
 | `booking-terms` | NEW, follows the seeded `direct-flex` rate plan (100% refund >= 3 days, 50% at 1-2 days, 0 on the day) | NEW | NEW | NEW | needs owner/legal sign-off |
+| `about` (brand layer) | EDIT of the old home page (main.php), rooms.intro, news-183 and news-181 | MT | MT | MT | romanised/transliterated name of cyclist 李冠賢 (en "Lee Kuan-hsien", ko "리관셴") |
+| `sustainability` (brand layer) | EDIT of news-281, access/attractions/groups pages, news-183/181 | MT | MT | MT | |
+| `company` (brand layer) | NEW arrangement of existing facts (property row, FAQ check-in/out, facilities, rooms) | MT | MT | MT | add legal name, 統一編號, 旅宿業登記證號, founding year, representative in /admin |
+| `partners` (brand layer) | NEW arrangement; ratings exactly as lib/content/reviews.ts | MT | MT | MT | |
 
 ### FAQs (`content/localized/faqs.ts`): all 18 (`qa-8-1` ... `qa-5-3`)
 

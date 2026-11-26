@@ -16,7 +16,16 @@ import { Reveal } from "./sections/Reveal";
 
 /** messages key under `pages.*` with each content page's meta description. */
 type DescriptionKey =
-  "facilitiesDescription" | "locationDescription" | "attractionsDescription" | "groupsDescription" | "privacyDescription" | "termsDescription";
+  | "facilitiesDescription"
+  | "locationDescription"
+  | "attractionsDescription"
+  | "groupsDescription"
+  | "privacyDescription"
+  | "termsDescription"
+  | "aboutDescription"
+  | "sustainabilityDescription"
+  | "companyDescription"
+  | "partnersDescription";
 
 /** Metadata for a content page: title from the database, description from messages. */
 export async function contentPageMetadata(locale: Locale, slug: string, path: string, description: DescriptionKey): Promise<Metadata> {
@@ -45,10 +54,12 @@ type Props = {
   layout?: "chapters" | "list";
   /** Chapters layout: each photo's floor; a chapter then gets the photos of the floor its English heading names. */
   photoFloors?: Record<string, number | null>;
+  /** Chapters layout: extra content after the text of chapter i (by index), e.g. a link or a contact block. */
+  chapterExtras?: ReactNode[];
 };
 
 /** A database content page laid out from its `## ` sections (spec §5.3): ink head, then chapters or a list. */
-export async function ContentPage({ locale, slug, captions = {}, plain, aside, children, maxPhotos = 6, layout = "list", photoFloors }: Props) {
+export async function ContentPage({ locale, slug, captions = {}, plain, aside, children, maxPhotos = 6, layout = "list", photoFloors, chapterExtras = [] }: Props) {
   setRequestLocale(locale);
   const [page, enPage] = await Promise.all([loadPage(slug, locale), plain || locale === "en" ? null : loadPage(slug, "en")]);
   if (!page) notFound();
@@ -94,7 +105,12 @@ export async function ContentPage({ locale, slug, captions = {}, plain, aside, c
         )}
         {sections.map((s, i) => {
           const pick = splitPhotos(groups[i]);
-          const text = <RichText text={s.body} />;
+          const text = (
+            <>
+              <RichText text={s.body} />
+              {chapterExtras[i]}
+            </>
+          );
           return (
             <Band key={i} theme={i % 2 === 0 ? "paper" : "ink"}>
               <Chapter num={i + 1} title={s.heading ?? page.title} en={label(i)}>

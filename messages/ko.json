@@ -34,7 +34,11 @@
     "groups": "단체·장기 투숙",
     "faq": "자주 묻는 질문",
     "news": "소식",
-    "reviews": "투숙객 평가"
+    "reviews": "투숙객 평가",
+    "about": "브랜드 스토리",
+    "sustainability": "지속 가능성",
+    "company": "회사 정보",
+    "partners": "투자 및 제휴"
   },
   "home": {
     "taglineFirst": "여행은",
@@ -59,7 +63,8 @@
     "openMap": "Google 지도에서 열기",
     "chapterRoomsEn": "Rooms",
     "chapterSpacesEn": "Shared spaces",
-    "chapterAccessEn": "Getting here"
+    "chapterAccessEn": "Getting here",
+    "storyMore": "브랜드 스토리 읽기"
   },
   "booking": {
     "title": "빈 객실 검색",
@@ -92,7 +97,8 @@
     "terms": "예약 약관",
     "copyright": "소공관 인문여관 NK Hostel",
     "siteLinks": "사이트 안내",
-    "manageBooking": "예약 조회"
+    "manageBooking": "예약 조회",
+    "aboutTitle": "소공관 소개"
   },
   "amenities": {
     "wifi": "무료 Wi-Fi",
@@ -170,7 +176,14 @@
     "termsDescription": "NK 호스텔 공식 웹사이트 예약 약관: 결제, 취소, 환불.",
     "photoAlt": "{title}, 사진 {n}",
     "addressTitle": "주소",
-    "facilityPhotos": "공용 공간 사진"
+    "facilityPhotos": "공용 공간 사진",
+    "aboutDescription": "소공관 인문여관의 브랜드 스토리입니다. 여행은 삶의 연장이며 여행 중에도 돌아갈 집이 있다는 믿음, 정성껏 꾸민 공간, 그리고 이곳에 남은 이야기를 소개합니다.",
+    "sustainabilityDescription": "소공관의 지속 가능성과 지역: 2025년부터 일회용 어메니티 유료 셀프 서비스와 객실 생수병 미제공, 그리고 난징동로 5단의 동네를 소개합니다.",
+    "companyDescription": "소공관 인문여관 회사 정보: 브랜드명, 주소, 전화, 이메일, 24시간 프런트, 체크인·체크아웃 시간, 객실 종류와 공용 공간 층.",
+    "partnersDescription": "투자자와 제휴 파트너를 위한 안내: 소공관 인문여관의 브랜드 포지셔닝, 예약 사이트별 평점과 수상 내역, 문의 방법을 소개합니다.",
+    "partnersMailSubject": "투자 및 제휴 문의",
+    "partnersMailLink": "이메일로 문의하기",
+    "partnersReviewsLink": "각 사이트의 수상 증명 보기"
   },
   "facilityPhoto": {
     "bar": "5층 NK BAR 카운터",

@@ -1007,6 +1007,9 @@ main.home ~ .foot-band {
 html:lang(en) .home-statement-text {
   letter-spacing: 0;
 }
+.home-statement-text + .text-link {
+  margin-top: var(--space-4);
+}
 
 /* ---------- chapters ---------- */
 .chapter-body-text {
@@ -1623,4 +1626,21 @@ html:lang(en) .home-statement-text {
     letter-spacing: 0.06em;
     overflow-wrap: normal;
   }
+}
+
+/* ---------- partners: the enquiry link closing the last chapter ---------- */
+.partners-contact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-4) 0 0;
+}
+.partners-contact .text-link {
+  margin-top: 0;
+}
+.partners-contact-address {
+  color: var(--color-muted-text);
+  font-size: 15px;
+  overflow-wrap: anywhere;
 }
