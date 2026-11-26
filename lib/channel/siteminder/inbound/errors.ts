@@ -1,4 +1,4 @@
-import { escapeXml, otaResponse, soapEnvelope, XML_CONTENT_TYPE } from "./soap";
+import { escapeXml, otaResponse, rsEcho, soapEnvelope, XML_CONTENT_TYPE, type XmlNode } from "./soap";
 
 /**
  * What the inbound endpoint answers when something is wrong (docs/integrations/siteminder.md §4.3, §5.3).
@@ -37,19 +37,19 @@ export const soapResponse = (bodyXml: string, status = 200): Response =>
  * request (does not end in "RQ").
  */
 export const responseNameFor = (rootName: string): string | null =>
-  /^OTA_[A-Za-z]+RQ$/.test(rootName) ? `${rootName.slice(0, -2)}RS` : null;
+  /^OTA_[A-Za-z]{1,60}RQ$/.test(rootName) ? `${rootName.slice(0, -2)}RS` : null;
 
 /**
  * Wrong or missing credentials (and every request while our inbound secrets are unset).
  * SITEMINDER-OPEN-Q2: [RR] says invalid credentials "return a SOAP fault"; [ERR-G] lists Type 4 / Code 448 as a
- * required error of OTA_HotelAvailRS, AvailNotifRS and RateAmountNotifRS. We answer the matching RS with that error
- * inside the SOAP envelope, HTTP 200 (the RS form is the one the docs give exact values for). A root that is not
+ * required error of OTA_HotelAvailRS, AvailNotifRS and RateAmountNotifRS. We answer the matching RS (EchoToken and
+ * TimeStamp per soap.ts RS_TIMESTAMP) with that error inside the SOAP envelope, HTTP 200 (the RS form is the one the docs give exact values for). A root that is not
  * an OTA request gets a SOAP Fault carrying the same text.
  */
-export function authFailure(rootName: string, echoToken: string | undefined, timeStamp: string): Response {
+export function authFailure(rootName: string, request: XmlNode, now: Date): Response {
   const rs = responseNameFor(rootName);
   if (!rs) return soapFault(400, OTA_ERRORS.AUTH.text);
-  return soapResponse(otaResponse(rs, { echoToken, timeStamp }, errorsXml([OTA_ERRORS.AUTH])));
+  return soapResponse(otaResponse(rs, rsEcho(rs, request, now), errorsXml([OTA_ERRORS.AUTH])));
 }
 
 /**

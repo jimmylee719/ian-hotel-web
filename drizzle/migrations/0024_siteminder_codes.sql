@@ -1,6 +1,7 @@
 -- Our SiteMinder codes (lib/channel/siteminder/codes.ts): a missing code becomes the slug upper-cased without hyphens,
--- at most 16 characters (smCodeFromSlug; slugs are [a-z0-9-]). A row whose code would clash with another row's code
--- (held or derived) in the same scope is left empty: fillMissingSmCodes gives it a suffixed code. Existing codes are kept.
+-- at most 16 characters (equal to smCodeFromSlug for [a-z0-9-] slugs, the only ones allowed). A row whose code would
+-- clash with another row's code (held or derived) in the same scope is left NULL here: run scripts/fill-sm-codes.ts
+-- on that database (seedNk does the same on the databases it runs on) to give it a suffixed code. Existing codes are kept.
 UPDATE `properties` SET `sm_property_code` = NULL WHERE `sm_property_code` = '';--> statement-breakpoint
 UPDATE `unit_types` SET `sm_room_code` = NULL WHERE `sm_room_code` = '';--> statement-breakpoint
 UPDATE `rate_plans` SET `sm_rate_plan_code` = NULL WHERE `sm_rate_plan_code` = '';--> statement-breakpoint

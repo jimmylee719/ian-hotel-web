@@ -29,6 +29,10 @@ const parser = new XMLParser({
   parseTagValue: false,
   parseAttributeValue: false,
   trimValues: true,
+  // CDATA kept apart from text, so its content is taken literally (never entity-decoded).
+  cdataPropName: "#cdata",
+  // OTA messages nest about a dozen levels; anything far deeper is refused (the parser throws → malformed).
+  maxNestedTags: 64,
 });
 
 /** The five predefined XML entities and numeric character references (the only ones we decode, by hand). */
@@ -71,12 +75,14 @@ export function attr(node: unknown, name: string): string | undefined {
   return typeof v === "string" ? decodeXml(v) : undefined;
 }
 
-/** An element's text, entity-decoded ("" for an empty element). */
+/** An element's text: character data entity-decoded, CDATA sections literal ("" for an empty element). */
 export function text(node: unknown): string | undefined {
   if (typeof node === "string") return decodeXml(node);
   if (!isNode(node)) return undefined;
-  const v = node["#text"];
-  return typeof v === "string" ? decodeXml(v) : "";
+  const t = node["#text"];
+  const c = node["#cdata"];
+  const cdata = Array.isArray(c) ? c.filter((x) => typeof x === "string").join("") : typeof c === "string" ? c : "";
+  return (typeof t === "string" ? decodeXml(t) : "") + cdata;
 }
 
 export type Envelope = {
@@ -96,6 +102,7 @@ export class MalformedRequestError extends Error {
 
 export function parseEnvelope(xml: string): Envelope {
   if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw new MalformedRequestError("DTD_NOT_ALLOWED");
+  if (xml.trim() === "") throw new MalformedRequestError("EMPTY");
   const valid = XMLValidator.validate(xml);
   if (valid !== true) throw new MalformedRequestError("NOT_WELL_FORMED");
   let doc: unknown;
@@ -115,7 +122,10 @@ export function parseEnvelope(xml: string): Envelope {
   return { header: isNode(header) ? header : undefined, rootName: elements[0], root: isNode(root) ? root : {} };
 }
 
-/** The WS-Security UsernameToken (Header/Security/UsernameToken), or null when absent or not PasswordText. */
+/**
+ * The WS-Security UsernameToken (Header/Security/UsernameToken), or null when absent or not PasswordText. A repeated
+ * Security, UsernameToken, Username or Password element: only the first one counts.
+ */
 export function usernameToken(header: XmlNode | undefined): { username: string; password: string } | null {
   const token = path(header, "Security", "UsernameToken");
   const username = text(child(token, "Username"));
@@ -131,6 +141,27 @@ export function usernameToken(header: XmlNode | undefined): { username: string; 
 /** A minified SOAP 1.1 response envelope with the empty Header the docs require. */
 export function soapEnvelope(bodyXml: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><SOAP-ENV:Envelope xmlns:SOAP-ENV="${SOAP_ENV_NS}"><SOAP-ENV:Header/><SOAP-ENV:Body>${bodyXml}</SOAP-ENV:Body></SOAP-ENV:Envelope>`;
+}
+
+/**
+ * Which TimeStamp an RS carries. [RR]: OTA_HotelAvailRS@TimeStamp is when the response was generated.
+ * §4.3 ([AR][RATES]): AvailNotifRS and RateAmountNotifRS carry the request's TimeStamp. Any other RS: generated.
+ */
+export type TimeStampPolicy = "generated" | "echo";
+export const RS_TIMESTAMP: Readonly<Record<string, TimeStampPolicy>> = {
+  OTA_HotelAvailRS: "generated",
+  OTA_HotelAvailNotifRS: "echo",
+  OTA_HotelRateAmountNotifRS: "echo",
+};
+
+/**
+ * The EchoToken (always the request's) and TimeStamp (per RS_TIMESTAMP, or `policy`) for answering `request` with
+ * `rsName`. "echo" falls back to the generated time when the request carries no TimeStamp.
+ */
+export function rsEcho(rsName: string, request: XmlNode, now: Date, policy?: TimeStampPolicy): { echoToken?: string; timeStamp: string } {
+  const p = policy ?? (Object.hasOwn(RS_TIMESTAMP, rsName) ? RS_TIMESTAMP[rsName] : "generated");
+  const sent = attr(request, "TimeStamp");
+  return { echoToken: attr(request, "EchoToken"), timeStamp: p === "echo" && sent ? sent : isoTimestamp(now) };
 }
 
 /** An OTA response root: `<Name xmlns=OTA EchoToken=… TimeStamp=… Version="1.0">content</Name>`. */

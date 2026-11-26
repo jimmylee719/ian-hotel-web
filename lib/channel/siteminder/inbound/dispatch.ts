@@ -3,7 +3,7 @@ import type { Db } from "@/lib/db/types";
 import { log } from "@/lib/runtime/log";
 import { authFailure, soapFault, soapResponse } from "./errors";
 import { handleRoomsAndRates } from "./rooms-and-rates";
-import { attr, isoTimestamp, MalformedRequestError, parseEnvelope, usernameToken, type XmlNode } from "./soap";
+import { MalformedRequestError, parseEnvelope, usernameToken, type XmlNode } from "./soap";
 
 /**
  * The one inbound SiteConnect endpoint (POST /api/channel/siteminder; docs/integrations/siteminder.md §2, §8.2):
@@ -93,8 +93,8 @@ export async function handleSiteMinderInbound(deps: InboundDeps, req: Request, n
     log.warn(`siteminder inbound: malformed request (${e.message}) from ${ip}`);
     return soapFault(400, "Malformed request");
   }
-  const { root, header } = envelope;
-  const rootName = envelope.rootName.slice(0, 64); // sender-controlled: kept short in logs and faults
+  const { root, header, rootName } = envelope;
+  const shown = rootName.slice(0, 64); // sender-controlled: kept short in logs and faults
 
   const token = usernameToken(header);
   const configured = !!deps.username && !!deps.password;
@@ -102,19 +102,19 @@ export async function handleSiteMinderInbound(deps: InboundDeps, req: Request, n
   const userOk = await sameSecret(token?.username ?? "", deps.username ?? "");
   const passOk = await sameSecret(token?.password ?? "", deps.password ?? "");
   if (!configured || !token || !userOk || !passOk) {
-    log.warn(`siteminder inbound: credentials refused for ${rootName} from ${ip}${configured ? "" : " (inbound credentials are not configured)"}`);
-    return authFailure(rootName, attr(root, "EchoToken"), isoTimestamp(now));
+    log.warn(`siteminder inbound: credentials refused for ${shown} from ${ip}${configured ? "" : " (inbound credentials are not configured)"}`);
+    return authFailure(rootName, root, now);
   }
 
   const handler = Object.hasOwn(HANDLERS, rootName) ? HANDLERS[rootName] : undefined;
   if (!handler) {
-    log.warn(`siteminder inbound: unsupported message ${rootName}`);
-    return soapFault(400, `Unsupported message: ${rootName}`);
+    log.warn(`siteminder inbound: unsupported message ${shown}`);
+    return soapFault(400, `Unsupported message: ${shown}`);
   }
   try {
     return soapResponse(await handler({ db: deps.db, root, now }));
   } catch (e) {
-    log.error(`siteminder inbound: ${rootName} failed`, e);
+    log.error(`siteminder inbound: ${shown} failed`, e);
     return soapFault(500, "Internal error");
   }
 }

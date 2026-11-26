@@ -3,7 +3,7 @@ import { properties, ratePlans, unitTypes } from "@/lib/db/schema";
 import { log } from "@/lib/runtime/log";
 import { errorsXml, OTA_ERRORS } from "./errors";
 import type { InboundHandler } from "./dispatch";
-import { attr, escapeXml, isoTimestamp, otaResponse, path } from "./soap";
+import { attr, escapeXml, otaResponse, path, rsEcho } from "./soap";
 
 /**
  * Rooms and Rates ([RR], docs/integrations/siteminder.md §4.5): SiteMinder pulls the hotel's room types and rate
@@ -12,6 +12,8 @@ import { attr, escapeXml, isoTimestamp, otaResponse, path } from "./soap";
  * OTA_HotelAvailRS with <Success/> and one RoomStay per (active room type × active rate plan), or <Errors>.
  *
  * - EchoToken is echoed; TimeStamp is when this response was generated ([RR]: "@TimeStamp" of the RS).
+ * - SITEMINDER-OPEN-Q17: the request's AvailRatesOnly="true" is not checked; [RR] makes it mandatory but says
+ *   nothing about answering a request without it, so every OTA_HotelAvailRQ gets the room and rate list.
  * - Only active rows with a code are listed (inactive ones must be left out [RR]; a row without a code cannot be
  *   mapped, and is logged). Direct-only plans are listed: our site is the channel they are sold on.
  * - Names: RoomDescription@Name / RatePlanDescription@Name is the zh-TW name (the hotel's staff map in
@@ -20,7 +22,7 @@ import { attr, escapeXml, isoTimestamp, otaResponse, path } from "./soap";
  * - Pricing model PDP (doc §8.13, inferred): no Occupancy element, which [RR] requires for OBP only.
  */
 export const handleRoomsAndRates: InboundHandler = async ({ db, root, now }) => {
-  const echo = { echoToken: attr(root, "EchoToken"), timeStamp: isoTimestamp(now) };
+  const echo = rsEcho("OTA_HotelAvailRS", root, now);
   const rs = (content: string) => otaResponse("OTA_HotelAvailRS", echo, content);
 
   const hotelRef = path(root, "AvailRequestSegments", "AvailRequestSegment", "HotelSearchCriteria", "Criterion", "HotelRef");

@@ -2,11 +2,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { XMLParser } from "fast-xml-parser";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { HANDLERS, handleSiteMinderInbound, MAX_BODY_BYTES, sameSecret, type InboundDeps } from "@/lib/channel/siteminder/inbound/dispatch";
 import { uniqueNames } from "@/lib/channel/siteminder/inbound/rooms-and-rates";
 import { ratePlans, unitTypes } from "@/lib/db/schema";
 import { seedNk } from "@/lib/db/seed-nk";
+import { rsEcho } from "@/lib/channel/siteminder/inbound/soap";
+import { log } from "@/lib/runtime/log";
 import { createTestDb } from "@/tests/helpers/test-db";
 
 const NOW = new Date("2026-11-27T02:00:05.123Z");
@@ -38,6 +40,8 @@ const AUTH_FAULT_BODY =
   + '<OTA_HotelAvailRS xmlns="http://www.opentravel.org/OTA/2003/05" EchoToken="879791878" TimeStamp="2026-11-27T02:00:05Z" Version="1.0">'
   + '<Errors><Error Type="4" Code="448">Invalid Username and/or Password</Error></Errors></OTA_HotelAvailRS></SOAP-ENV:Body></SOAP-ENV:Envelope>';
 
+afterEach(() => vi.restoreAllMocks());
+
 describe("authentication", () => {
   test("correct credentials: the request is handled", async () => {
     const r = await (await setup()).call(RR);
@@ -68,6 +72,29 @@ describe("authentication", () => {
     expect(await (await s.call(empty)).text()).toBe(AUTH_FAULT_BODY);
   });
 
+  test("a Password without a Type attribute is read as PasswordText", async () => {
+    const r = await (await setup()).call(RR.replace(/ Type="[^"]*#PasswordText"/, ""));
+    expect(body(await r.text()).OTA_HotelAvailRS.Success).toBeDefined();
+  });
+
+  test("with several UsernameTokens only the first counts", async () => {
+    const token = (u: string, p: string) => `<wsse:UsernameToken><wsse:Username>${u}</wsse:Username><wsse:Password>${p}</wsse:Password></wsse:UsernameToken>`;
+    const withTokens = (...ts: string[]) => RR.replace(/<wsse:UsernameToken>[\s\S]*<\/wsse:UsernameToken>/, ts.join(""));
+    const s = await setup();
+    expect(await (await s.call(withTokens(token("intruder", "x"), token(USER, PASS)))).text()).toBe(AUTH_FAULT_BODY);
+    expect(body(await (await s.call(withTokens(token(USER, PASS), token("intruder", "x")))).text()).OTA_HotelAvailRS.Success).toBeDefined();
+  });
+
+  test("CDATA is taken literally; plain text is entity-decoded exactly once", async () => {
+    const s = await setup({ password: "Fake&amp;Pass!2026" });
+    const pw = (inner: string) => RR.replace(`>${PASS}<`, `>${inner}<`);
+    const ok = async (xml: string) => (await (await s.call(xml)).text()).includes("<Success/>");
+    expect(await ok(pw("<![CDATA[Fake&amp;Pass!2026]]>"))).toBe(true); // CDATA: literal
+    expect(await ok(pw("Fake&amp;amp;Pass!2026"))).toBe(true); // text: decoded once
+    expect(await ok(pw("Fake&amp;Pass!2026"))).toBe(false); // text "Fake&amp;Pass" → "Fake&Pass"
+    expect(await ok(pw("<![CDATA[Fake&amp;amp;Pass!2026]]>"))).toBe(false); // CDATA is not decoded at all
+  });
+
   test("sameSecret compares exactly", async () => {
     expect(await sameSecret("abc", "abc")).toBe(true);
     expect(await sameSecret("abc", "abd")).toBe(false);
@@ -92,6 +119,29 @@ describe("protocol", () => {
     expect(body(await r.text())["SOAP-ENV:Fault"]).toMatchObject({ faultcode: "SOAP-ENV:Client", faultstring: "Malformed request" });
   });
 
+  test("a DTD is refused before parsing, for that reason", async () => {
+    const warn = vi.spyOn(log, "warn");
+    const r = await (await setup()).call(fixture("doctype-entity.xml"));
+    expect(r.status).toBe(400);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("malformed request (DTD_NOT_ALLOWED)"));
+  });
+
+  test("deep nesting is refused", async () => {
+    const deep = `${"<a>".repeat(200)}x${"</a>".repeat(200)}`;
+    const r = await (await setup()).call(RR.replace('<HotelRef HotelCode="NKHOSTEL"/>', deep));
+    expect(r.status).toBe(400);
+    expect(body(await r.text())["SOAP-ENV:Fault"].faultstring).toBe("Malformed request");
+  });
+
+  test("a __proto__ element is refused (no prototype pollution)", async () => {
+    const s = await setup();
+    const asRoot = await s.call(RR.replace(/OTA_HotelAvailRQ/g, "__proto__"));
+    expect(asRoot.status).toBe(400);
+    const nested = await s.call(RR.replace("<AvailRequestSegments>", "<__proto__><polluted>1</polluted></__proto__><AvailRequestSegments>"));
+    expect(nested.status).toBe(400);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
   test.each([
     ["a DTD with entities", fixture("doctype-entity.xml")],
     ["not a SOAP envelope", '<OTA_HotelAvailRQ xmlns="http://www.opentravel.org/OTA/2003/05" EchoToken="1" Version="1.0"/>'],
@@ -114,6 +164,30 @@ describe("protocol", () => {
     const rs = body(await r.text()).OTA_HotelDescriptiveInfoRS;
     expect(rs["@EchoToken"]).toBe("11111111-2222-3333-4444-555555555555");
     expect(rs.Errors.Error[0]).toMatchObject({ "@Type": "4", "@Code": "448", "#text": "Invalid Username and/or Password" });
+  });
+
+  test("the handler is found by the full root name (a long name is cut only in logs and faults)", async () => {
+    const long = `OTA_HotelAvailRQ${"X".repeat(70)}`;
+    const r = await (await setup()).call(RR.replace(/OTA_HotelAvailRQ/g, long));
+    expect(r.status).toBe(400);
+    expect(body(await r.text())["SOAP-ENV:Fault"].faultstring).toBe(`Unsupported message: ${long.slice(0, 64)}`);
+  });
+
+  test("RS TimeStamp policy: AvailRS is generated now; AvailNotifRS / RateAmountNotifRS echo the request's", () => {
+    const req = { "@EchoToken": "e-1", "@TimeStamp": "2026-11-27T01:00:00Z" };
+    expect(rsEcho("OTA_HotelAvailRS", req, NOW)).toEqual({ echoToken: "e-1", timeStamp: "2026-11-27T02:00:05Z" });
+    expect(rsEcho("OTA_HotelAvailNotifRS", req, NOW)).toEqual({ echoToken: "e-1", timeStamp: "2026-11-27T01:00:00Z" });
+    expect(rsEcho("OTA_HotelRateAmountNotifRS", req, NOW).timeStamp).toBe("2026-11-27T01:00:00Z");
+    expect(rsEcho("OTA_HotelAvailNotifRS", { "@EchoToken": "e-2" }, NOW).timeStamp).toBe("2026-11-27T02:00:05Z");
+    expect(rsEcho("OTA_SomethingRS", req, NOW).timeStamp).toBe("2026-11-27T02:00:05Z");
+    expect(rsEcho("OTA_HotelAvailRS", req, NOW, "echo").timeStamp).toBe("2026-11-27T01:00:00Z");
+  });
+
+  test("an auth failure for an ARI message echoes the request's TimeStamp", async () => {
+    const ari = RR.replace(/OTA_HotelAvailRQ/g, "OTA_HotelAvailNotifRQ").replace(PASS, "nope");
+    const rs = body(await (await (await setup()).call(ari)).text()).OTA_HotelAvailNotifRS;
+    expect(rs).toMatchObject({ "@EchoToken": "879791878", "@TimeStamp": "2026-11-27T02:00:00Z" });
+    expect(rs.Errors.Error[0]["@Code"]).toBe("448");
   });
 
   test("Object prototype names are not handlers", async () => {

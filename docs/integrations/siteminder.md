@@ -313,6 +313,18 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
 - 必要：Rooms and Rates、可售數量、Stop Sell、價格、新訂單。
 - 強烈建議：最短和最長住宿、CTA、CTD、訂單修改和取消。
 
+**上線前要做的設定（我們這邊）**：
+- Cloudflare WAF：`/api/channel/siteminder` 只放行 SiteMinder 的來源 IP（pre-production 見第 2 節，正式環境的 IP 上線時才給，Q14），並對這些 IP 放行 `Jakarta Commons-HttpClient/3.1` 這個 User-Agent。另外在邊緣加一條頻率限制。原因：沒通過驗證的請求也要寫一次 D1（rate limit 計數）並解析兩次 XML（驗證 + parse），不能讓任意來源打進來。
+- 設定 secrets `SITEMINDER_INBOUND_USERNAME`、`SITEMINDER_INBOUND_PASSWORD`（密碼政策見第 2 節），再交給 SiteMinder。
+- 在正式環境套用 migration 0024 **之前**，先確認沒有重複的代碼，否則建立 unique index 會失敗：
+  ```sql
+  SELECT sm_property_code, count(*) FROM properties WHERE sm_property_code IS NOT NULL AND sm_property_code <> '' GROUP BY sm_property_code HAVING count(*) > 1;
+  SELECT property_id, sm_room_code, count(*) FROM unit_types WHERE sm_room_code IS NOT NULL AND sm_room_code <> '' GROUP BY property_id, sm_room_code HAVING count(*) > 1;
+  SELECT property_id, sm_rate_plan_code, count(*) FROM rate_plans WHERE sm_rate_plan_code IS NOT NULL AND sm_rate_plan_code <> '' GROUP BY property_id, sm_rate_plan_code HAVING count(*) > 1;
+  ```
+  三個查詢都要沒有結果。套用後跑 `npx tsx scripts/fill-sm-codes.ts --env production`（先 dry run）補上 0024 因為撞號而沒填的代碼。
+- 把館別、房型、方案代碼（後台館別設定、房型、房價方案頁都看得到）交給 SiteMinder／飯店做對應。
+
 **上線前檢查** [REQ][DC]：
 - 密碼符合政策。
 - EchoToken 用 UUID。
@@ -367,6 +379,8 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
     - 中文：開 SiteMinder 代寄通知信時，要多送哪些欄位？有接 PMS 的話還需要嗎？
 16. **Q16（代碼格式）** What characters and maximum length are allowed for the `HotelCode`, `RoomTypeCode` and `RatePlanCode` we return in `OTA_HotelAvailRS`? We plan to use upper-case A–Z and 0–9 only, at most 16 characters (e.g. `NKHOSTEL`, `MIXEDCUBE`, `DIRECTFLEX`). Are codes case-sensitive?
     - 中文：我們自己定的飯店、房型、方案代碼可以用哪些字元、最長幾碼？有沒有分大小寫？
+17. **Q17（AvailRatesOnly）** `OTA_HotelAvailRQ@AvailRatesOnly="true"` is listed as mandatory. If a Rooms and Rates request arrives without it (or with `false`), should we still return the room and rate list, or an error (which Type/Code)?
+    - 中文：Rooms and Rates 請求沒帶 `AvailRatesOnly="true"` 時，要照樣回清單還是回錯誤？（目前照樣回清單。）
 
 ## 8. 影響設計的發現（給 Task 3、4 實作者）
 

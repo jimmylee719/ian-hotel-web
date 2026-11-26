@@ -51,7 +51,7 @@ export const unitTypes = sqliteTable(
     images: text("images", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
     sortOrder: integer("sort_order").notNull().default(0),
     /** Our SiteMinder RoomTypeCode (lib/channel/siteminder/codes.ts): set once, never edited. */
-  smRoomCode: text("sm_room_code"),
+    smRoomCode: text("sm_room_code"),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
   },
   (t) => [

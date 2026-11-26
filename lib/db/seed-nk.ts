@@ -27,7 +27,11 @@ const DIRECTIONS: I18n = {
 
 export async function seedNk(db: Db): Promise<{ propertyId: string }> {
   const existing = await db.select({ id: properties.id }).from(properties).where(eq(properties.slug, "nk-hostel"));
-  if (existing.length) return { propertyId: existing[0].id };
+  if (existing.length) {
+    // An existing database: still give any row without a SiteMinder code its code (never changes one).
+    await fillMissingSmCodes(db);
+    return { propertyId: existing[0].id };
+  }
 
   const propertyId = crypto.randomUUID();
   await db.insert(properties).values({

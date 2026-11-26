@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
-import { fillMissingSmCodes, isSmCode, SM_CODE_MAX, smCodeFromSlug, uniqueSmCode } from "@/lib/channel/siteminder/codes";
+import { fillMissingSmCodes, isSmCode, planSmCodes, SM_CODE_MAX, smCodeFromSlug, smCodeUpdatesSql, uniqueSmCode } from "@/lib/channel/siteminder/codes";
 import { updateUnitType, type MediaHead } from "@/lib/admin/content";
 import { properties, ratePlans, staff, unitTypes } from "@/lib/db/schema";
 import { seedNk } from "@/lib/db/seed-nk";
@@ -90,5 +90,36 @@ describe("stored codes", () => {
     const media: MediaHead = { head: async () => null };
     expect(await updateUnitType(db, { staff: row, email: row.email }, room.id, { smRoomCode: "HACK" } as never, media)).toEqual({ ok: false, error: "INVALID_INPUT", field: "smRoomCode" });
     expect((await db.select().from(unitTypes).where(eq(unitTypes.id, room.id)))[0].smRoomCode).toBe("MIXEDCUBE");
+  });
+
+  test("seedNk on an existing database gives rows without a code their code", async () => {
+    const db = createTestDb();
+    await seedNk(db);
+    const [room] = await db.select().from(unitTypes).where(eq(unitTypes.slug, "mixed-cube"));
+    await db.insert(unitTypes).values({ ...room, id: "clash", slug: "mixedcube", smRoomCode: null });
+    await seedNk(db);
+    expect((await db.select().from(unitTypes).where(eq(unitTypes.id, "clash")))[0].smRoomCode).toBe("MIXEDCUBE2");
+    expect((await db.select().from(unitTypes).where(eq(unitTypes.id, room.id)))[0].smRoomCode).toBe("MIXEDCUBE");
+  });
+
+  test("planSmCodes and its SQL (scripts/fill-sm-codes.ts) never touch an existing code", () => {
+    const plan = planSmCodes({
+      properties: [{ id: "p1", slug: "nk-hostel", code: "NKHOSTEL" }, { id: "p2", slug: "nkhostel", code: null }],
+      unitTypes: [
+        { id: "u1", slug: "mixed-cube", code: null, propertyId: "p1" },
+        { id: "u2", slug: "mixedcube", code: "", propertyId: "p1" },
+        { id: "u3", slug: "mixed-cube", code: null, propertyId: "p2" },
+      ],
+      ratePlans: [{ id: "r1", slug: "direct-flex", code: "DIRECTFLEX", propertyId: "p1" }],
+    });
+    expect(plan).toEqual([
+      { table: "properties", id: "p2", code: "NKHOSTEL2" },
+      { table: "unit_types", id: "u1", code: "MIXEDCUBE" },
+      { table: "unit_types", id: "u2", code: "MIXEDCUBE2" },
+      { table: "unit_types", id: "u3", code: "MIXEDCUBE" },
+    ]);
+    expect(smCodeUpdatesSql(plan.slice(1, 2))).toEqual([
+      "UPDATE unit_types SET sm_room_code = 'MIXEDCUBE' WHERE id = 'u1' AND (sm_room_code IS NULL OR sm_room_code = '');",
+    ]);
   });
 });
