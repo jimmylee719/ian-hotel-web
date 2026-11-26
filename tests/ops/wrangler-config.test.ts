@@ -94,4 +94,6 @@ test("preview is the labelled test site: mock modes only, its own BASE_URL, only
   expect(pv.services[0]).toEqual({ binding: "WORKER_SELF_REFERENCE", service: pv.name }); // /dev/pay posts its notice through it
   expect(pv.d1_databases[0]).toMatchObject({ binding: "DB", database_name: "nk-booking-preview" });
   expect(pv.d1_databases[0].database_id).not.toBe(cfg.env.production.d1_databases[0].database_id);
+  expect(pv.d1_databases[0].database_id).not.toBe(cfg.env.staging.d1_databases[0].database_id);
+  expect(pv.d1_databases[0].database_name).not.toBe(cfg.env.staging.d1_databases[0].database_name);
 });

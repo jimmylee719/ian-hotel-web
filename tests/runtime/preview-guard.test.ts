@@ -30,14 +30,28 @@ test("truth table: mock modes are allowed in local and preview only, refused eve
   }
 });
 
-test("' preview ' follows the existing trim rules: the request guard trims it, but booking, /dev/pay and the labels do not", () => {
-  const env = { ...preview, ENVIRONMENT: " preview " };
-  expect(configRefusal(env)).toBeNull(); // config-guard trims ENVIRONMENT (as it always has for "local")
-  expect(bookingDisabledReason(env)).toBe("MOCK_MODE_IN_PRODUCTION"); // deps matches exactly: booking stays off
-  expect(isMockPaymentMode(env)).toBe(false); // /dev/pay 404s
-  expect(isTestSite(env)).toBe(false);
-  // And " local " was already like that.
-  expect(bookingDisabledReason({ ...mock, ENVIRONMENT: " local " })).toBe("MOCK_MODE_IN_PRODUCTION");
+test("every guard trims ENVIRONMENT the same way (as config-guard always has); case is never folded", () => {
+  for (const ENVIRONMENT of [" preview ", "preview\n", "\tpreview"]) {
+    const env = { ...preview, ENVIRONMENT };
+    expect(configRefusal(env), JSON.stringify(ENVIRONMENT)).toBeNull();
+    expect(bookingDisabledReason(env)).toBeNull();
+    expect(isMockPaymentMode(env)).toBe(true);
+    expect(isTestSite(env)).toBe(true);
+    // ...and the preview-only rules apply to it just as to "preview" (fails closed, never skipped by whitespace).
+    expect(bookingDisabledReason({ ...env, MOCK_PAYMENT_SECRET: "" })).toBe("MOCK_PAYMENT_SECRET_NOT_SET");
+    expect(bookingDisabledReason({ ...env, PAYMENT_MODE: "sinopac" })).toBe("REAL_MODE_IN_PREVIEW");
+    expect(configRefusal({ ...env, SINOPAC_ENDPOINT: "https://x.example" })).toMatch(/VENDOR_SETTING_IN_PREVIEW/);
+  }
+  expect(bookingDisabledReason({ ...mock, ENVIRONMENT: " local " })).toBeNull();
+  // Whitespace around staging / production keeps their rules (mock refused, BASE_URL required).
+  expect(bookingDisabledReason({ ...mock, ENVIRONMENT: " production " })).toBe("MOCK_MODE_IN_PRODUCTION");
+  expect(bookingDisabledReason({ PAYMENT_MODE: "sinopac", CHANNEL_MODE: "siteminder", ENVIRONMENT: " staging " })).toBe("BASE_URL_NOT_SET");
+  for (const ENVIRONMENT of ["Preview", " PREVIEW ", "pre view"]) {
+    const env = { ...preview, ENVIRONMENT };
+    expect(configRefusal(env), ENVIRONMENT).toMatch(/MOCK_MODE_REFUSED/);
+    expect(bookingDisabledReason(env)).toBe("MOCK_MODE_IN_PRODUCTION");
+    expect(isTestSite(env)).toBe(false);
+  }
 });
 
 test("preview: mock is the only mode; a real or unknown PAYMENT_MODE / CHANNEL_MODE is refused", () => {

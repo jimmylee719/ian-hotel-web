@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
 
+export const dynamic = "force-dynamic";
+
 // Unknown paths under a locale render the localised not-found page.
 export default function CatchAll() {
   notFound();

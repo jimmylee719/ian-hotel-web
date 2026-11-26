@@ -14,9 +14,9 @@ import { photosOf } from "@/lib/content-repo";
 import { searchAvailability, type RichOffer } from "@/lib/db/ari-repo";
 import { getDb } from "@/lib/db/client";
 import type { Locale } from "@/lib/db/schema";
-import { bookingEnabled } from "@/lib/runtime/deps";
-import { appEnv, isTestSite } from "@/lib/runtime/env";
+import { isTestSite } from "@/lib/runtime/env";
 import { buildMetadata } from "@/lib/seo";
+import { bookingEnabled, requestEnv } from "@/lib/runtime/request-env";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +57,7 @@ export default async function BookPage({ params, searchParams }: Props) {
     );
   }
 
-  const testSite = isTestSite(await appEnv());
+  const testSite = isTestSite(await requestEnv());
   const property = await loadProperty();
   const result = property
     ? await searchAvailability(await getDb(), { propertyId: property.id, ...stay, ...guests })

@@ -4,8 +4,9 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 export type AppEnv = {
   /**
    * "local" (default wrangler env), "preview" (env.preview, the owner's public test site on workers.dev), "staging"
-   * (env.staging) or "production" (env.production). Mock modes are accepted only when exactly "local" or "preview"
-   * (isMockEnvironment); in "preview" they are the only modes allowed and no vendor setting may be set
+   * (env.staging) or "production" (env.production). Mock modes are accepted only when "local" or "preview"
+   * (isMockEnvironment; surrounding whitespace is trimmed everywhere, as config-guard does, but case is not
+   * folded: "Preview" is no mock environment); in "preview" they are the only modes allowed and no vendor setting may be set
    * (lib/runtime/config-guard.ts). Staging and production also need BASE_URL, and their vendor endpoints are checked
    * against config-guard's host lists (anything else, unset or mistyped, is treated as production there).
    */
@@ -40,11 +41,19 @@ export type AppEnv = {
   DEV_STAFF_EMAIL?: string;
 };
 
-/** The environments where the mock payment and channel modes may run. Matched exactly ("Preview" is not one). */
+/** The environments where the mock payment and channel modes may run. Matched after trimming, case-sensitively. */
 export const MOCK_ENVIRONMENTS = ["local", "preview"] as const;
 
+/**
+ * ENVIRONMENT as every guard reads it: trimmed (" preview " is "preview", as lib/runtime/config-guard.ts has always
+ * read it), case kept ("Preview" stays unknown, which every guard treats as production: fails closed).
+ */
+export function environmentOf(env: { ENVIRONMENT?: string }): string | undefined {
+  return env.ENVIRONMENT?.trim();
+}
+
 export function isMockEnvironment(environment: string | undefined): boolean {
-  return (MOCK_ENVIRONMENTS as readonly (string | undefined)[]).includes(environment);
+  return (MOCK_ENVIRONMENTS as readonly (string | undefined)[]).includes(environment?.trim());
 }
 
 /**

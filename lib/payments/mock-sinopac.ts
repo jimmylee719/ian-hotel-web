@@ -28,6 +28,22 @@ async function hmacHex(secret: string, body: string): Promise<string> {
   return toHex(await crypto.subtle.sign("HMAC", key, enc.encode(body)));
 }
 
+/** What a mock pay link (startCharge → /dev/pay) is signed over. */
+export type PayLinkFields = { ref: string; code: string; merchantOrderNo: string; amount: number; returnUrl: string; notifyUrl: string };
+
+/**
+ * HMAC-SHA256 (hex) of a pay link's fields with the gateway secret. Domain-separated ("mock-pay-link", a JSON array)
+ * from the notices' signature (a JSON object), so neither can stand in for the other.
+ */
+export async function payLinkSignature(secret: string, f: PayLinkFields): Promise<string> {
+  return hmacHex(secret, JSON.stringify(["mock-pay-link", f.ref, f.code, f.merchantOrderNo, f.amount, f.returnUrl, f.notifyUrl]));
+}
+
+/** Constant-time check of a pay link's `sig`. */
+export async function payLinkValid(secret: string, f: PayLinkFields, sig: string): Promise<boolean> {
+  return timingSafeEqual(sig, await payLinkSignature(secret, f));
+}
+
 function isNotice(v: unknown): v is PaymentNotice {
   if (!v || typeof v !== "object") return false;
   const n = v as Record<string, unknown>;
@@ -65,6 +81,10 @@ export class MockSinoPacGateway implements PaymentGateway {
   async startCharge(r: ChargeRequest): Promise<ChargeStart> {
     const ref = `MOCK-${r.reservationCode}-${randomHex(4)}`;
     this.charges.set(ref, { merchantOrderNo: r.merchantOrderNo, amount: r.amount, status: "pending" });
+    // Signed, so the public pay page only acts on links this gateway made (see app/dev/pay and lib/payments/mock-page.ts).
+    const sig = await payLinkSignature(this.secret, {
+      ref, code: r.reservationCode, merchantOrderNo: r.merchantOrderNo, amount: r.amount, returnUrl: r.returnUrl, notifyUrl: r.notifyUrl,
+    });
     const q = new URLSearchParams({
       code: r.reservationCode,
       order: r.merchantOrderNo,
@@ -72,6 +92,7 @@ export class MockSinoPacGateway implements PaymentGateway {
       locale: r.locale,
       returnUrl: r.returnUrl,
       notifyUrl: r.notifyUrl,
+      sig,
     });
     return { kind: "redirect", url: `${this.baseUrl}/dev/pay/${encodeURIComponent(ref)}?${q.toString()}` };
   }

@@ -1,12 +1,15 @@
+import { and, eq } from "drizzle-orm";
 import { routing } from "@/i18n/routing";
+import { payments, reservations } from "@/lib/db/schema";
+import type { Db } from "@/lib/db/types";
 import { isTestSite } from "@/lib/runtime/env";
-import { MockSinoPacGateway } from "./mock-sinopac";
+import { MockSinoPacGateway, payLinkValid } from "./mock-sinopac";
 
 /** Signing secret when MOCK_PAYMENT_SECRET is not set (mock mode only; the gateway and the pay page share it). */
 export const MOCK_DEFAULT_SECRET = "mock-secret";
 
 /**
- * The mock pay page exists only when PAYMENT_MODE is "mock" and ENVIRONMENT is exactly "local" or "preview"
+ * The mock pay page exists only when PAYMENT_MODE is "mock" and ENVIRONMENT is "local" or "preview" (trimmed)
  * (isTestSite): the same rule bookingDisabledReason (lib/runtime/deps.ts) applies to the mock modes, so /dev/pay
  * 404s on any other environment, including staging, production and an unset or mistyped ENVIRONMENT.
  */
@@ -68,11 +71,42 @@ export function reservationCodeFromRef(ref: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Build the signed notice the mock pay page POSTs to notifyUrl. */
+/** A pay request the mock pay page may act on (checkMockPayRequest). */
+export type MockPayRequest = { ref: string; code: string; merchantOrderNo: string; amount: number; returnUrl: string; notifyUrl: string };
+
+/**
+ * Every check the public mock pay page makes, on the page and again in its action, before it shows the buttons or
+ * signs a notice; null (the caller 404s) on any failure:
+ * - the link's `sig` is the gateway's HMAC over ref|code|order|amount|returnUrl|notifyUrl (constant-time compare),
+ *   so only a link MockSinoPacGateway.startCharge made for this booking works, not one built from a guessed code;
+ * - ref carries the code, the amount is a whole number, both URLs are this site's own (mockPayTargetsValid);
+ * - the booking still awaits payment, `order` is its current attempt (`<code>-<chargeAttempt>`), and its charge row
+ *   has this amount and is not already paid: a stale or replayed link cannot mark anything paid or failed.
+ */
+export async function checkMockPayRequest(
+  db: Db,
+  o: { secret: string; origins: string[] },
+  raw: { ref?: string; code?: string; order?: string; amount?: string; returnUrl?: string; notifyUrl?: string; sig?: string },
+): Promise<MockPayRequest | null> {
+  const { ref = "", code = "", order = "", returnUrl = "", notifyUrl = "", sig = "" } = raw;
+  if (!code || !order || !sig || reservationCodeFromRef(ref) !== code || !/^\d{1,9}$/.test(raw.amount ?? "")) return null;
+  const amount = Number(raw.amount);
+  if (!mockPayTargetsValid({ notifyUrl, returnUrl, code }, o.origins)) return null;
+  const p = { ref, code, merchantOrderNo: order, amount, returnUrl, notifyUrl };
+  if (!(await payLinkValid(o.secret, p, sig))) return null;
+  const [res] = await db.select().from(reservations).where(eq(reservations.code, code));
+  if (!res || res.status !== "pending_payment" || order !== `${code}-${res.chargeAttempt}`) return null;
+  const charges = await db.select().from(payments).where(and(eq(payments.reservationId, res.id), eq(payments.kind, "charge")));
+  if (!charges.some((c) => c.amount === amount && c.status !== "succeeded")) return null;
+  return p;
+}
+
+/** Build the signed notice the mock pay page POSTs to notifyUrl (with the attempt's order number). */
 export async function buildMockPayment(p: {
   secret: string;
   ref: string;
   code: string;
+  merchantOrderNo?: string;
   amount: number;
   outcome: "succeeded" | "failed";
 }) {
@@ -82,6 +116,7 @@ export async function buildMockPayment(p: {
     providerRef: p.ref,
     amount: p.amount,
     status: p.outcome,
+    ...(p.merchantOrderNo ? { merchantOrderNo: p.merchantOrderNo } : {}),
     ...(p.outcome === "succeeded" ? { authCode: "000000", last4: "4242" } : {}),
   });
 }

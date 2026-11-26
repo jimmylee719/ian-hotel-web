@@ -5,9 +5,11 @@ import { ManageLookup } from "@/components/booking/ManageLookup";
 import { PageHead } from "@/components/site/PageHead";
 import { TestNote } from "@/components/site/TestMode";
 import type { Locale } from "@/lib/db/schema";
-import { bookingEnabled } from "@/lib/runtime/deps";
-import { appEnv, isTestSite } from "@/lib/runtime/env";
+import { isTestSite } from "@/lib/runtime/env";
 import { buildMetadata } from "@/lib/seo";
+import { bookingEnabled, requestEnv } from "@/lib/runtime/request-env";
+
+export const dynamic = "force-dynamic";
 
 type Props = { params: Promise<{ locale: Locale }> };
 
@@ -32,7 +34,7 @@ export default async function ManagePage({ params }: Props) {
   return (
     <main id="main" className="wrap book-page narrow">
       <PageHead title={t("title")} lead={t("intro")} theme="paper" />
-      {isTestSite(await appEnv()) && <TestNote locale={locale} />}
+      {isTestSite(await requestEnv()) && <TestNote locale={locale} />}
       <ManageLookup />
     </main>
   );

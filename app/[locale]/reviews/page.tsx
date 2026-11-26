@@ -7,6 +7,8 @@ import { AWARDS } from "@/lib/content/reviews";
 import type { Locale } from "@/lib/db/schema";
 import { buildMetadata } from "@/lib/seo";
 
+export const dynamic = "force-dynamic";
+
 type Props = { params: Promise<{ locale: Locale }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

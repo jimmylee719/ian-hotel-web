@@ -4,7 +4,8 @@ import { ReturnStatus } from "@/components/booking/ReturnStatus";
 import { PageHead } from "@/components/site/PageHead";
 import { TestNote } from "@/components/site/TestMode";
 import type { Locale } from "@/lib/db/schema";
-import { appEnv, isTestSite } from "@/lib/runtime/env";
+import { isTestSite } from "@/lib/runtime/env";
+import { requestEnv } from "@/lib/runtime/request-env";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export default async function ReturnPage({ params }: Props) {
   const { locale, code } = await params;
   setRequestLocale(locale);
   const t = await getTranslations({ locale, namespace: "bookingStatus" });
-  const env = await appEnv();
+  const env = await requestEnv();
   const noEmail = isTestSite(env) && !env.RESEND_API_KEY;
   const tt = await getTranslations({ locale, namespace: "testMode" });
   return (

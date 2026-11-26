@@ -66,6 +66,9 @@ test("the mock pay page never asks for card or bank details: its only inputs are
   for (const i of inputs) expect(i).toContain('type="hidden"');
   expect(src).not.toMatch(/<(select|textarea)\b/);
   expect(src).not.toMatch(/cardNumber|cvv|cvc|expiry|account(Number|No)/i);
-  // The page and the server action both go through the same check.
-  expect(src.match(/await checked\(/g)?.length).toBe(2);
+  // The page and the server action both go through the same check, and both 404 unless booking may run.
+  expect(src.match(/checkMockPayRequest\(await getDb\(\)|checkMockPayRequest\(db,/g)?.length).toBe(2);
+  expect(src.match(/if \(!pageAvailable\(env\)\) notFound\(\);/g)?.length).toBe(2);
+  expect(src).toMatch(/bookingDisabledReason\(env\) === null/);
+  expect(src).toMatch(/checkRate\(db, `mockpay:\$\{ip\}`, RATE\.mockPay/);
 });

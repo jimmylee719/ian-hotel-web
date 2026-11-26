@@ -10,7 +10,7 @@ import { MOCK_DEFAULT_SECRET } from "@/lib/payments/mock-page";
 import { MockSinoPacGateway } from "@/lib/payments/mock-sinopac";
 import type { PaymentGateway } from "@/lib/payments/types";
 import type { OpsDeps } from "@/lib/ops/alerts";
-import { appEnv, isMockEnvironment, isTestSite, type AppEnv } from "./env";
+import { appEnv, environmentOf, isMockEnvironment, isTestSite, type AppEnv } from "./env";
 import { log } from "./log";
 
 /**
@@ -27,7 +27,7 @@ export class BookingDisabledError extends Error {
 
 /**
  * Why online booking must stay off, or null if it may run. Fails closed: both modes must be set, and
- * the mock modes are accepted only when ENVIRONMENT is exactly "local" or "preview" (isMockEnvironment;
+ * the mock modes are accepted only when ENVIRONMENT is "local" or "preview" (trimmed, case-sensitive: isMockEnvironment;
  * wrangler.jsonc sets "local" for the default env and "preview" for env.preview, the owner's labelled test site;
  * env.staging / env.production set "staging" / "production", and unset or mistyped values count as neither), so
  * mock payments can never serve staging or production. In "preview" the mock modes are the only ones allowed and
@@ -38,7 +38,7 @@ export function bookingDisabledReason(env: AppEnv): string | null {
   if (!env.PAYMENT_MODE) return "PAYMENT_MODE_NOT_SET";
   if (!env.CHANNEL_MODE) return "CHANNEL_MODE_NOT_SET";
   if ((env.PAYMENT_MODE === "mock" || env.CHANNEL_MODE === "mock") && !isMockEnvironment(env.ENVIRONMENT)) return "MOCK_MODE_IN_PRODUCTION";
-  if (env.ENVIRONMENT === "preview") {
+  if (environmentOf(env) === "preview") {
     if (env.PAYMENT_MODE !== "mock" || env.CHANNEL_MODE !== "mock") return "REAL_MODE_IN_PREVIEW";
     if (!env.MOCK_PAYMENT_SECRET) return "MOCK_PAYMENT_SECRET_NOT_SET";
   }
@@ -50,7 +50,8 @@ export function bookingDisabledReason(env: AppEnv): string | null {
  * are built from BASE_URL, and the cron has no request origin to fall back on (only localhost).
  */
 export function baseUrlMissingReason(env: AppEnv): string | null {
-  return (env.ENVIRONMENT === "production" || env.ENVIRONMENT === "staging") && !env.BASE_URL ? "BASE_URL_NOT_SET" : null;
+  const environment = environmentOf(env);
+  return (environment === "production" || environment === "staging") && !env.BASE_URL ? "BASE_URL_NOT_SET" : null;
 }
 
 /** Is online booking on? */
@@ -68,6 +69,7 @@ export function guestBookingOpen(env: AppEnv, shell: { BOOKING_OPEN?: string } =
   return paymentsConfigured(env);
 }
 
+/** For route handlers. Pages use lib/runtime/request-env.ts's bookingEnabled, which makes the render request-time. */
 export async function bookingEnabled(): Promise<boolean> {
   return guestBookingOpen(await appEnv(), { BOOKING_OPEN: typeof process === "undefined" ? undefined : process.env.BOOKING_OPEN });
 }
