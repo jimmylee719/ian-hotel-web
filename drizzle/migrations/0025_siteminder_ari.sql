@@ -9,6 +9,8 @@ CREATE TABLE `channel_ari_messages` (
 	`error_code` integer,
 	`error_text` text,
 	`rejected_codes` text DEFAULT '[]' NOT NULL,
+	`stale_rows` integer DEFAULT 0 NOT NULL,
+	`degraded_rows` integer DEFAULT 0 NOT NULL,
 	`duration_ms` integer NOT NULL
 );
 --> statement-breakpoint
@@ -18,4 +20,6 @@ ALTER TABLE `ari_daily` ADD `min_stay_through` integer;--> statement-breakpoint
 ALTER TABLE `ari_daily` ADD `max_stay_through` integer;--> statement-breakpoint
 ALTER TABLE `ari_daily` ADD `restrictions_source_ts` integer;--> statement-breakpoint
 ALTER TABLE `ari_daily` ADD `price_source_ts` integer;--> statement-breakpoint
-ALTER TABLE `inventory_daily` ADD `source_ts` integer;
+ALTER TABLE `inventory_daily` ADD `source_ts` integer;--> statement-breakpoint
+ALTER TABLE `inventory_daily` ADD `sm_available` integer;--> statement-breakpoint
+ALTER TABLE `reservations` ADD `channel_synced_at` integer;

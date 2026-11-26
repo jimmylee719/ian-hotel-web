@@ -59,6 +59,17 @@ describe("lowest price over the next 7 days", () => {
     const cards = await getRoomTypes(db, "nk-hostel", "en", NOW);
     expect(cards.find((c) => c.slug === "classic-room")?.fromPrice).toBe(3000);
   });
+
+  test("a night priced 0 (rates not loaded, or refused) is never shown as the price", async () => {
+    const { db, propertyId } = await seeded();
+    await fillAri(db, propertyId, todayInTaipei(NOW), 10, { price: 3000 });
+    const { unitTypeId, ratePlanId } = await idsFor(db, "deluxe-room");
+    await setAri(db, unitTypeId, ratePlanId, "2026-12-02", { price: 0 });
+    expect((await getRoomType(db, "nk-hostel", "deluxe-room", "en", NOW))?.fromPrice).toBe(3000);
+    const mini = await idsFor(db, "mini-room");
+    for (let i = 1; i <= 9; i++) await setAri(db, mini.unitTypeId, mini.ratePlanId, `2026-12-0${i}`, { price: 0 });
+    expect((await getRoomTypes(db, "nk-hostel", "en", NOW)).find((c) => c.slug === "mini-room")?.fromPrice ?? null).toBeNull();
+  });
 });
 
 describe("pages, news and FAQs", () => {

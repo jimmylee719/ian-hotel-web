@@ -15,6 +15,7 @@ test("a paid notice confirms the booking, pushes it to the channel and emails gu
   const res = await reservation(code);
   expect(res.status).toBe("confirmed");
   expect(res.syncState).toBe("synced");
+  expect(res.channelSyncedAt).toBe(minutes(2).getTime()); // the channel's acknowledgement (lib/db/ari-sync.ts)
   expect(res.smConfirmation).toMatch(/^SM-1-/);
 
   expect(channel.pushed).toHaveLength(1);

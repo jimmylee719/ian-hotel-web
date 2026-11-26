@@ -82,6 +82,8 @@ export default async function Page() {
               <dd>{s.ari.last.outcome === "applied"
                 ? <span className="adm-badge adm-badge-green">已套用</span>
                 : <><span className="adm-badge adm-badge-red">已拒絕</span> <code>{s.ari.last.errorCode ?? ""} {s.ari.last.errorText ?? ""}</code></>}</dd>
+              <dt>略過（比已存的舊）</dt><dd className="adm-num">{s.ari.last.staleRows}</dd>
+              <dt>值不能用、已改成不賣</dt><dd className="adm-num">{s.ari.last.degradedRows ? <span className="adm-badge adm-badge-red">{s.ari.last.degradedRows}</span> : 0}</dd>
               <dt>最近 24 小時被拒</dt><dd className="adm-num">{s.ari.rejected24h}</dd>
             </dl>
           ) : <p className="adm-muted">還沒有收到 ARI</p>}

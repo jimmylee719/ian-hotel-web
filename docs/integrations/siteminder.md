@@ -241,7 +241,11 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
   - [AR] 範例：第一個 `AvailStatusMessage` 同時帶 `BookingLimit` 和 `RestrictionStatus Status="Open"`，其他範例各帶一種（LOS、CTA、CTD）。沒有 `BookingLimitMessageType`。
   - [AR] 沒有定義日期或數值錯誤的錯誤碼。
   - [RATES] 的欄位表把 RS 的 `TimeStamp` 寫成「回應產生的時間」，範例卻沿用請求的值。我們照 4.3 回請求的 TimeStamp（`soap.ts RS_TIMESTAMP`），見 Q21。
-- **整則驗證**：任何錯誤都整則不套用、回 `<Errors>`（HTTP 200）：未知房型 12/402、未知方案 12/249（文字一字不差）；HotelCode 6/392；缺欄位 10/321 `Required field missing: …`；值不能用（日期不存在、End 早於 Start、單段超過 750 天、BookingLimit 不是非負整數、LOS Time 不在 1–9999、Status 不是 Open/Close、價格 ≤ 0、幣別不是館別的幣別、整則超過 20,000 個日列）3/450 `Unable to process: …`（Q7）。PDP 的包含人數不等於房型的 `maxOccupancy` 回 12/137 `Invalid included occupancy: expecting N`。
+- **整則驗證**：下列錯誤整則不套用、回 `<Errors>`（HTTP 200）：未知房型 12/402、未知方案 12/249（文字一字不差）；HotelCode 6/392；缺欄位 10/321 `Required field missing: …`；結構錯誤（日期不存在、End 早於 Start、單段超過 750 天、整則超過 20,000 個日列）3/450 `Unable to process: …`（Q7）。PDP 的包含人數不等於房型的 `maxOccupancy` 回 12/137 `Invalid included occupancy: expecting N`，同時（同一個 transaction）把那個房型＋方案在那幾天的價格設成 0，舊價格不再賣。
+- **值不能用時降級，不拒收**（2026-11-27 review）：被拒的 ARI 會卡住那間飯店整條 ARI 佇列 [FAQ]，所以值的問題一律回 Success、存成安全的值並記 warning（`channel_ari_messages.degraded_rows`）：價格 ≤ 0、四捨五入成 0、不是數字 → 價格 0（不賣）；幣別不是館別的幣別 → 那幾天價格 0、金額不存、立刻通知 ops；BookingLimit 是負數或不是整數 → 0；Status 不是 Open/Close → 當成 Close；LOS Time 不能用 → 忽略那一項（大於 9999 截成 9999）；包含人數的金額有好幾筆 → 用第一筆。
+- **BookingLimit 扣掉 SiteMinder 還沒算到的房間**（`lib/db/ari-sync.ts outstandingRooms`）：存 `available = max(0, BookingLimit − 我們的房間)`，原始值存在 `inventory_daily.sm_available`。「我們的房間」是該房型該晚（`check_in ≤ 日 < check_out`）的 `reservation_rooms`，訂單還占著房（`hold_expires_at` 不是 NULL），而且：待付款或已付款待確認（SiteMinder 永遠看不到 hold）；或官網的已確認訂單，同步還沒完成（`sync_state <> 'synced'`）或 SiteMinder 確認的時間（`reservations.channel_synced_at`，push／modify 成功時寫入）晚於訊息時間減 5 分鐘（`ACK_MARGIN_MS`）。hold 和釋放的程式不用改，釋放後也不會多出房間。來自 SiteMinder 的 OTA 訂單不扣（它已經算了）。**inferred**：5 分鐘是我們估的 SiteMinder 處理訂單、重算 ARI 的時間。
+- **通知 ops**：402、249、137 立刻通知（`ari_rejected:mapping`，每小時最多一封）；幣別不符立刻通知（`ari_rejected:currency`）；一小時內被拒 3 則再通知一次（`ari_rejected`）。
+- **後台修改訂單**也照樣套用 SiteMinder 的限制（Stop Sell、CTA／CTD、最短／最長住宿）：業主決定限制一律在 SiteMinder 改，員工要破例就先到 SiteMinder 調整。
 - 不支援的限制類型（未知的 `Restriction` 或 `MinMaxMessageType`）照文件忽略，其他照常套用、回 Success。
 - **日期**：`@Start..@End` 頭尾都算，展開成每天一筆（飯店當地日期，不換時區）。
 - **可售數量**：房型層級，`inventory_daily`；只帶 BookingLimit 的元素不看 RatePlanCode（未知的方案代碼也不報 249，Q20）。
@@ -251,7 +255,7 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
 - **順序（Q5）**：`orderingTs`：請求的 TimeStamp（沒帶或看不懂時用我們收到的時間；超過我們時鐘 10 分鐘以上的未來時間會被壓到 +10 分鐘）。某一天的可售數量／價格／限制只有在這個時間 ≥ 已存的時間才寫入（條件式 upsert），所以比較舊的訊息不會蓋掉比較新的；相同時間照樣套用。被略過的天數不算錯誤。
 - **部分套用（Q6）**：`PARTIAL_APPLY_ON_UNKNOWN_RATE = false`：有未知方案就整則不套用。
 - **D1 計算**：D1 每個 query 最多 100 個 bound parameter，每次 Worker 呼叫最多 1000 個 query（Free 方案 50），一個 batch 是一個 transaction。如果每天一句，210 天 × 8 房型 = 1680 句，超過上限。所以每句用一個 JSON 參數（`json_each`）帶最多 500 個日列（約 60 KB，遠低於 2 MB），一則 1680 日列的可售數量＋限制是 4 + 8 句、價格 4 句，加上訊息紀錄 2 句，**一個 batch、一個 transaction**（上限 100 句，`ARI_MAX_ROWS` = 20,000 日列保證放得進一個 batch）。整個請求的 query 數約 20。測試（better-sqlite3）：210 天 × 8 房型、每段 7 天，可售數量＋限制約 40 ms，價格約 12 ms。D1 的實際延遲要在 staging 量（**inferred**：一個 batch 應該在 1 秒內）。
-- **觀察**：每則通過驗證的 ARI 訊息寫一列 `channel_ari_messages`（時間、訊息種類、日列數、結果、錯誤碼、被拒的代碼，不存 XML，保留 30 天）。後台 `/admin/system` 顯示最近一則和最近 7 天被拒的代碼。一小時內被拒 3 則就通知 ops（`ari_rejected`，`notifyOps` 每小時最多一封，回應之後才寄）。注意：被拒的 ARI SiteMinder 每 2 分鐘重送，而且後面的更新會排在它後面 [FAQ]，所以被拒會讓那間飯店的 ARI 全部停住。
+- **觀察**：每則通過驗證的 ARI 訊息寫一列 `channel_ari_messages`（時間、訊息種類、日列數、結果、錯誤碼、被拒的代碼、因為比較舊而略過的日列數、降級的日列數，不存 XML，保留 30 天）。後台 `/admin/system` 顯示最近一則（含略過和降級的數目）、最近 24 小時被拒幾則、最近 7 天被拒的代碼。通知都在回應之後才寄。TimeStamp 被壓回 +10 分鐘時記 warning。
 - log 經過 `redact()`，只有訊息種類、EchoToken、天數、錯誤碼和被拒的代碼，不含 XML 和帳密。
 
 ### 4.5 Rooms and Rates（`OTA_HotelAvailRQ` → `OTA_HotelAvailRS`）[RR][QS]
@@ -356,6 +360,7 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
   ```
   三個查詢都要沒有結果。套用後跑 `npx tsx scripts/fill-sm-codes.ts --env production`（先 dry run）補上 0024 因為撞號而沒填的代碼。
 - 把館別、房型、方案代碼（後台館別設定、房型、房價方案頁都看得到）交給 SiteMinder／飯店做對應。
+- SiteMinder 上每個房型的包含人數（included occupancy）必須等於我們的 `maxOccupancy`，否則價格推送會收到 137，SiteMinder 會停用那個房型／方案。
 
 **上線前檢查** [REQ][DC]：
 - 密碼符合政策。

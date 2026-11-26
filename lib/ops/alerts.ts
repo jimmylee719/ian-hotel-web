@@ -15,8 +15,9 @@ import { redact } from "@/lib/runtime/redact";
  *   (reconcileAlertDetail; lib/jobs/cron.ts);
  * - channel_sync_failed: the 5-minute cron alerted staff about bookings whose channel hand-off keeps failing
  *   (3 failures in a row, then daily; lib/jobs/sync-retry.ts) or stopped on a non-retryable error;
- * - ari_rejected: SiteMinder ARI messages keep being rejected (unknown codes, bad values; ARI_REJECTION_ALERT_COUNT
- *   within an hour; lib/channel/siteminder/inbound/ari.ts, after the answer).
+ * - ari_rejected: SiteMinder ARI needs a person (lib/channel/siteminder/inbound/ari.ts, after the answer): scope
+ *   `mapping` at once on a 402 / 249 / 137 answer, `currency` at once on a CurrencyCode other than the property's
+ *   (stored as price 0), and unscoped when ARI_REJECTION_ALERT_COUNT messages were rejected within an hour.
  */
 export type OpsAlertKind = "cron_failed" | "config_refused" | "reconcile_mismatch" | "channel_sync_failed" | "ari_rejected";
 
@@ -37,7 +38,7 @@ const TITLES: Record<OpsAlertKind, string> = {
   config_refused: "設定被拒絕，網站與排程已停止",
   reconcile_mismatch: "對帳發現不一致，需人工處理",
   channel_sync_failed: "訂單尚未同步到 SiteMinder，需人工處理",
-  ari_rejected: "SiteMinder ARI 推送連續被拒絕",
+  ari_rejected: "SiteMinder ARI 需要人工處理",
 };
 
 /**

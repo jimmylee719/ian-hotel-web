@@ -72,6 +72,8 @@ async function lowestPrices(db: Db, propId: string, now: Date, unitTypeId?: stri
         gte(ariDaily.date, from),
         lte(ariDaily.date, to),
         eq(ariDaily.stopSell, false),
+        // Price 0 = not loaded yet or refused (lib/db/ari-sync.ts): never sold, never shown.
+        gt(ariDaily.price, 0),
         gt(inventoryDaily.available, 0),
         eq(ratePlans.active, true),
         unitTypeId ? eq(ariDaily.unitTypeId, unitTypeId) : undefined,

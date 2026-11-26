@@ -41,7 +41,11 @@ export type SystemStatus = {
   migrations: { applied: number; latest: string | null; expected: number; expectedLatest: string };
   /** SiteMinder ARI (lib/channel/siteminder/inbound/ari.ts): the last message received, and codes we rejected lately. */
   ari: {
-    last: { at: number; messageType: string; days: number; outcome: "applied" | "rejected"; errorCode: number | null; errorText: string | null } | null;
+    last: {
+      at: number; messageType: string; days: number; outcome: "applied" | "rejected"; errorCode: number | null; errorText: string | null;
+      /** Day rows skipped because a newer message had set them; day rows stored in their safe form (price 0 / 0 rooms / closed). */
+      staleRows: number; degradedRows: number;
+    } | null;
     /** Room type / rate plan codes answered 402 / 249 in the last ARI_REJECTED_SHOWN_MS, newest first. */
     rejectedCodes: { kind: "room" | "rate"; code: string; at: number }[];
     rejected24h: number;
@@ -93,6 +97,8 @@ export async function getSystemStatus(
     .orderBy(desc(channelAriMessages.at)).limit(200);
   const rejectedCodes = new Map<string, { kind: "room" | "rate"; code: string; at: number }>();
   for (const r of rejectedRows) for (const c of r.codes) if (!rejectedCodes.has(`${c.kind}|${c.code}`)) rejectedCodes.set(`${c.kind}|${c.code}`, { ...c, at: r.at });
+  const [rejected24h] = await db.select({ n: sql<number>`count(*)` }).from(channelAriMessages)
+    .where(and(ariScope, sql`${channelAriMessages.outcome} = 'rejected'`, gte(channelAriMessages.at, now.getTime() - DAY)));
 
   const migrations = await migrationState(db);
   const warnings: SystemWarning[] = [];
@@ -111,9 +117,12 @@ export async function getSystemStatus(
     paymentVerdicts24h: Object.fromEntries(verdictRows.map((r) => [r.verdict, r.n])),
     migrations,
     ari: {
-      last: lastAri ? { at: lastAri.at, messageType: lastAri.messageType, days: lastAri.days, outcome: lastAri.outcome, errorCode: lastAri.errorCode, errorText: lastAri.errorText } : null,
+      last: lastAri ? {
+        at: lastAri.at, messageType: lastAri.messageType, days: lastAri.days, outcome: lastAri.outcome, errorCode: lastAri.errorCode,
+        errorText: lastAri.errorText, staleRows: lastAri.staleRows, degradedRows: lastAri.degradedRows,
+      } : null,
       rejectedCodes: [...rejectedCodes.values()],
-      rejected24h: rejectedRows.filter((r) => r.at >= now.getTime() - DAY).length,
+      rejected24h: Number(rejected24h?.n ?? 0),
     },
     warnings,
   };

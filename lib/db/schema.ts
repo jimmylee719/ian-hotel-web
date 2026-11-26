@@ -138,6 +138,11 @@ export const inventoryDaily = sqliteTable(
     syncedAt: ms("synced_at"),
     /** The SiteMinder message TimeStamp (epoch ms) that last set `available`; see ariDaily.restrictionsSourceTs. */
     sourceTs: integer("source_ts"),
+    /**
+     * The BookingLimit SiteMinder last sent (diagnosis only). `available` is it minus our rooms SiteMinder has not
+     * counted yet (lib/db/ari-sync.ts OUTSTANDING_ROOMS).
+     */
+    smAvailable: integer("sm_available"),
   },
   (t) => [
     primaryKey({ columns: [t.unitTypeId, t.date] }),
@@ -193,6 +198,8 @@ export const reservations = sqliteTable(
     syncAttempts: integer("sync_attempts").notNull().default(0),
     nextSyncAt: integer("next_sync_at"),
     lastSyncError: text("last_sync_error"),
+    /** Epoch ms the channel last answered Success to a push or modify of this booking (lib/booking/channel-sync.ts). */
+    channelSyncedAt: integer("channel_synced_at"),
     cancelledAt: integer("cancelled_at"),
     /** Epoch ms of the latest payment start (create, or a retry with the same idempotency key). */
     lastChargeStartedAt: integer("last_charge_started_at"),
@@ -503,6 +510,10 @@ export const channelAriMessages = sqliteTable(
     errorText: text("error_text"),
     /** Room type / rate plan codes we answered 402 / 249 for. */
     rejectedCodes: text("rejected_codes", { mode: "json" }).$type<{ kind: "room" | "rate"; code: string }[]>().notNull().default(sql`'[]'`),
+    /** Day rows not written because a newer message had already set them (ordering). */
+    staleRows: integer("stale_rows").notNull().default(0),
+    /** Day rows stored with price 0 or availability clamped because a value was unusable (warned, not refused). */
+    degradedRows: integer("degraded_rows").notNull().default(0),
     durationMs: integer("duration_ms").notNull(),
   },
   (t) => [index("channel_ari_messages_at").on(t.at)],

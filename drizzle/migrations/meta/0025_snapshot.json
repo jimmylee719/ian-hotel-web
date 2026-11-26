@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "330eeee8-dd12-4109-a13f-63f869476429",
+  "id": "6b4e7085-b450-4bc4-ac7e-0d8bdc154a05",
   "prevId": "cbb0736f-cd53-4a63-a034-443a746e9645",
   "tables": {
     "addons": {
@@ -411,6 +411,22 @@
           "autoincrement": false,
           "default": "'[]'"
         },
+        "stale_rows": {
+          "name": "stale_rows",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "degraded_rows": {
+          "name": "degraded_rows",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
         "duration_ms": {
           "name": "duration_ms",
           "type": "integer",
@@ -746,6 +762,13 @@
         },
         "source_ts": {
           "name": "source_ts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sm_available": {
+          "name": "sm_available",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -2130,6 +2153,13 @@
         "last_sync_error": {
           "name": "last_sync_error",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "channel_synced_at": {
+          "name": "channel_synced_at",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

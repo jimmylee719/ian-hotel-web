@@ -23,7 +23,7 @@ const nonNegInt = (v: unknown) => v === undefined || (Number.isInteger(v) && (v 
 const posInt = (v: unknown) => v === undefined || (Number.isInteger(v) && (v as number) > 0);
 const posIntOrNull = (v: unknown) => v === null || posInt(v);
 const isValid = (u: AriUpdate) =>
-  /^\d{4}-\d{2}-\d{2}$/.test(u.date) && nonNegInt(u.available) && posInt(u.price) && posInt(u.minStay)
+  /^\d{4}-\d{2}-\d{2}$/.test(u.date) && nonNegInt(u.available) && nonNegInt(u.price) && posInt(u.minStay)
   && posIntOrNull(u.maxStay) && posIntOrNull(u.minStayThrough) && posIntOrNull(u.maxStayThrough);
 
 /** Restriction fields → their short key in the JSON rows (see the UPDATE below). */
@@ -42,8 +42,8 @@ export type ApplyAriOptions = {
    * Default `now`.
    */
   sourceTs?: number;
-  /** Statements to commit in the same transaction as the ARI (e.g. the message log row). */
-  extra?: Runnable[];
+  /** Statements to commit in the same transaction as the ARI (e.g. the message log row); a function gets the stale count. */
+  extra?: Runnable[] | ((r: { stale: number }) => Runnable[]);
 };
 
 /**
@@ -114,10 +114,11 @@ export async function applyAriUpdates(db: Db, propertyId: string, updates: AriUp
   const add = (q: SQL) => stmts.push(rawStatement(db, q));
 
   for (const rows of chunks([...inv.values()], ARI_ROWS_PER_STATEMENT))
-    add(sql`INSERT INTO inventory_daily (property_id, unit_type_id, date, available, source, synced_at, source_ts)
-      SELECT ${propertyId}, json_extract(j.value, '$.u'), json_extract(j.value, '$.d'), json_extract(j.value, '$.a'), 'siteminder', ${at}, ${ts}
-      FROM json_each(${JSON.stringify(rows)}) AS j WHERE true
-      ON CONFLICT (unit_type_id, date) DO UPDATE SET available = excluded.available, source = 'siteminder', synced_at = excluded.synced_at, source_ts = excluded.source_ts
+    add(sql`INSERT INTO inventory_daily (property_id, unit_type_id, date, available, source, synced_at, source_ts, sm_available)
+      SELECT ${propertyId}, j.u, j.d, max(0, j.a - ${outstandingRooms(sql`j.u`, sql`j.d`, ts)}), 'siteminder', ${at}, ${ts}, j.a
+      FROM (SELECT json_extract(value, '$.u') AS u, json_extract(value, '$.d') AS d, json_extract(value, '$.a') AS a FROM json_each(${JSON.stringify(rows)})) AS j WHERE true
+      ON CONFLICT (unit_type_id, date) DO UPDATE SET available = excluded.available, source = 'siteminder', synced_at = excluded.synced_at,
+        source_ts = excluded.source_ts, sm_available = excluded.sm_available
       WHERE inventory_daily.source_ts IS NULL OR inventory_daily.source_ts <= excluded.source_ts`);
 
   for (const rows of chunks([...price.values()], ARI_ROWS_PER_STATEMENT))
@@ -145,7 +146,45 @@ export async function applyAriUpdates(db: Db, propertyId: string, updates: AriUp
         AND (ari_daily.restrictions_source_ts IS NULL OR ari_daily.restrictions_source_ts <= ${ts})`);
   }
 
-  stmts.push(...(opts.extra ?? []));
+  const stale = await countStale(db, ts, [...inv.values()], [...price.values()], [...restr.values()]);
+  stmts.push(...(typeof opts.extra === "function" ? opts.extra({ stale }) : opts.extra ?? []));
   for (const batch of chunks(stmts, ARI_BATCH_STATEMENTS)) await runAtomic(db, batch);
-  return { applied, unknownCodes: [...unknown], rejected };
+  return { applied, unknownCodes: [...unknown], rejected, stale };
+}
+
+/**
+ * How long after the channel acknowledged a booking (reservations.channel_synced_at) an ARI message may still have
+ * been generated without it: SiteMinder applies a reservation and regenerates ARI asynchronously.
+ */
+export const ACK_MARGIN_MS = 5 * 60_000;
+
+/**
+ * Rooms of `unitType` on night `date` that we sold or hold but SiteMinder had not counted when it generated an ARI
+ * message at `ts`: holds of unpaid / paid-unconfirmed bookings (SiteMinder never sees them), and confirmed direct
+ * bookings not yet acknowledged (sync not done, or done less than ACK_MARGIN_MS before `ts`). A BookingLimit
+ * minus these is what we may still sell, so a hold (and its release) keeps counting right. Bookings that came from
+ * SiteMinder (siteminder_ota) are in its count already. Each reservation_rooms row is one room.
+ */
+export function outstandingRooms(unitType: SQL, date: SQL, ts: number): SQL {
+  return sql`(SELECT count(*) FROM reservation_rooms rr JOIN reservations r ON r.id = rr.reservation_id
+    WHERE rr.unit_type_id = ${unitType} AND r.check_in <= ${date} AND ${date} < r.check_out AND r.hold_expires_at IS NOT NULL
+      AND (r.status IN ('pending_payment', 'paid_pending_confirm')
+        OR (r.channel = 'direct' AND r.status = 'confirmed'
+          AND (r.sync_state <> 'synced' OR r.channel_synced_at > ${ts - ACK_MARGIN_MS}))))`;
+}
+
+/** Day rows a newer message already set (they will be skipped): diagnosis only, read before the write. */
+async function countStale(db: Db, ts: number, inv: object[], price: object[], restr: object[]): Promise<number> {
+  const count = async (rows: object[], q: (json: string) => SQL) => {
+    let n = 0;
+    for (const c of chunks(rows, ARI_ROWS_PER_STATEMENT)) n += Number((await db.all<{ n: number }>(q(JSON.stringify(c))))[0]?.n ?? 0);
+    return n;
+  };
+  const key = sql`json_extract(j.value, '$.u') = t.unit_type_id AND json_extract(j.value, '$.d') = t.date`;
+  const [a, b, c] = await Promise.all([
+    count(inv, (json) => sql`SELECT count(*) AS n FROM json_each(${json}) AS j JOIN inventory_daily t ON ${key} WHERE t.source_ts > ${ts}`),
+    count(price, (json) => sql`SELECT count(*) AS n FROM json_each(${json}) AS j JOIN ari_daily t ON ${key} AND json_extract(j.value, '$.r') = t.rate_plan_id WHERE t.price_source_ts > ${ts}`),
+    count(restr, (json) => sql`SELECT count(*) AS n FROM json_each(${json}) AS j JOIN ari_daily t ON ${key} AND json_extract(j.value, '$.r') = t.rate_plan_id WHERE t.restrictions_source_ts > ${ts}`),
+  ]);
+  return a + b + c;
 }
