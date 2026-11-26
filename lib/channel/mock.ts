@@ -9,6 +9,10 @@ type Held = { reservation: ChannelReservation; smConfirmation: string; state: "a
  * - `failNext`: the next N push/modify/cancel calls fail (with `retryable`) without reaching the channel.
  * - `timeoutNext`: the next N push/modify/cancel calls reach the channel and take effect, but the answer is
  *   lost: they report a retryable TIMEOUT. `lookupReservation` then shows what landed.
+ * - `lenient` (the preview site only): the preview builds a fresh mock per request, so it never remembers a push.
+ *   A modify or cancel of a code it does not hold then succeeds (taken as held under the smConfirmation given),
+ *   and `quiet` is set: its failures are an artefact of the mock, so staff and ops are not alerted (sync-retry.ts).
+ *   Local dev and tests keep the strict mock.
  * Lookups are never failed by either option.
  */
 export class MockChannelManager implements ChannelManager {
@@ -18,8 +22,12 @@ export class MockChannelManager implements ChannelManager {
   private timeoutNext: number;
   private retryable: boolean;
   private seq = 0;
+  private readonly lenient: boolean;
+  readonly quiet: boolean;
 
-  constructor(opts: { failNext?: number; retryable?: boolean; timeoutNext?: number } = {}) {
+  constructor(opts: { failNext?: number; retryable?: boolean; timeoutNext?: number; lenient?: boolean } = {}) {
+    this.lenient = opts.lenient ?? false;
+    this.quiet = this.lenient;
     this.failNext = opts.failNext ?? 0;
     this.retryable = opts.retryable ?? true;
     this.timeoutNext = opts.timeoutNext ?? 0;
@@ -62,7 +70,7 @@ export class MockChannelManager implements ChannelManager {
   /** The channel's copy is replaced; only an active, known code. Not routed through pushReservation, so spies can tell them apart. */
   async modifyReservation(r: ChannelReservation, smConfirmation: string): Promise<PushResult> {
     return this.call((): PushResult => {
-      const h = this.held.get(r.code);
+      const h = this.heldFor(r, smConfirmation);
       const bad = this.refuse(h, smConfirmation);
       if (bad) return bad;
       if (h!.state === "cancelled") return { ok: false, retryable: false, error: "RESERVATION_CANCELLED" };
@@ -74,13 +82,22 @@ export class MockChannelManager implements ChannelManager {
   /** Idempotent: cancelling a cancelled reservation succeeds; an unknown code or another smConfirmation does not. */
   async cancelReservation(r: ChannelReservation, smConfirmation: string): Promise<CancelResult> {
     return this.call((): CancelResult => {
-      const h = this.held.get(r.code);
+      const h = this.heldFor(r, smConfirmation);
       const bad = this.refuse(h, smConfirmation);
       if (bad) return bad;
       h!.state = "cancelled";
       h!.reservation = r;
       return { ok: true, retryable: false };
     });
+  }
+
+  /** What is held for `r`; a lenient mock takes an unknown code as held under `smConfirmation`. */
+  private heldFor(r: ChannelReservation, smConfirmation: string): Held | undefined {
+    const h = this.held.get(r.code);
+    if (h || !this.lenient) return h;
+    const taken: Held = { reservation: r, smConfirmation, state: "active" };
+    this.held.set(r.code, taken);
+    return taken;
   }
 
   /** Why a modify or cancel of `h` under `smConfirmation` is refused, or null. */

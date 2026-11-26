@@ -39,11 +39,8 @@ export const SITEMINDER_DEFAULT_TIMEOUT_MS = CHANNEL_MIN_TIMEOUT_MS;
  * has none (doc §8.3).
  * - Every request has a fresh EchoToken (UUID); it is logged with the outcome and kept in a failure's error text
  *   and detail, so a call can be traced with SiteMinder.
- * - smConfirmation is SiteMinder's HotelReservationID@ResID_Value. Without one in a Success, the UniqueID we sent
- *   stands in (inferred: SiteMinder finds a reservation by UniqueID [RES]; SITEMINDER-OPEN-Q1).
- * - A modify or cancel answered without a ResID_Value succeeds and keeps the smConfirmation given; one answered
- *   with a DIFFERENT ResID_Value is reported as a failure, not retryable (SiteMinder has applied it, but its id for
- *   the booking is not ours, so staff check). SITEMINDER-OPEN-Q1: whether Modify / Cancel answers carry it at all.
+ * - smConfirmation is SiteMinder's HotelReservationID@ResID_Value (commitConfirmation, followUpConfirmation:
+ *   the SITEMINDER-OPEN-Q1 decisions, below).
  * - Never throws; every failure is structured (lib/channel/types.ts ChannelErrorDetail).
  * - Logs (through redact) carry the status, UniqueID, EchoToken and outcome only: never credentials, XML or guest data.
  */
@@ -65,21 +62,23 @@ export class SiteMinderChannelManager implements ChannelManager {
 
   async pushReservation(r: ChannelReservation): Promise<PushResult> {
     const a = await this.send(RES_STATUS.push, r);
-    return a.ok ? { ok: true, smConfirmation: a.resId ?? uniqueIdFor(r.code) } : a;
+    return a.ok ? { ok: true, smConfirmation: commitConfirmation(a.resId, r.code) } : a;
   }
 
   async modifyReservation(r: ChannelReservation, smConfirmation: string): Promise<PushResult> {
     if (!smConfirmation) return local("NO_SM_CONFIRMATION");
     const a = await this.send(RES_STATUS.modify, r);
     if (!a.ok) return a;
-    return sameReservation(a, smConfirmation) ?? { ok: true, smConfirmation };
+    const f = followUpConfirmation(a, smConfirmation, r.code);
+    return "error" in f ? f : { ok: true, smConfirmation: f.smConfirmation };
   }
 
   async cancelReservation(r: ChannelReservation, smConfirmation: string): Promise<CancelResult> {
     if (!smConfirmation) return local("NO_SM_CONFIRMATION");
     const a = await this.send(RES_STATUS.cancel, r);
     if (!a.ok) return a;
-    return sameReservation(a, smConfirmation) ?? { ok: true, retryable: false };
+    const f = followUpConfirmation(a, smConfirmation, r.code);
+    return "error" in f ? f : { ok: true, retryable: false };
   }
 
   /** The HotelCode, or why there is none (the resolver's own SITEMINDER_… reason is kept). */
@@ -136,6 +135,7 @@ export class SiteMinderChannelManager implements ChannelManager {
     const call = (async () => {
       const res = await this.fetchFn(this.opts.endpoint, {
         method: "POST", body: xml, signal: ctrl.signal,
+        // SITEMINDER-OPEN-Q19: the SOAPAction SiteMinder expects (none documented; an empty one is sent).
         headers: { "content-type": XML_CONTENT_TYPE, accept: "text/xml", soapaction: '""' },
       });
       return { status: res.status, body: await res.text(), retryAfter: retryAfterMs(res.headers.get("retry-after"), this.now()) };
@@ -160,18 +160,37 @@ export class SiteMinderChannelManager implements ChannelManager {
 /** A classified answer; a success carries the request's EchoToken. */
 type Sent = ClassifiedAnswer;
 
+// ---- SITEMINDER-OPEN-Q1 decisions (which id names the reservation), in one place ----
+
 /**
- * SITEMINDER-OPEN-Q1: a Modify / Cancel answer names the reservation by ResID_Value, or not at all. None = the one
- * we hold (success). A different one = a failure (the message was sent and applied: kind confirmation_mismatch).
+ * SITEMINDER-OPEN-Q1: the smConfirmation a Commit Success gives: its ResID_Value, or, when it carries none, the
+ * UniqueID we sent as a placeholder (inferred: SiteMinder finds a reservation by UniqueID [RES]).
  */
-function sameReservation(a: { resId?: string; echoToken?: string }, smConfirmation: string): ChannelFailure | null {
-  if (a.resId === undefined || a.resId === smConfirmation) return null;
+export function commitConfirmation(resId: string | undefined, code: string): string {
+  return resId ?? placeholderConfirmation(code);
+}
+
+/** SITEMINDER-OPEN-Q1: the placeholder stored when a Commit answer had no ResID_Value. */
+export const placeholderConfirmation = (code: string): string => uniqueIdFor(code);
+
+/**
+ * SITEMINDER-OPEN-Q1: what a Modify / Cancel Success says about the id we hold. No ResID_Value = the one we hold.
+ * The same one = fine. A real one while we hold only the placeholder = SiteMinder's id at last: adopted. Any other
+ * = a failure, not retryable (the message was applied, but SiteMinder's id is not ours: staff check).
+ */
+export function followUpConfirmation(
+  a: { resId?: string; echoToken?: string }, held: string, code: string,
+): { smConfirmation: string } | ChannelFailure {
+  if (a.resId === undefined || a.resId === held) return { smConfirmation: held };
+  if (held === placeholderConfirmation(code)) return { smConfirmation: a.resId };
   return {
     ok: false, retryable: false,
     error: `SM_CONFIRMATION_MISMATCH: the channel answered for ${a.resId} (echo=${a.echoToken ?? "?"})`,
     detail: { kind: "confirmation_mismatch", echoToken: a.echoToken },
   };
 }
+
+// ---- end of SITEMINDER-OPEN-Q1 decisions ----
 
 /** A failure decided here, without calling SiteMinder. */
 function local(error: string, retryable = false): ChannelFailure {

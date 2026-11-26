@@ -400,6 +400,18 @@ describe("answers: §5.1 classification", () => {
     expect(await cm.modifyReservation(reservation(), "NKAB12CD")).toEqual({ ok: true, smConfirmation: "NKAB12CD" });
   });
 
+  test("SITEMINDER-OPEN-Q1: a placeholder smConfirmation is replaced by the real ResID a later Modify / Cancel answer carries", async () => {
+    let n = 0;
+    const withId = filled("res-notif-rs-success.xml", { ...vals, RES_ID: "SM-77", ECHO_TOKEN: ECHO });
+    const bare = withId.replace(/<ResGlobalInfo>[\s\S]*<\/ResGlobalInfo>/, "");
+    const { cm } = manager({ fetch: (async () => answer(n++ === 0 ? bare : withId)) as unknown as typeof fetch });
+    expect(await cm.pushReservation(reservation())).toEqual({ ok: true, smConfirmation: "NKAB12CD" }); // placeholder
+    expect(await cm.modifyReservation(reservation(), "NKAB12CD")).toEqual({ ok: true, smConfirmation: "SM-77" }); // adopted
+    expect(await cm.cancelReservation(reservation(), "NKAB12CD")).toEqual({ ok: true, retryable: false });
+    // Once a real id is held, another one is still a mismatch.
+    expect(await cm.cancelReservation(reservation(), "SM-OTHER")).toMatchObject({ ok: false, retryable: false, detail: { kind: "confirmation_mismatch" } });
+  });
+
   test("resendAnswer reads the adapter's structured status (SITEMINDER-OPEN-Q1)", async () => {
     const { cm } = manager({ fetch: (async () => answer("Conflict", 409)) as unknown as typeof fetch });
     const r = await cm.pushReservation(reservation());

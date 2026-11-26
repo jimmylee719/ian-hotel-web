@@ -132,7 +132,7 @@ export async function runChannelReconcile(
             continue;
           }
           await db.update(reservations)
-            .set({ smConfirmation: r.smConfirmation, syncState: "synced", nextSyncAt: null, lastSyncError: null, channelSyncedAt: now.getTime(), updatedAt: now.getTime() })
+            .set({ smConfirmation: r.smConfirmation, syncState: "synced", nextSyncAt: null, lastSyncError: null, channelSyncedAt: leaseClock(), updatedAt: now.getTime() })
             .where(unchanged);
           out.repushed++;
         } else if (l.state === "cancelled" || l.smConfirmation !== res.smConfirmation) {

@@ -482,12 +482,15 @@ export const opsAlerts = sqliteTable(
 
 /**
  * One channel message in flight per hotel (SiteMinder, doc §8.7): a property's row is its channel lease, held by
- * one worker (`holder`) until `until` (epoch ms). Taken and released by lib/booking/channel-sync.ts.
+ * one worker (`holder`) until `until` (epoch ms, real clock). Taken and released by lib/booking/channel-sync.ts;
+ * released leases keep their row (until = 0) so `cooldownUntil` survives.
  */
 export const channelLeases = sqliteTable("channel_leases", {
   propertyId: text("property_id").primaryKey(),
   holder: text("holder").notNull(),
   until: ms("until"),
+  /** Epoch ms (real clock) before which no call may start for the property: the channel asked us to wait (429 / Retry-After). */
+  cooldownUntil: integer("cooldown_until"),
 });
 
 /**

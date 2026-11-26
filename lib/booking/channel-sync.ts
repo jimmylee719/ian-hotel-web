@@ -37,13 +37,22 @@ export function retryDelayMs(attempts: number): number {
   return Math.min(FIRST_RETRY_MS * 2 ** Math.max(0, attempts - 1), MAX_RETRY_MS);
 }
 
+/** The shortest wait a Retry-After (or a 429 without one) imposes: the channel asked us to slow down. */
+export const MIN_RETRY_AFTER_MS = 60_000;
+
 /**
- * The wait before the next attempt after a retryable failure: the channel's Retry-After when it sent one (at most
- * MAX_RETRY_MS), else the backoff.
+ * How long the channel asked the whole property to wait, or undefined: its Retry-After (between MIN_RETRY_AFTER_MS
+ * and MAX_RETRY_MS), or MIN_RETRY_AFTER_MS for an HTTP 429 without one.
  */
-export function nextRetryMs(r: { detail?: { retryAfterMs?: number } }, attempts: number): number {
+export function channelCooldownMs(r: { detail?: { retryAfterMs?: number; httpStatus?: number } }): number | undefined {
   const ra = r.detail?.retryAfterMs;
-  return ra !== undefined && Number.isFinite(ra) && ra >= 0 ? Math.min(ra, MAX_RETRY_MS) : retryDelayMs(attempts);
+  if (ra !== undefined && Number.isFinite(ra) && ra >= 0) return Math.min(Math.max(ra, MIN_RETRY_AFTER_MS), MAX_RETRY_MS);
+  return r.detail?.httpStatus === 429 ? MIN_RETRY_AFTER_MS : undefined;
+}
+
+/** The wait before the next attempt after a retryable failure: the channel's cooldown when it asked for one, else the backoff. */
+export function nextRetryMs(r: { detail?: { retryAfterMs?: number; httpStatus?: number } }, attempts: number): number {
+  return channelCooldownMs(r) ?? retryDelayMs(attempts);
 }
 
 /** The statuses whose channel copy the sync keeps: live bookings, cancelled ones, and (legacy) refunded ones. */
@@ -56,17 +65,28 @@ export const MODIFY_REFUND_FAILED = "MODIFY_REFUND_FAILED";
 export type Clock = () => number;
 
 /**
- * Take `propertyId`'s channel lease until clock() + SYNC_LEASE_MS, unless another holder's lease is still running
- * by the same real clock.
+ * Take `propertyId`'s channel lease until clock() + SYNC_LEASE_MS, unless another holder's lease is still running,
+ * or the property is cooling down (the channel asked us to wait: setPropertyCooldown), by the same real clock.
  */
 export async function takePropertyLease(db: Db, propertyId: string, clock: Clock = Date.now): Promise<string | null> {
   const holder = crypto.randomUUID();
   const t = clock();
   const until = t + SYNC_LEASE_MS;
   const rows = await db.insert(channelLeases).values({ propertyId, holder, until })
-    .onConflictDoUpdate({ target: channelLeases.propertyId, set: { holder, until }, setWhere: lte(channelLeases.until, t) })
+    .onConflictDoUpdate({
+      target: channelLeases.propertyId, set: { holder, until },
+      setWhere: and(lte(channelLeases.until, t), or(isNull(channelLeases.cooldownUntil), lte(channelLeases.cooldownUntil, t))),
+    })
     .returning({ holder: channelLeases.holder });
   return rows[0]?.holder === holder ? holder : null;
+}
+
+/** No call starts for the property before clock() + ms (a later cooldown already set is kept). */
+export async function setPropertyCooldown(db: Db, propertyId: string, ms: number, clock: Clock = Date.now): Promise<void> {
+  const until = clock() + ms;
+  await db.update(channelLeases)
+    .set({ cooldownUntil: sql`max(coalesce(${channelLeases.cooldownUntil}, 0), ${until})` })
+    .where(eq(channelLeases.propertyId, propertyId));
 }
 
 /**
@@ -81,9 +101,9 @@ export async function renewPropertyLease(db: Db, propertyId: string, holder: str
   return rows.length === 1;
 }
 
-/** Give the lease back, if this worker still holds it. */
+/** Give the lease back, if this worker still holds it. The row stays (until = 0), keeping any cooldown. */
 export async function releasePropertyLease(db: Db, propertyId: string, holder: string): Promise<void> {
-  await db.delete(channelLeases).where(and(eq(channelLeases.propertyId, propertyId), eq(channelLeases.holder, holder)));
+  await db.update(channelLeases).set({ until: 0 }).where(and(eq(channelLeases.propertyId, propertyId), eq(channelLeases.holder, holder)));
 }
 
 /**
@@ -151,11 +171,27 @@ type Action = "push" | "modify" | "cancel" | "none";
 
 function actionFor(res: Reservation): Action {
   if (res.status === "confirmed") return res.smConfirmation ? "modify" : "push";
-  // Cancelled (or refunded): cancel what the channel holds. Without its smConfirmation, a push that may have landed
-  // (its answer lost) is sent again first, which returns it (SITEMINDER-OPEN-Q1); a booking never pushed needs nothing.
+  // Cancelled (or refunded): cancel what the channel holds; without its smConfirmation, a push that may have landed
+  // is sent again first (isResend); a booking never pushed needs nothing.
   if (res.smConfirmation) return "cancel";
-  return res.channelPushedAt != null ? "push" : "none";
+  return mayBeAtChannel(res) ? "push" : "none";
 }
+
+// ---- SITEMINDER-OPEN-Q1 decisions (what re-sending a UniqueID means), in one place ----
+
+/** SITEMINDER-OPEN-Q1: the channel may hold this booking although we have no smConfirmation (a push answer was lost). */
+const mayBeAtChannel = (res: Reservation) => res.channelPushedAt != null;
+
+/** SITEMINDER-OPEN-Q1: this push re-sends a UniqueID already sent once (recovery by resend: there is no lookup). */
+const isResend = (res: Reservation, action: Action) => action === "push" && mayBeAtChannel(res);
+
+/**
+ * SITEMINDER-OPEN-Q1: after a successful resend, is the live booking current at the channel? Assumed not: the
+ * channel may have kept the first version and ignored this one, so a modify carrying the current stay follows.
+ */
+const resendLeavesStayCurrent = false;
+
+// ---- end of SITEMINDER-OPEN-Q1 decisions (also RESEND_ALREADY_HELD / resendAnswer below) ----
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -163,6 +199,7 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 async function syncStep(deps: Deps, res: Reservation, now: Date): Promise<SyncOutcome | "more"> {
   const { db } = deps;
   const at = now.getTime();
+  const clock = deps.clock ?? Date.now;
   const pending = and(eq(reservations.id, res.id), eq(reservations.status, res.status), eq(reservations.syncState, "pending"));
   const action = actionFor(res);
 
@@ -176,7 +213,7 @@ async function syncStep(deps: Deps, res: Reservation, now: Date): Promise<SyncOu
   }
 
   // A push of a booking already pushed once (its answer lost, or before a cancel) is a resend of the same UniqueID.
-  const resend = action === "push" && res.channelPushedAt != null;
+  const resend = isResend(res, action);
   if (action === "push" && !resend) {
     // Marked before the call: from now on the channel may hold it, whatever becomes of the answer.
     await db.update(reservations).set({ channelPushedAt: at }).where(and(eq(reservations.id, res.id), isNull(reservations.channelPushedAt)));
@@ -203,16 +240,15 @@ async function syncStep(deps: Deps, res: Reservation, now: Date): Promise<SyncOu
     // ARI generated before then (minus a margin) does not count them yet, so lib/db/ari-sync.ts keeps them out of
     // SiteMinder's BookingLimit.
     if (action === "push" || action === "modify")
-      await db.update(reservations).set({ channelSyncedAt: (deps.clock ?? Date.now)() }).where(eq(reservations.id, res.id));
+      await db.update(reservations).set({ channelSyncedAt: clock() }).where(eq(reservations.id, res.id));
     // The channel holds it under this smConfirmation from now on, whatever changed here meanwhile.
     if (sm && action === "push")
       await db.update(reservations).set({ smConfirmation: sm }).where(and(eq(reservations.id, res.id), isNull(reservations.smConfirmation)));
     if (sm && action === "modify") await db.update(reservations).set({ smConfirmation: sm }).where(eq(reservations.id, res.id));
     // Done only if what was sent is still the booking as it is: same status (a push of a cancelled booking is
     // followed by its cancel) and, for a live one, no modification since it was read.
-    // A resend proves only that the channel holds the code, not which version: it may have kept the first one and
-    // ignored this (SITEMINDER-OPEN-Q1), so a live booking is followed by a modify carrying the current stay.
-    const sentIsCurrent = (res.status === "confirmed" && !resend) || action === "cancel";
+    // A resend proves only that the channel holds the code, not which version (resendLeavesStayCurrent).
+    const sentIsCurrent = (res.status === "confirmed" && (!resend || resendLeavesStayCurrent)) || action === "cancel";
     if (sentIsCurrent) {
       const done = await db.update(reservations)
         .set({ syncState: "synced", syncAttempts: 0, nextSyncAt: null, lastSyncError: keptError })
@@ -227,20 +263,26 @@ async function syncStep(deps: Deps, res: Reservation, now: Date): Promise<SyncOu
 
   const error = r.error ?? "CHANNEL_CALL_FAILED";
   const attempts = res.syncAttempts + 1;
+  // A first push that certainly did not reach the channel is not a push: a refusal is atomic (nothing was taken,
+  // doc §3.1), and a failure of our own config (hotel code unset or ambiguous) never sent anything. channelPushedAt
+  // is a fact about the channel, so it is cleared whatever happened to the booking meanwhile (e.g. a cancel), but
+  // only if this step set it.
+  if (action === "push" && !resend && (!r.retryable || r.detail?.kind === "config"))
+    await db.update(reservations).set({ channelPushedAt: null })
+      .where(and(eq(reservations.id, res.id), eq(reservations.channelPushedAt, at)));
   if (r.retryable) {
+    // The channel asked the whole hotel to wait (429 / Retry-After): no call starts for it before then.
+    const cooldown = channelCooldownMs(r);
+    if (cooldown !== undefined) await setPropertyCooldown(db, res.propertyId, cooldown, clock);
     await db.update(reservations)
       .set({ syncAttempts: attempts, nextSyncAt: at + nextRetryMs(r, attempts), lastSyncError: error, lastSyncAt: at })
       .where(pending);
     return "retry";
   }
   // Not retryable (our message or our credentials are wrong): stop until staff retry it (doc §5.1). The retry job
-  // alerts them, at once and then daily. A definite refusal is atomic (nothing was taken, doc §3.1): if this step
-  // was the booking's first push, it never reached the channel, so it is not marked pushed.
+  // alerts them, at once and then daily.
   await db.update(reservations)
-    .set({
-      syncState: "failed", syncAttempts: attempts, nextSyncAt: null, lastSyncError: error, lastSyncAt: at,
-      ...(action === "push" && !resend ? { channelPushedAt: null } : {}),
-    })
+    .set({ syncState: "failed", syncAttempts: attempts, nextSyncAt: null, lastSyncError: error, lastSyncAt: at })
     .where(pending);
   return "failed";
 }

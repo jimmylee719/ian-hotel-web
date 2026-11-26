@@ -33,11 +33,17 @@ export type SyncRetryResult = {
 export async function runSyncRetry(deps: Deps, now: Date, o: { clock?: () => number } = {}): Promise<SyncRetryResult> {
   const clock = o.clock ?? Date.now;
   const deadline = clock() + SYNC_RUN_BUDGET_MS;
+  const today = todayInTaipei(now);
   const due = await deps.db.select({ id: reservations.id, status: reservations.status }).from(reservations)
     .where(and(
-      inArray(reservations.status, ["paid_pending_confirm", ...CHANNEL_SYNC_STATUSES]),
       eq(reservations.syncState, "pending"),
       or(isNull(reservations.nextSyncAt), lte(reservations.nextSyncAt, now.getTime())),
+      // A paid booking is always confirmed (money); a channel hand-off only while the stay has not ended (Taipei):
+      // the channel has no use for a past stay, and it must not be retried or alerted about for ever.
+      or(
+        eq(reservations.status, "paid_pending_confirm"),
+        and(inArray(reservations.status, [...CHANNEL_SYNC_STATUSES]), gte(reservations.checkOut, today)),
+      ),
     ))
     .orderBy(asc(reservations.nextSyncAt), asc(reservations.createdAt), asc(reservations.id))
     .limit(SYNC_RETRY_BATCH);
@@ -70,13 +76,17 @@ export async function runSyncRetry(deps: Deps, now: Date, o: { clock?: () => num
  * had pushed) whose channel copy is not up to date and is not getting
  * there by itself: CHANNEL_ALERT_AFTER (3) or more failed hand-offs in a row, or a non-retryable failure (syncState
  * failed: it waits for a staff retry). Once per booking per Taipei day (ref `channel-unsynced:<date>`), for as long
- * as it stays so: never given up silently. Returns the codes alerted (the cron also alerts ops about them).
+ * as it stays so, until the stay ends (checkOut before today, Taipei). Nothing on the preview (a quiet mock channel).
+ * Returns the codes alerted (the cron also alerts ops about them).
  */
 export async function alertUnsynced(deps: Deps, now: Date): Promise<string[]> {
-  const ref = `${UNSYNCED_REF}${todayInTaipei(now)}`;
+  if (deps.channel.quiet) return []; // the preview's mock: nothing real to tell anyone
+  const today = todayInTaipei(now);
+  const ref = `${UNSYNCED_REF}${today}`;
   const rows = await deps.db.select({ id: reservations.id, code: reservations.code }).from(reservations)
     .where(and(
       eq(reservations.channel, "direct"),
+      gte(reservations.checkOut, today), // a stay that has ended is no longer alerted about
       // Live and cancelled bookings; a refunded one only if the earlier design pushed it (it may be at the channel).
       or(
         inArray(reservations.status, ["confirmed", "cancelled"]),

@@ -116,4 +116,6 @@ export interface ChannelManager {
   readonly timeoutMs: number;
   /** True only for the stand-in used while no channel is configured: the sync sends nothing and waits. */
   readonly disabled?: boolean;
+  /** True only for the preview's lenient mock: its failures are not the channel's, so staff/ops are not alerted. */
+  readonly quiet?: boolean;
 }

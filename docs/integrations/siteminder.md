@@ -372,6 +372,17 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
 - 用 750 天的資料量做過負載測試。
 - 時區處理正確。
 
+**上線前還要處理（2026-11-27 整個 branch 最後審查）**：
+- [ ] **Q22 ACK margin**：認證時確認 `ACK_MARGIN_MS` 夠不夠。可以考慮自動偵測：比對每則 ARI 帶來的 `sm_available` 變化，看 SiteMinder 是在什麼時候把我們的訂單算進去的。
+- [ ] **換掉 waitUntil**：背景推送現在用 `ctx.waitUntil`，但它在回應後大約 30 秒就會被切斷，而一次呼叫可能要 60–120 秒。改成 Cloudflare Queue，或只寫入佇列、交給 cron 推送。
+- [ ] **端對端測試**：用真的 adapter（fixture 或 sandbox）跑一筆完整訂單，包含折扣碼、加購、多房，再從後台修改。
+- [ ] **告警彙整（digest）**：同一天很多筆訂單沒同步時，合併成一封信給員工和 ops，不要每筆一封。
+- [ ] **批次重試**：後台一次重試所有「尚未同步到 SiteMinder」的訂單，例如憑證修好之後。
+- [ ] **D1 的 SQL 支援度**：在 staging 或 `wrangler d1 --local` 確認 D1 支援 `INSERT … ON CONFLICT` 裡面的 `WITH … MATERIALIZED`（lib/db/ari-sync.ts）。
+- [ ] **只能有一個館別設 `smPropertyCode`**：adapter 遇到 0 個或多個會拒絕推送（`SITEMINDER_HOTEL_CODE_NOT_SET` / `SITEMINDER_SEVERAL_HOTEL_CODES`）。
+- [ ] **Included occupancy**：SiteMinder 上每個房型的包含人數要等於我們的 `maxOccupancy`（見上方）。
+- [ ] **業主決定**：後台修改訂單時，員工可不可以無視限制（最短住宿、CTA/CTD、Stop Sell）。
+
 **業主（飯店）要做的**：
 - 在 SiteMinder 平台把我們的通路加入連線、完成房型和方案對應，並在 Channel Settings 啟用通路 [DC]。
 - 確認飯店時區的設定 [REQ]。

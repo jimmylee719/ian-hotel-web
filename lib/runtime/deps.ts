@@ -280,7 +280,9 @@ function channelManager(env: AppEnv, db: Db): ChannelManager {
     case "":
       throw new BookingDisabledError("CHANNEL_MODE_NOT_SET");
     case "mock":
-      return new MockChannelManager();
+      // The preview builds a fresh mock per request (no memory between them): lenient and quiet there, so a later
+      // modify or cancel is not refused and the preview never alerts staff. Local dev keeps the strict mock.
+      return new MockChannelManager(environmentOf(env) === "preview" ? { lenient: true } : {});
     case "siteminder": {
       const missing = siteMinderNotConfigured(env);
       if (missing) throw new BookingDisabledError(missing);
