@@ -113,13 +113,16 @@ export async function applyAriUpdates(db: Db, propertyId: string, updates: AriUp
   const stmts: Runnable[] = [];
   const add = (q: SQL) => stmts.push(rawStatement(db, q));
 
-  for (const rows of chunks([...inv.values()], ARI_ROWS_PER_STATEMENT))
-    add(sql`INSERT INTO inventory_daily (property_id, unit_type_id, date, available, source, synced_at, source_ts, sm_available)
-      SELECT ${propertyId}, j.u, j.d, max(0, j.a - ${outstandingRooms(sql`j.u`, sql`j.d`, ts)}), 'siteminder', ${at}, ${ts}, j.a
+  for (const rows of chunks([...inv.values()], ARI_ROWS_PER_STATEMENT)) {
+    const dates = rows.map((r) => r.d).sort();
+    add(sql`WITH o AS MATERIALIZED (${outstandingRooms(propertyId, dates[0], dates[dates.length - 1], ts)})
+      INSERT INTO inventory_daily (property_id, unit_type_id, date, available, source, synced_at, source_ts, sm_available)
+      SELECT ${propertyId}, j.u, j.d, max(0, j.a - (SELECT count(*) FROM o WHERE o.u = j.u AND o.ci <= j.d AND j.d < o.co)), 'siteminder', ${at}, ${ts}, j.a
       FROM (SELECT json_extract(value, '$.u') AS u, json_extract(value, '$.d') AS d, json_extract(value, '$.a') AS a FROM json_each(${JSON.stringify(rows)})) AS j WHERE true
       ON CONFLICT (unit_type_id, date) DO UPDATE SET available = excluded.available, source = 'siteminder', synced_at = excluded.synced_at,
         source_ts = excluded.source_ts, sm_available = excluded.sm_available
       WHERE inventory_daily.source_ts IS NULL OR inventory_daily.source_ts <= excluded.source_ts`);
+  }
 
   for (const rows of chunks([...price.values()], ARI_ROWS_PER_STATEMENT))
     add(sql`INSERT INTO ari_daily (property_id, unit_type_id, rate_plan_id, date, price, source, synced_at, price_source_ts)
@@ -153,26 +156,31 @@ export async function applyAriUpdates(db: Db, propertyId: string, updates: AriUp
 }
 
 /**
- * How long after the channel acknowledged a booking (reservations.channel_synced_at) an ARI message may still have
- * been generated without it: SiteMinder applies a reservation and regenerates ARI asynchronously.
+ * SITEMINDER-OPEN-Q22: how long after SiteMinder answered Success to our push / modify (channel_synced_at, the time
+ * the call returned) an ARI message may still have been generated without that booking. SiteMinder's follow-up ARI
+ * already counts it, so a long margin subtracts it twice (lasting undersell); a short one risks selling it twice.
+ * The docs do not say; 60 s until SiteMinder answers.
  */
-export const ACK_MARGIN_MS = 5 * 60_000;
+export const ACK_MARGIN_MS = 60_000;
 
 /**
- * Rooms of `unitType` on night `date` that we sold or hold but SiteMinder had not counted when it generated an ARI
- * message at `ts`: holds of unpaid / paid-unconfirmed bookings (SiteMinder never sees them), and confirmed direct
- * bookings not yet acknowledged (sync not done, or done less than ACK_MARGIN_MS before `ts`). A BookingLimit
- * minus these is what we may still sell, so a hold (and its release) keeps counting right. Bookings that came from
- * SiteMinder (siteminder_ota) are in its count already. Each reservation_rooms row is one room.
+ * Our rooms SiteMinder had not counted when it generated an ARI message at `ts`, for the property's nights
+ * `first..last`: one row (u = unit type, ci = check-in, co = check-out) per room of a booking that still holds
+ * inventory (hold_expires_at set) and is either a hold of an unpaid / paid-unconfirmed booking (SiteMinder never
+ * sees those) or a confirmed direct booking not yet acknowledged (sync not done, or done less than ACK_MARGIN_MS
+ * before `ts`). A BookingLimit minus these is what we may still sell, so a hold (and its release) keeps counting
+ * right. Bookings from SiteMinder (siteminder_ota) are in its count already. Each reservation_rooms row is one room.
+ * Computed once per statement (a MATERIALIZED CTE): only bookings overlapping the message's dates, found through
+ * reservations(property_id, check_out) and reservation_rooms(reservation_id) (migration 0025).
  */
-export function outstandingRooms(unitType: SQL, date: SQL, ts: number): SQL {
-  return sql`(SELECT count(*) FROM reservation_rooms rr JOIN reservations r ON r.id = rr.reservation_id
-    WHERE rr.unit_type_id = ${unitType} AND r.check_in <= ${date} AND ${date} < r.check_out AND r.hold_expires_at IS NOT NULL
+export function outstandingRooms(propertyId: string, first: string, last: string, ts: number): SQL {
+  return sql`SELECT rr.unit_type_id AS u, r.check_in AS ci, r.check_out AS co
+    FROM reservations r JOIN reservation_rooms rr ON rr.reservation_id = r.id
+    WHERE r.property_id = ${propertyId} AND r.check_out > ${first} AND r.check_in <= ${last} AND r.hold_expires_at IS NOT NULL
       AND (r.status IN ('pending_payment', 'paid_pending_confirm')
         OR (r.channel = 'direct' AND r.status = 'confirmed'
-          AND (r.sync_state <> 'synced' OR r.channel_synced_at > ${ts - ACK_MARGIN_MS}))))`;
+          AND (r.sync_state <> 'synced' OR r.channel_synced_at > ${ts - ACK_MARGIN_MS})))`;
 }
-
 /** Day rows a newer message already set (they will be skipped): diagnosis only, read before the write. */
 async function countStale(db: Db, ts: number, inv: object[], price: object[], restr: object[]): Promise<number> {
   const count = async (rows: object[], q: (json: string) => SQL) => {

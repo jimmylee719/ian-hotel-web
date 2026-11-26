@@ -9,13 +9,15 @@ import { bookingSetup, minutes, NOW, PAY_NOW, STAFF } from "@/tests/helpers/book
 test("a paid notice confirms the booking, pushes it to the channel and emails guest and staff", async () => {
   const { db, deps, channel, email, book, reservation, notice } = await bookingSetup();
   const code = await book();
+  const before = Date.now();
   const r = await handlePaymentNotice(deps, await notice(code, { authCode: "A1", last4: "4242" }), minutes(2));
   expect(r).toEqual({ status: 200, verdict: "accepted" });
 
   const res = await reservation(code);
   expect(res.status).toBe("confirmed");
   expect(res.syncState).toBe("synced");
-  expect(res.channelSyncedAt).toBe(minutes(2).getTime()); // the channel's acknowledgement (lib/db/ari-sync.ts)
+  // The channel's acknowledgement (lib/db/ari-sync.ts): the real time the call returned, not the job's `now`.
+  expect(res.channelSyncedAt).toBeGreaterThanOrEqual(before);
   expect(res.smConfirmation).toMatch(/^SM-1-/);
 
   expect(channel.pushed).toHaveLength(1);

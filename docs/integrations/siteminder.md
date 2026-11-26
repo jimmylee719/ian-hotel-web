@@ -243,8 +243,8 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
   - [RATES] 的欄位表把 RS 的 `TimeStamp` 寫成「回應產生的時間」，範例卻沿用請求的值。我們照 4.3 回請求的 TimeStamp（`soap.ts RS_TIMESTAMP`），見 Q21。
 - **整則驗證**：下列錯誤整則不套用、回 `<Errors>`（HTTP 200）：未知房型 12/402、未知方案 12/249（文字一字不差）；HotelCode 6/392；缺欄位 10/321 `Required field missing: …`；結構錯誤（日期不存在、End 早於 Start、單段超過 750 天、整則超過 20,000 個日列）3/450 `Unable to process: …`（Q7）。PDP 的包含人數不等於房型的 `maxOccupancy` 回 12/137 `Invalid included occupancy: expecting N`，同時（同一個 transaction）把那個房型＋方案在那幾天的價格設成 0，舊價格不再賣。
 - **值不能用時降級，不拒收**（2026-11-27 review）：被拒的 ARI 會卡住那間飯店整條 ARI 佇列 [FAQ]，所以值的問題一律回 Success、存成安全的值並記 warning（`channel_ari_messages.degraded_rows`）：價格 ≤ 0、四捨五入成 0、不是數字 → 價格 0（不賣）；幣別不是館別的幣別 → 那幾天價格 0、金額不存、立刻通知 ops；BookingLimit 是負數或不是整數 → 0；Status 不是 Open/Close → 當成 Close；LOS Time 不能用 → 忽略那一項（大於 9999 截成 9999）；包含人數的金額有好幾筆 → 用第一筆。
-- **BookingLimit 扣掉 SiteMinder 還沒算到的房間**（`lib/db/ari-sync.ts outstandingRooms`）：存 `available = max(0, BookingLimit − 我們的房間)`，原始值存在 `inventory_daily.sm_available`。「我們的房間」是該房型該晚（`check_in ≤ 日 < check_out`）的 `reservation_rooms`，訂單還占著房（`hold_expires_at` 不是 NULL），而且：待付款或已付款待確認（SiteMinder 永遠看不到 hold）；或官網的已確認訂單，同步還沒完成（`sync_state <> 'synced'`）或 SiteMinder 確認的時間（`reservations.channel_synced_at`，push／modify 成功時寫入）晚於訊息時間減 5 分鐘（`ACK_MARGIN_MS`）。hold 和釋放的程式不用改，釋放後也不會多出房間。來自 SiteMinder 的 OTA 訂單不扣（它已經算了）。**inferred**：5 分鐘是我們估的 SiteMinder 處理訂單、重算 ARI 的時間。
-- **通知 ops**：402、249、137 立刻通知（`ari_rejected:mapping`，每小時最多一封）；幣別不符立刻通知（`ari_rejected:currency`）；一小時內被拒 3 則再通知一次（`ari_rejected`）。
+- **BookingLimit 扣掉 SiteMinder 還沒算到的房間**（`lib/db/ari-sync.ts outstandingRooms`）：存 `available = max(0, BookingLimit − 我們的房間)`，原始值存在 `inventory_daily.sm_available`。「我們的房間」是該房型該晚（`check_in ≤ 日 < check_out`）的 `reservation_rooms`，訂單還占著房（`hold_expires_at` 不是 NULL），而且：待付款或已付款待確認（SiteMinder 永遠看不到 hold）；或官網的已確認訂單，同步還沒完成（`sync_state <> 'synced'`）或 SiteMinder 確認的時間（`reservations.channel_synced_at`：push／modify 的呼叫**回來**、得到 Success 的真實時間）晚於訊息時間減 60 秒（`ACK_MARGIN_MS`，Q22）。hold 和釋放的程式不用改，釋放後也不會多出房間。來自 SiteMinder 的 OTA 訂單不扣（它已經算了）。margin 太長會重複扣掉 SiteMinder 已經算進去的訂單（持續少賣），太短可能重複賣，見 Q22。查詢只算一次（MATERIALIZED CTE），只看和訊息日期重疊、`property_id` 相符的訂單，靠 0025 的 `reservations(property_id, check_out)` 和 `reservation_rooms(reservation_id)` 索引；測試裡 4 萬筆歷史訂單時，210 天 × 8 房型的可售數量約 12 ms。
+- **通知 ops**：402、249、137 立刻通知（`ari_rejected:mapping`，每小時最多一封）；幣別不符立刻通知（`ari_rejected:currency`）；有值被降級（例如 `Status="open"` 被當成 Close）也通知（`ari_rejected:degraded`，每小時最多一封）；一小時內被拒 3 則再通知一次（`ari_rejected`）。
 - **後台修改訂單**也照樣套用 SiteMinder 的限制（Stop Sell、CTA／CTD、最短／最長住宿）：業主決定限制一律在 SiteMinder 改，員工要破例就先到 SiteMinder 調整。
 - 不支援的限制類型（未知的 `Restriction` 或 `MinMaxMessageType`）照文件忽略，其他照常套用、回 Success。
 - **日期**：`@Start..@End` 頭尾都算，展開成每天一筆（飯店當地日期，不換時區）。
@@ -361,6 +361,7 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
   三個查詢都要沒有結果。套用後跑 `npx tsx scripts/fill-sm-codes.ts --env production`（先 dry run）補上 0024 因為撞號而沒填的代碼。
 - 把館別、房型、方案代碼（後台館別設定、房型、房價方案頁都看得到）交給 SiteMinder／飯店做對應。
 - SiteMinder 上每個房型的包含人數（included occupancy）必須等於我們的 `maxOccupancy`，否則價格推送會收到 137，SiteMinder 會停用那個房型／方案。
+- 認證時下完測試訂單後，比對 `inventory_daily.sm_available`（SiteMinder 送的 BookingLimit）和 `available`（扣掉我們還沒被算到的房間）：SiteMinder 的下一則 ARI 已經算進那筆訂單時，兩者應該相同。不同就調整 `ACK_MARGIN_MS`（Q22）。
 
 **上線前檢查** [REQ][DC]：
 - 密碼符合政策。
@@ -427,6 +428,8 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
     - 中文：可售數量我們當成房型層級，忽略方案代碼。飯店會不會自己改成方案層級？只帶 BookingLimit、方案代碼不認得時要不要回 249？（目前不回。）
 21. **Q21（ARI 回應的 TimeStamp）** For `OTA_HotelAvailNotifRS` / `OTA_HotelRateAmountNotifRS`, should `TimeStamp` be the request's (as in your samples) or the time we generated the response (as the Rates field table says)?
     - 中文：ARI 回應的 TimeStamp 要帶請求的，還是我們產生回應的時間？（目前帶請求的。）
+22. **Q22（訂單算進 ARI 的時間）** Does ARI generated after your Success response to our `OTA_HotelResNotifRQ` include that reservation (BookingLimit already reduced)? How soon after the Success can an ARI message still have been generated without it?
+    - 中文：SiteMinder 回 Success 之後產生的 ARI，是不是已經扣掉那筆訂單？回 Success 之後多久內產生的 ARI 可能還沒扣？（目前假設 60 秒，`ACK_MARGIN_MS`。）
 
 ## 8. 影響設計的發現（給 Task 3、4 實作者）
 

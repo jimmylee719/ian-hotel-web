@@ -17,7 +17,7 @@ import { redact } from "@/lib/runtime/redact";
  *   (3 failures in a row, then daily; lib/jobs/sync-retry.ts) or stopped on a non-retryable error;
  * - ari_rejected: SiteMinder ARI needs a person (lib/channel/siteminder/inbound/ari.ts, after the answer): scope
  *   `mapping` at once on a 402 / 249 / 137 answer, `currency` at once on a CurrencyCode other than the property's
- *   (stored as price 0), and unscoped when ARI_REJECTION_ALERT_COUNT messages were rejected within an hour.
+ *   (stored as price 0), `degraded` on values stored in their safe form (price 0 / 0 rooms / closed), and unscoped when ARI_REJECTION_ALERT_COUNT messages were rejected within an hour.
  */
 export type OpsAlertKind = "cron_failed" | "config_refused" | "reconcile_mismatch" | "channel_sync_failed" | "ari_rejected";
 

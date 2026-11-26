@@ -240,6 +240,8 @@ export const reservations = sqliteTable(
   },
   (t) => [
     index("reservations_property_checkin").on(t.propertyId, t.checkIn),
+    // The ARI outstanding-rooms query (lib/db/ari-sync.ts outstandingRooms): bookings not yet checked out.
+    index("reservations_property_checkout").on(t.propertyId, t.checkOut),
     index("reservations_guest_email_lower").on(t.guestEmailLower),
   ],
 );
@@ -250,7 +252,7 @@ export const reservationRooms = sqliteTable("reservation_rooms", {
   unitTypeId: text("unit_type_id").notNull().references(() => unitTypes.id),
   ratePlanId: text("rate_plan_id").notNull().references(() => ratePlans.id),
   nightlyPrices: text("nightly_prices", { mode: "json" }).$type<number[]>().notNull(),
-});
+}, (t) => [index("reservation_rooms_reservation").on(t.reservationId)]);
 
 /** Never add card number / CVV / expiry columns here (PCI-DSS). */
 export const payments = sqliteTable(

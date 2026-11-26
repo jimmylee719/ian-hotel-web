@@ -22,4 +22,6 @@ ALTER TABLE `ari_daily` ADD `restrictions_source_ts` integer;--> statement-break
 ALTER TABLE `ari_daily` ADD `price_source_ts` integer;--> statement-breakpoint
 ALTER TABLE `inventory_daily` ADD `source_ts` integer;--> statement-breakpoint
 ALTER TABLE `inventory_daily` ADD `sm_available` integer;--> statement-breakpoint
-ALTER TABLE `reservations` ADD `channel_synced_at` integer;
+ALTER TABLE `reservations` ADD `channel_synced_at` integer;--> statement-breakpoint
+CREATE INDEX `reservations_property_checkout` ON `reservations` (`property_id`,`check_out`);--> statement-breakpoint
+CREATE INDEX `reservation_rooms_reservation` ON `reservation_rooms` (`reservation_id`);

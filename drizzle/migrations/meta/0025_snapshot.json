@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6b4e7085-b450-4bc4-ac7e-0d8bdc154a05",
+  "id": "18f87fec-fde4-49f4-8ed9-48fb134acb0e",
   "prevId": "cbb0736f-cd53-4a63-a034-443a746e9645",
   "tables": {
     "addons": {
@@ -1943,7 +1943,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "reservation_rooms_reservation": {
+          "name": "reservation_rooms_reservation",
+          "columns": [
+            "reservation_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "reservation_rooms_reservation_id_reservations_id_fk": {
           "name": "reservation_rooms_reservation_id_reservations_id_fk",
@@ -2281,6 +2289,14 @@
           "columns": [
             "property_id",
             "check_in"
+          ],
+          "isUnique": false
+        },
+        "reservations_property_checkout": {
+          "name": "reservations_property_checkout",
+          "columns": [
+            "property_id",
+            "check_out"
           ],
           "isUnique": false
         },

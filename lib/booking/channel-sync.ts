@@ -199,10 +199,11 @@ async function syncStep(deps: Deps, res: Reservation, now: Date): Promise<SyncOu
     : sql`case when ${reservations.lastSyncError} like ${`${MODIFY_REFUND_FAILED}%`} then ${reservations.lastSyncError} else null end`;
   if (r.ok) {
     const sm = "smConfirmation" in r ? r.smConfirmation : undefined;
-    // When the channel acknowledged this booking's rooms: ARI generated before then (minus a margin) does not count
-    // them yet, so lib/db/ari-sync.ts keeps them out of SiteMinder's BookingLimit.
+    // When the channel acknowledged this booking's rooms (the real time the call returned, not this step's start):
+    // ARI generated before then (minus a margin) does not count them yet, so lib/db/ari-sync.ts keeps them out of
+    // SiteMinder's BookingLimit.
     if (action === "push" || action === "modify")
-      await db.update(reservations).set({ channelSyncedAt: at }).where(eq(reservations.id, res.id));
+      await db.update(reservations).set({ channelSyncedAt: (deps.clock ?? Date.now)() }).where(eq(reservations.id, res.id));
     // The channel holds it under this smConfirmation from now on, whatever changed here meanwhile.
     if (sm && action === "push")
       await db.update(reservations).set({ smConfirmation: sm }).where(and(eq(reservations.id, res.id), isNull(reservations.smConfirmation)));

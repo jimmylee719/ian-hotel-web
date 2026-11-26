@@ -384,6 +384,16 @@ function ariHandler(messageType: "OTA_HotelAvailNotifRQ" | "OTA_HotelRateAmountN
     if (r.unknownCodes.length || r.rejected.length)
       log.error(`siteminder ari: ${messageType} echo=${echoToken ?? "-"} rows skipped after validation (${r.unknownCodes.length} codes, ${r.rejected.length} rows)`);
     log.info(`siteminder ari: ${messageType} echo=${echoToken ?? "-"} applied days=${parsed.updates.length} stale=${r.stale} degraded=${parsed.degraded} in ${Date.now() - started} ms`);
+    if (parsed.degraded > 0 && !parsed.currencyMismatch)
+      later(ctx, async () => {
+        if (!ctx.ops) return;
+        // Degrading keeps SiteMinder's queue moving, but must never go unnoticed (e.g. Status="open" read as Close).
+        await notifyOps(ctx.ops, {
+          kind: "ari_rejected", scope: "degraded",
+          detail: `SiteMinder ARI ${messageType} (echo ${echoToken ?? "-"}): ${parsed.degraded} day rows had values we could not use; they were stored in a safe form (price 0, 0 rooms, closed, or the limit left as it was).`
+            + `\n${parsed.warnings.slice(0, 10).join("\n")}`,
+        }, now);
+      });
     if (parsed.currencyMismatch)
       later(ctx, async () => {
         if (!ctx.ops) return;

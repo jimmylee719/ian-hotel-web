@@ -320,6 +320,22 @@ describe("whole-message validation", () => {
     expect((await db.select().from(channelAriMessages))[0]).toMatchObject({ outcome: "applied", degradedRows: 4 });
   });
 
+  test("degraded values alert ops (deduped hourly), so a casing variant read as Close is noticed", async () => {
+    vi.spyOn(log, "warn").mockImplementation(() => {});
+    const email = new MockEmailSender();
+    const s = await setup();
+    s.deps.ops = { db: s.db, email, opsEmails: ["ops@nk.test"], environment: "production" };
+    const msg = availRq([availMsg({ start: "2026-12-01", end: "2026-12-01" }, '<RestrictionStatus Status="open"/>')]);
+    expect(rsOf((await s.call(msg)).text).Success).toBeDefined();
+    expect((await rowsFor(s.db)).ari[0].stopSell).toBe(true);
+    expect(email.sent).toHaveLength(1);
+    expect(email.sent[0].text).toContain("RestrictionStatus Status open read as Close");
+    await s.call(msg, new Date(NOW.getTime() + 60_000));
+    expect(email.sent).toHaveLength(1);
+    await s.call(availRq([availMsg({ start: "2026-12-01", end: "2026-12-01" }, stopSell(false))]));
+    expect(email.sent).toHaveLength(1); // clean messages never alert
+  });
+
   test("an auth failure on an ARI message answers 448 echoing the request's EchoToken and TimeStamp, and applies nothing", async () => {
     const { db, call } = await setup();
     const r = await call(AVAIL.replace(PASS, "Wrong-Passw0rd!2026"));
@@ -587,6 +603,60 @@ describe("BookingLimit keeps our rooms SiteMinder has not counted (local holds, 
 });
 
 describe("performance: a 210-day × 8-room message", () => {
+  test("with 40,000 historical bookings (synced or past) and a few outstanding ones: correct, and well inside 2 s", async () => {
+    const { db, propertyId, call } = await setup();
+    const types = await db.select().from(unitTypes);
+    const [plan] = await db.select().from(ratePlans);
+    const guestId = crypto.randomUUID();
+    await db.insert(guests).values({ id: guestId, propertyId, firstName: "A", lastName: "B", email: "a@b.test", phone: "1", country: "TW", locale: "en", createdAt: 0 });
+    const day = (i: number) => new Date(Date.parse("2024-01-01T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10);
+    const raw = db.$client;
+    const insRes = raw.prepare(`INSERT INTO reservations (id, property_id, code, guest_id, status, channel, check_in, check_out, adults, locale, quote,
+      total_amount, sync_state, hold_expires_at, channel_synced_at, guest_email_lower, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 2, 'en', '{}', 4000, ?, ?, ?, 'a@b.test', 0, 0)`);
+    const insRoom = raw.prepare("INSERT INTO reservation_rooms (id, reservation_id, unit_type_id, rate_plan_id, nightly_prices) VALUES (?, ?, ?, ?, '[]')");
+    const tsMs = Date.parse("2026-11-27T02:00:00Z");
+    raw.transaction(() => {
+      for (let i = 0; i < 40_000; i++) {
+        // ~3 years of history ending inside the message's dates: most are past, the rest synced long ago or cancelled.
+        const start = i % 1250;
+        const cancelled = i % 10 === 0;
+        insRes.run(`h${i}`, propertyId, `NK-H${i}`, guestId, cancelled ? "cancelled" : "confirmed", "direct", day(start), day(start + 2),
+          "synced", cancelled ? null : 1, tsMs - 86_400_000);
+        insRoom.run(`hr${i}`, `h${i}`, types[i % types.length].id, plan.id);
+      }
+    })();
+    const mixed = types.find((t) => t.slug === "mixed-cube")!;
+    // Outstanding: a hold and a pending confirmed booking on 2026-12-10 (one night each), both mixed-cube.
+    await book(db, propertyId, mixed.id, plan.id, "pending_payment", "not_required");
+    await book(db, propertyId, mixed.id, plan.id, "confirmed", "pending");
+    raw.exec("ANALYZE");
+
+    const ROOMS = types.map((t) => t.smRoomCode!);
+    const avail = availRq(ROOMS.flatMap((room) => Array.from({ length: 30 }, (_, k) =>
+      availMsg({ start: dayFrom(k * 7), end: dayFrom(k * 7 + 6), room, rate: "" }, "", 5))));
+    const t = performance.now();
+    expect(rsOf((await call(avail)).text).Success).toBeDefined();
+    const ms = performance.now() - t;
+    console.log(`ARI perf with 40k bookings: 210 days × 8 rooms availability in ${ms.toFixed(0)} ms`);
+    expect(ms).toBeLessThan(2000);
+    const inv = await db.select().from(inventoryDaily);
+    expect(inv).toHaveLength(210 * 8);
+    const off = inv.filter((i) => i.available !== 5);
+    expect(off.map((i) => [i.unitTypeId === mixed.id, i.date, i.available])).toEqual([[true, "2026-12-10", 3]]);
+  });
+
+
+  const dayFrom = (i: number) => new Date(Date.parse("2026-12-01T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10);
+  async function book(db: TestDb, propertyId: string, unitTypeId: string, ratePlanId: string, status: "pending_payment" | "confirmed", syncState: "pending" | "not_required") {
+    const [g] = await db.select().from(guests).limit(1);
+    const id = crypto.randomUUID();
+    await db.insert(reservations).values({
+      id, propertyId, code: `NK-${id.slice(0, 6)}`, guestId: g.id, status, channel: "direct", checkIn: "2026-12-10", checkOut: "2026-12-11",
+      adults: 2, locale: "en", quote: {}, totalAmount: 2000, syncState, holdExpiresAt: 1, guestEmailLower: "a@b.test", createdAt: 0, updatedAt: 0,
+    });
+    await db.insert(reservationRooms).values({ id: crypto.randomUUID(), reservationId: id, unitTypeId, ratePlanId, nightlyPrices: [2000] });
+  }
   const ROOMS = ["MIXEDCUBE", "FEMALECUBE", "BUDDYROOM", "BUDDYROOMSIX", "MINIROOM", "CLASSICROOM", "DELUXEROOM", "CONNECTINGROOM"];
   const DAYS = 210;
   const dates = (i: number) => {
