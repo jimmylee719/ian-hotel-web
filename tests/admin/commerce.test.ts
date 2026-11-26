@@ -285,7 +285,7 @@ describe("property settings", () => {
     for (const f of ["sinopacMerchantId", "smPropertyCode", "slug", "timezone", "currency"]) {
       expect(await updateProperty(db, owner, propertyId, { [f]: "X" } as never, NOW)).toEqual({ ok: false, error: "INVALID_INPUT", field: f });
     }
-    expect((await db.select().from(properties).where(eq(properties.id, propertyId)))[0]).toMatchObject({ sinopacMerchantId: null, smPropertyCode: null });
+    expect((await db.select().from(properties).where(eq(properties.id, propertyId)))[0]).toMatchObject({ sinopacMerchantId: null, smPropertyCode: "NKHOSTEL" });
   });
 
   test("the pre-arrival email uses the saved times and directions", async () => {

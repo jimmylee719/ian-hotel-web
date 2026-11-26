@@ -19,7 +19,7 @@ test("a paid notice confirms the booking, pushes it to the channel and emails gu
 
   expect(channel.pushed).toHaveLength(1);
   expect(channel.pushed[0]).toMatchObject({ code, paidAmount: PAY_NOW, total: PAY_NOW, checkIn: "2026-12-01", checkOut: "2026-12-03" });
-  expect(channel.pushed[0].rooms).toEqual([{ smRoomCode: "", smRatePlanCode: "", nightlyPrices: [2000, 2000] }]);
+  expect(channel.pushed[0].rooms).toEqual([{ smRoomCode: "MIXEDCUBE", smRatePlanCode: "DIRECTFLEX", nightlyPrices: [2000, 2000] }]);
 
   expect(email.sent.map((e) => e.to).sort()).toEqual(["mei@example.com", STAFF]);
   expect(email.sent.find((e) => e.to === "mei@example.com")!.subject).toContain("Booking confirmed");

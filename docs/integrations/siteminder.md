@@ -234,6 +234,20 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
   - 測試時要求至少 2 個房型，每個房型至少 2 個方案 [QS]。
 - **可選旗標**：`NO_UPDATES`、`NO_AVAILABILITY`、`NO_RATES` [RR]。
 - **代碼不能隨便改**：改了 RoomTypeCode 或 RatePlanCode，飯店的對應就會斷掉，要重新設定 [RR]。
+- **回應格式細節**（2026-11-27 重讀 [RR] 補充）：
+  - RS root：`OTA_HotelAvailRS xmlns="http://www.opentravel.org/OTA/2003/05" EchoToken=… TimeStamp=… Version="1.0"`。`EchoToken` 要和請求相同；`TimeStamp` 是**回應產生的時間**（[RR] 的欄位表這樣寫，和 4.3 ARI 回應「帶原本的 TimeStamp」不同）。
+  - `Success`（0..1）或 `Errors`（0..1）二選一；`RoomStays` 是 0..1，裡面 1..n 個 `RoomStay`。一個 RoomStay 只能有**一個** RoomType 和**一個** RatePlan，一個 RoomStay 放多個 RatePlan 是錯的。
+  - `RoomType @RoomTypeCode` 和 `RoomDescription @Name` 必填，`RoomDescription/Text` 選填；`RatePlan @RatePlanCode` 和 `RatePlanDescription @Name` 必填，`Text` 選填。`Text` 只給 SiteMinder 客服看，下拉選單顯示的是 `Name`。
+  - `Occupancy @AgeQualifyingCode="10" @MaxOccupancy`（1–50）只有 OBP 要放。`RatePlan/AdditionalDetails/AdditionalDetail @Code`（1–2 個）是上面那三個旗標。
+  - 要排除的：停用、封存、測試、過期、未來才生效的房型和方案。同樣「房名＋方案名」的兩個 RoomStay 會被當成重複，只顯示一個。
+  - 頁面的範例回應省略了 SOAP envelope，但規格要求包在 envelope 裡（Header 留空）。
+  - [RR] 說帳密錯誤會回「SOAP fault with appropriate error code」，沒有給 faultcode／faultstring；[ERR-G] 則把 Type 4 / Code 448 列為 AvailRS 必要的錯誤。我們回 RS 加 448（見 Q2）。
+  - [RR] 沒有寫 HotelCode、RoomTypeCode、RatePlanCode 可用的字元和長度（Q16）。
+- **我們的做法**（Task 2，`lib/channel/siteminder/inbound/`，endpoint `POST /api/channel/siteminder`）：
+  - 代碼格式：slug 轉大寫、去掉連字號、最多 16 字元（OTA 的 StringLength1to16），同一館內撞號時加數字尾碼（`lib/channel/siteminder/codes.ts`）。產生一次就不再改，後台只顯示不能改。
+  - Name 用中文名稱、Text 用英文名稱；名稱重複時在後面加「(代碼)」。只列有代碼的上架房型和方案；官網專屬方案也列（我們就是賣它的通路）。選 PDP，所以不放 Occupancy。
+  - 帳密錯（或我們還沒設定 `SITEMINDER_INBOUND_USERNAME` / `SITEMINDER_INBOUND_PASSWORD`）：對應 RS 裡回 Type 4 / Code 448 `Invalid Username and/or Password`，HTTP 200。HotelCode 找不到：Type 6 / Code 392 `Hotel not found for HotelCode=<收到的代碼>`。
+  - 協定層級的問題（XML 壞掉、有 DTD、不是 SOAP、沒實作的訊息）回 SOAP Fault + HTTP 400；body 超過 1 MB 回 413；超過頻率限制（每個 IP 每分鐘 600 次）回 503 + Retry-After；我們自己出錯回 500（SiteMinder 會重試）。這些文件都沒規定（Q7）。
 
 ## 5. 錯誤碼與我們的分類
 
@@ -351,6 +365,8 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
     - 中文：請提供正式環境的來源 IP，並確認 User-Agent 不會變。
 15. **Q15（訂單通知信）** If we enable SiteMinder's reservation notification email, which fields are required (room and rate names, HotelName)? Is it needed when the hotel uses SiteMinder's PMS connection?
     - 中文：開 SiteMinder 代寄通知信時，要多送哪些欄位？有接 PMS 的話還需要嗎？
+16. **Q16（代碼格式）** What characters and maximum length are allowed for the `HotelCode`, `RoomTypeCode` and `RatePlanCode` we return in `OTA_HotelAvailRS`? We plan to use upper-case A–Z and 0–9 only, at most 16 characters (e.g. `NKHOSTEL`, `MIXEDCUBE`, `DIRECTFLEX`). Are codes case-sensitive?
+    - 中文：我們自己定的飯店、房型、方案代碼可以用哪些字元、最長幾碼？有沒有分大小寫？
 
 ## 8. 影響設計的發現（給 Task 3、4 實作者）
 

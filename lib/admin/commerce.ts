@@ -221,7 +221,7 @@ export async function updatePromo(db: Db, ctx: StaffContext, id: string, input: 
 
 /* ------------------------------------------------------------------------------------------- rate plans */
 
-/** Not here, on purpose: `smRatePlanCode` (SiteMinder decides it), `slug`, and prices (those live in SiteMinder). */
+/** Not here, on purpose: `smRatePlanCode` (our SiteMinder code: written once, never edited), `slug`, and prices (those live in SiteMinder). */
 const RATE_PLAN_KEYS = ["name", "cancelPolicy", "paymentMode", "depositPct", "includesBreakfast", "directOnly", "active"] as const;
 
 /** Edit a rate plan's terms. Rates and stock are changed in SiteMinder, never here. */

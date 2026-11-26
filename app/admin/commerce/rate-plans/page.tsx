@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { RatePlanForm } from "@/components/admin/CommerceForms";
+import { SmCode } from "@/components/admin/SmCode";
 import { PublishBadge } from "@/components/admin/StatusBadge";
 import { listRatePlansForAdmin } from "@/lib/admin/commerce";
 import { requirePage } from "@/lib/admin/page-guard";
@@ -19,6 +20,7 @@ export default async function Page() {
       {rows.map((p) => (
         <details key={p.id} className="adm-card">
           <summary>{p.name["zh-TW"]} <code>{p.slug}</code> <PublishBadge on={p.active} labels={["啟用", "停用"]} /></summary>
+          <SmCode label="方案代碼（RatePlanCode）" code={p.smRatePlanCode} />
           <RatePlanForm plan={p} />
         </details>
       ))}

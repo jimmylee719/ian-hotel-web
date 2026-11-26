@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { properties, ratePlans, unitTypes, type I18n } from "./schema";
 import type { Db } from "./types";
+import { fillMissingSmCodes } from "../channel/siteminder/codes";
 
 /** zh-TW + en from the current site; ja/ko are machine translations (messages/_review.md). */
 const t = (zh: string, en: string, ja = en, ko = en): I18n => ({ "zh-TW": zh, en, ja, ko });
@@ -74,6 +75,9 @@ export async function seedNk(db: Db): Promise<{ propertyId: string }> {
     depositPct: 0,
     cancelPolicy: { rules: [{ daysBefore: 3, refundPct: 100 }, { daysBefore: 1, refundPct: 50 }] },
   });
+
+  // Our SiteMinder codes (HotelCode / RoomTypeCode / RatePlanCode), derived from the slugs; read-only from here on.
+  await fillMissingSmCodes(db);
 
   return { propertyId };
 }

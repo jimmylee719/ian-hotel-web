@@ -23,7 +23,8 @@ export const properties = sqliteTable("properties", {
   address: i18n("address"),
   phone: text("phone").notNull(),
   email: text("email").notNull(),
-  smPropertyCode: text("sm_property_code"),
+  /** Our SiteMinder HotelCode (lib/channel/siteminder/codes.ts): set once, never edited. */
+  smPropertyCode: text("sm_property_code").unique(),
   sinopacMerchantId: text("sinopac_merchant_id"),
   /** 'HH:MM' Taipei wall-clock, shown in the pre-arrival email. */
   checkInTime: text("check_in_time").notNull().default("15:00"),
@@ -49,10 +50,14 @@ export const unitTypes = sqliteTable(
     /** R2 keys of the room's photos, cover first (staff-managed). Empty = the migrated old-site photos. */
     images: text("images", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
     sortOrder: integer("sort_order").notNull().default(0),
-    smRoomCode: text("sm_room_code"),
+    /** Our SiteMinder RoomTypeCode (lib/channel/siteminder/codes.ts): set once, never edited. */
+  smRoomCode: text("sm_room_code"),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
   },
-  (t) => [uniqueIndex("unit_types_property_slug").on(t.propertyId, t.slug)],
+  (t) => [
+    uniqueIndex("unit_types_property_slug").on(t.propertyId, t.slug),
+    uniqueIndex("unit_types_property_sm_room_code").on(t.propertyId, t.smRoomCode),
+  ],
 );
 
 export const units = sqliteTable("units", {
@@ -70,6 +75,7 @@ export const ratePlans = sqliteTable(
     propertyId: text("property_id").notNull().references(() => properties.id),
     slug: text("slug").notNull(),
     name: i18n("name"),
+    /** Our SiteMinder RatePlanCode (lib/channel/siteminder/codes.ts): set once, never edited. */
     smRatePlanCode: text("sm_rate_plan_code"),
     directOnly: bool("direct_only"),
     paymentMode: text("payment_mode", { enum: ["full", "deposit"] }).notNull(),
@@ -78,7 +84,10 @@ export const ratePlans = sqliteTable(
     includesBreakfast: bool("includes_breakfast"),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
   },
-  (t) => [uniqueIndex("rate_plans_property_slug").on(t.propertyId, t.slug)],
+  (t) => [
+    uniqueIndex("rate_plans_property_slug").on(t.propertyId, t.slug),
+    uniqueIndex("rate_plans_property_sm_rate_plan_code").on(t.propertyId, t.smRatePlanCode),
+  ],
 );
 
 /** Daily rates + restrictions per (room type, rate plan). Phase 1: a cache of SiteMinder. */

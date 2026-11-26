@@ -36,6 +36,15 @@ export type AppEnv = {
    * SINOPAC_…ENDPOINT (or …_URL) var that is set is checked by assertConfig against the vendor's host list.
    */
   SITEMINDER_ENDPOINT?: string;
+  /**
+   * Secrets: the WS-Security username / password SiteMinder must send to our inbound endpoint
+   * (POST /api/channel/siteminder, lib/channel/siteminder/inbound/dispatch.ts). We choose them and give them to
+   * SiteMinder (password 12–50 characters, upper and lower case, digits and a special character, none of < > & " '
+   * [REQ]). While either is unset, every inbound request is refused (Type 4 / Code 448). The preview may not set them
+   * (config-guard refuses any SITEMINDER_ setting there), so on the preview the endpoint always refuses.
+   */
+  SITEMINDER_INBOUND_USERNAME?: string;
+  SITEMINDER_INBOUND_PASSWORD?: string;
   SINOPAC_ENDPOINT?: string;
   /** Local dev only (ENVIRONMENT=local): act as this staff email without an Access JWT. */
   DEV_STAFF_EMAIL?: string;
