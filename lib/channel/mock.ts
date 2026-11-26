@@ -1,16 +1,18 @@
-import type { CancelResult, ChannelManager, ChannelReservation, LookupResult, PushResult } from "./types";
+import { CHANNEL_MIN_TIMEOUT_MS, type CancelResult, type ChannelManager, type ChannelReservation, type LookupResult, type PushResult } from "./types";
 
 type Held = { reservation: ChannelReservation; smConfirmation: string; state: "active" | "cancelled" };
 
 /**
- * An in-memory channel that keeps the ChannelManager rules (tests/conformance/channel.ts).
+ * An in-memory channel that keeps the ChannelManager rules (tests/conformance/channel.ts), as SiteMinder states them:
+ * a code it already holds is not taken again (the same smConfirmation comes back, the held copy is unchanged), and a
+ * cancelled code is never reactivated (a push or modify of it fails, not retryable).
  * - `failNext`: the next N push/modify/cancel calls fail (with `retryable`) without reaching the channel.
  * - `timeoutNext`: the next N push/modify/cancel calls reach the channel and take effect, but the answer is
  *   lost: they report a retryable TIMEOUT. `lookupReservation` then shows what landed.
  * Lookups are never failed by either option.
  */
 export class MockChannelManager implements ChannelManager {
-  readonly timeoutMs = 30_000;
+  readonly timeoutMs = CHANNEL_MIN_TIMEOUT_MS;
   private held = new Map<string, Held>();
   private failNext: number;
   private timeoutNext: number;
@@ -42,11 +44,16 @@ export class MockChannelManager implements ChannelManager {
     return r;
   }
 
-  /** Idempotent by code: a code pushed again keeps its smConfirmation (and is active again). */
+  /**
+   * Idempotent by code: an active code pushed again keeps its smConfirmation and its held copy (SiteMinder ignores
+   * a UniqueID it already has, SITEMINDER-OPEN-Q1); a cancelled one is refused, never made active again.
+   */
   async pushReservation(r: ChannelReservation): Promise<PushResult> {
-    return this.call(() => {
-      const smConfirmation = this.held.get(r.code)?.smConfirmation ?? `SM-${++this.seq}-${r.code}`;
-      this.held.delete(r.code); // re-inserted last, as the newest
+    return this.call((): PushResult => {
+      const h = this.held.get(r.code);
+      if (h?.state === "cancelled") return { ok: false, retryable: false, error: "RESERVATION_CANCELLED" };
+      if (h) return { ok: true, smConfirmation: h.smConfirmation };
+      const smConfirmation = `SM-${++this.seq}-${r.code}`;
       this.held.set(r.code, { reservation: r, smConfirmation, state: "active" });
       return { ok: true, smConfirmation };
     });

@@ -4,10 +4,15 @@ import { runPreArrival } from "./pre-arrival";
 import { runSyncRetry } from "./sync-retry";
 import { log } from "@/lib/runtime/log";
 
-export type ScheduledResult = { expired: number; attempted: number; preArrival: number };
+export type ScheduledResult = {
+  expired: number; attempted: number; preArrival: number;
+  /** Bookings not yet on the channel that staff were alerted about in this run (absent when none). */
+  unsynced?: string[];
+};
 
 /**
- * The 5-minute cron: expire lapsed holds, retry due channel syncs, send pre-arrival emails.
+ * The 5-minute cron: expire lapsed holds, run due channel hand-offs (and alert staff about bookings that keep failing),
+ * send pre-arrival emails.
  * Each runs on its own: one throwing is logged and counts as 0, and never stops the others.
  * `skipSyncReason` (channel/payments not configured) skips only the sync retry, with a warning.
  * `skipEmailReason` (production without BASE_URL) skips the jobs that email guests (sync retry sends
@@ -30,5 +35,8 @@ export async function runScheduled(
   const skipSync = opts.skipEmailReason || opts.skipSyncReason;
   const retried = skipSync ? null : await attempt("sync-retry", () => runSyncRetry(deps, now));
   const arrival = opts.skipEmailReason ? null : await attempt("pre-arrival", () => runPreArrival(deps, now));
-  return { expired: expired?.expired ?? 0, attempted: retried?.attempted ?? 0, preArrival: arrival?.sent ?? 0 };
+  return {
+    expired: expired?.expired ?? 0, attempted: retried?.attempted ?? 0, preArrival: arrival?.sent ?? 0,
+    ...(retried?.alerted?.length ? { unsynced: retried.alerted } : {}),
+  };
 }

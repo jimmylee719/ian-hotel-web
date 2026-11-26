@@ -129,7 +129,7 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
 ### 3.4 回應的意義，以及和我們流程的衝突
 - [RES] 原文要點：SiteMinder 沒有權力接受或拒絕訂單；RS 只確認訊息有沒有收到；而且（短引）SiteMinder "does not influence the booking process on your end"。
 - [RES] FAQ 補充：`Success` 表示已接收並接受。之後沒有 pending 狀態，也**沒有任何查詢 endpoint 可以查訂單狀態**。SiteConnect 不會因為沒房、沒對應房價、價格方案不符而拒單。它只檢查 XML 格式、帳密和 HotelCode [RES][FAQ]。
-- **和我們流程的衝突**（`lib/booking/confirm.ts`）：
+- **和我們流程的衝突**（`lib/booking/confirm.ts`）（**2026-11-27 已依業主決定改為「本地確認、背景推送、持續重試」**，見 `lib/booking/channel-sync.ts`；以下描述的是改之前的做法）：
   - 目前的做法：顧客付款後先等推送成功，才把訂單改成 `confirmed`。推送遇到不可重試的錯誤，或重試超過 `MAX_SYNC_ATTEMPTS` 次，就**退款並取消顧客的訂單**。
   - 文件的意思是：通道的回應不應該決定前台的訂房結果。這裡的錯誤只代表我們的訊息內容有問題，或 HotelCode、帳密有問題，和「有沒有房」無關。
   - 因為不合法的 XML 而把已付款的顧客退款，業主可能不想要。建議改為：本地確認訂單（庫存在我們這裡已經扣了）、通知顧客，推送放進持久化的佇列去重試，失敗時通知員工人工處理（**inferred**，要業主決定）。

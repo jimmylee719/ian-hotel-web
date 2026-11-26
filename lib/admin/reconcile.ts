@@ -239,7 +239,7 @@ export async function finishFlow(
 }
 
 /**
- * refundAndFail's own reason (AMOUNT_MISMATCH: …, SOLD_OUT_AFTER_EXPIRY, a channel error), unwrapped from the
+ * refundAndFail's own reason (AMOUNT_MISMATCH: …, SOLD_OUT_AFTER_EXPIRY, or a legacy channel error), unwrapped from the
  * "REFUND_FAILED: <error> (<reason>)" it records on each failed refund, however many times it was wrapped.
  */
 export function originalFailReason(lastSyncError: string | null): string {
@@ -250,7 +250,8 @@ export function originalFailReason(lastSyncError: string | null): string {
 }
 
 /**
- * Which emails refundAndFail was going to send, from its original reason, as confirmWithChannel chooses them.
+ * Which emails refundAndFail was going to send, from its original reason, as confirmPaid chooses them. (A channel
+ * error as the reason is left only by the earlier design, which refunded when the push failed; it no longer does.)
  */
 function failKinds(reason: string): RefundAndFailKinds {
   const e = reason;

@@ -200,6 +200,12 @@ export const reservations = sqliteTable(
     deskDueSince: integer("desk_due_since"),
     /** How many staff modifications this booking has had; the n-th one's refund key is `modify:<id>:<n>`. */
     modCount: integer("mod_count").notNull().default(0),
+    /**
+     * Epoch ms of the first push (new reservation) sent to the channel, set just before the call and never cleared:
+     * from then on the channel may hold the booking even without an smConfirmation (an answer lost to a timeout),
+     * so a cancel must reach it. Null = never sent: a cancel then sends nothing (lib/booking/channel-sync.ts).
+     */
+    channelPushedAt: integer("channel_pushed_at"),
   },
   (t) => [
     index("reservations_property_checkin").on(t.propertyId, t.checkIn),
@@ -440,3 +446,13 @@ export const opsAlerts = sqliteTable(
   },
   (t) => [uniqueIndex("ops_alerts_key_hour").on(t.key, t.hour), index("ops_alerts_key_at").on(t.key, t.at)],
 );
+
+/**
+ * One channel message in flight per hotel (SiteMinder, doc §8.7): a property's row is its channel lease, held by
+ * one worker (`holder`) until `until` (epoch ms). Taken and released by lib/booking/channel-sync.ts.
+ */
+export const channelLeases = sqliteTable("channel_leases", {
+  propertyId: text("property_id").primaryKey(),
+  holder: text("holder").notNull(),
+  until: ms("until"),
+});

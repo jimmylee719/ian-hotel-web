@@ -32,7 +32,8 @@ export const JOB_RUN_RETENTION_MS = 30 * 86_400_000;
  * One cron tick, from the Worker's `scheduled` handler (which has no request or OpenNext context,
  * so the database comes straight from the DB binding). Logs one summary line and records the run in
  * job_runs (its counts, or the error), pruning job_runs rows older than 30 days. Recording never fails the run.
- * A config assertConfig refuses skips the run (refusedRun). Ops are alerted after CRON_FAILURE_STREAK failures in a row.
+ * A config assertConfig refuses skips the run (refusedRun). Ops are alerted after CRON_FAILURE_STREAK failures in a row,
+ * and whenever the run alerted staff about bookings not yet on the channel (channel_sync_failed, at most hourly).
  */
 export async function runCron(env: AppEnv & { DB: D1Database }, now: Date, db?: Db): Promise<void> {
   const database = db ?? (drizzle(env.DB, { schema }) as unknown as Db);
@@ -50,11 +51,18 @@ export async function runCron(env: AppEnv & { DB: D1Database }, now: Date, db?: 
     }
     log.info(`scheduled: expired=${r.expired} attempted=${r.attempted} preArrival=${r.preArrival} pruned=${pruned}`);
     result = { ...r, pruned, syncSkipped: deps.syncSkipReason, emailSkipped: deps.emailSkipReason };
+    if (r.unsynced?.length) await notifyOps(ops, { kind: "channel_sync_failed", detail: unsyncedDetail(r.unsynced) }, now);
   } catch (e) {
     await recordRun(database, now, { error: e instanceof Error ? e.message : String(e) }, CRON_JOB, ops);
     throw e;
   }
   await recordRun(database, now, result, CRON_JOB, ops);
+}
+
+/** The ops alert text for the bookings staff were just told are not on the channel. */
+export function unsyncedDetail(codes: string[]): string {
+  const listed = codes.slice(0, 20).join(", ");
+  return `${codes.length} booking(s) not yet on SiteMinder after repeated failures (staff alerted; manual retry on /admin): ${listed}${codes.length > 20 ? ", …" : ""}`;
 }
 
 /**

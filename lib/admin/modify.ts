@@ -1,10 +1,9 @@
-import { and, eq, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
-import { holdItemsFor, MAX_SYNC_ATTEMPTS, refundOnce, SYNC_LEASE_MS, SYNC_RETRY_MS } from "@/lib/booking/confirm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { kickChannelSync, MODIFY_REFUND_FAILED } from "@/lib/booking/channel-sync";
+import { holdItemsFor, refundOnce } from "@/lib/booking/confirm";
 import { notifyGuest, notifyStaff, refundableCharges, type Deps } from "@/lib/booking/notify";
 import { payingChargeId } from "@/lib/booking/payment-notice";
-import { toChannelReservation } from "@/lib/booking/to-channel";
 import type { Reservation } from "@/lib/booking/state";
-import type { PushResult } from "@/lib/channel/types";
 import { searchAvailability, type RichOffer } from "@/lib/db/ari-repo";
 import { runAtomic } from "@/lib/db/atomic";
 import { holdStatements, isCheckViolation, releaseStatements, type HoldItem } from "@/lib/db/inventory-hold";
@@ -148,7 +147,7 @@ export async function previewModification(
  * any front-desk refund due, channel sync pending), record the refund intent and the audit row. A night without a
  * room fails the CHECK and rolls everything back (NOT_AVAILABLE); a booking changed meanwhile is CONFLICT.
  * After the commit: a lower price refunds min(−difference, online net) under `modify:<id>:<n>` (a failure leaves the
- * new stay, records the error and alerts staff), the channel is sent a modify (retried by the sync job), and
+ * new stay, records the error and alerts staff), the change is handed to the channel (channel-sync.ts), and
  * the guest is emailed once for this modification.
  */
 export async function applyModification(
@@ -206,12 +205,14 @@ export async function applyModification(
         frontDeskRefundDue: pl.frontDeskRefund,
         deskDueSince: pl.frontDeskRefund > 0 ? sql`coalesce(${reservations.deskDueSince}, ${at})` : null,
         holdExpiresAt: res.holdExpiresAt ?? at,
-        // From now on the retry job is the safety net for the channel modify. nextSyncAt = now, unless a push of
-        // an earlier change holds its lease (or waits for its retry slot): then this change goes out with the next
-        // push instead, never as a second push at the same time. That push's result no longer applies (its
-        // syncAttempts / modCount guard fails), so the booking stays pending until the latest stay is pushed.
-        syncState: "pending", syncAttempts: 0,
-        nextSyncAt: sql`max(coalesce(${reservations.nextSyncAt}, ${at}), ${at})`, lastSyncError: null, updatedAt: at,
+        // From now on the retry job is the safety net for the channel hand-off (channel-sync.ts): a modify once the
+        // channel holds the booking, else this stay goes out as its push. A call in flight for an earlier stay holds
+        // the property's lease, so this one follows it, never alongside; that call's result no longer marks the
+        // booking synced (its modCount guard fails). A hand-off already failing keeps its count of failures in a row
+        // (staff alerts, sync-retry.ts); one that had stopped (failed) starts again.
+        syncState: "pending",
+        syncAttempts: sql`case when ${reservations.syncState} = 'pending' then ${reservations.syncAttempts} else 0 end`,
+        nextSyncAt: at, lastSyncError: null, updatedAt: at,
       }).where(and(eq(reservations.id, res.id), guard)),
       // Positional (payments in schema order, id … merchantOrderNo, notifyGuest, settledAt). The refund intent is recorded with the change, as `failed` (= not yet done; retrying is safe): refundOnce
       // below takes it from there, and if this request dies first it waits on the reconciliation page. It goes
@@ -247,7 +248,7 @@ export async function applyModification(
       await notifyStaff(deps, res.id, "staff_payment_alert", now, {}, r.refundId ?? refundId);
     }
   }
-  await modifyWithChannel(deps, res.id, now);
+  await kickChannelSync(deps, res.id, now);
   const money: ModificationMoney = {
     difference: pl.difference, refunded: pl.refundOnline, frontDeskRefundDue: pl.frontDeskRefund, balanceDue: pl.balanceDue,
   };
@@ -256,58 +257,6 @@ export async function applyModification(
     ok: true, modCount: n, difference: pl.difference, refunded, frontDeskRefundDue: pl.frontDeskRefund,
     balanceDue: pl.balanceDue, ...(refundFailed ? { refundFailed: true as const } : {}),
   };
-}
-
-/** lastSyncError prefix of a modification refund that did not go through; a later channel success keeps it. */
-const MODIFY_REFUND_FAILED = "MODIFY_REFUND_FAILED";
-
-/**
- * Tell the channel a confirmed booking was modified. Lease-guarded like cancelWithChannel, so the modify request
- * and the retry job never call it at the same time. Success → synced; a retryable failure retries in 5 minutes;
- * a non-retryable one, or one after MAX_SYNC_ATTEMPTS retries, → failed and staff are alerted. The booking is
- * never cancelled automatically.
- */
-export async function modifyWithChannel(deps: Deps, reservationId: string, now: Date): Promise<void> {
-  const { db } = deps;
-  const [res] = await db.update(reservations)
-    .set({ nextSyncAt: now.getTime() + SYNC_LEASE_MS })
-    .where(and(
-      eq(reservations.id, reservationId), eq(reservations.status, "confirmed"), eq(reservations.syncState, "pending"),
-      or(isNull(reservations.nextSyncAt), lte(reservations.nextSyncAt, now.getTime())),
-    ))
-    .returning();
-  if (!res) return;
-
-  let r: PushResult;
-  try {
-    r = res.smConfirmation
-      ? await deps.channel.modifyReservation(await toChannelReservation(db, reservationId), res.smConfirmation)
-      : { ok: false, retryable: false, error: "NO_SM_CONFIRMATION" };
-  } catch (e) {
-    r = { ok: false, retryable: true, error: e instanceof Error ? e.message : String(e) };
-  }
-  const mine = and(
-    eq(reservations.id, reservationId), eq(reservations.status, "confirmed"), eq(reservations.syncState, "pending"),
-    eq(reservations.syncAttempts, res.syncAttempts), eq(reservations.modCount, res.modCount),
-  );
-  if (r.ok) {
-    const keepRefundError = sql`case when ${reservations.lastSyncError} like ${`${MODIFY_REFUND_FAILED}%`} then ${reservations.lastSyncError} else null end`;
-    await db.update(reservations)
-      .set({ syncState: "synced", smConfirmation: r.smConfirmation, nextSyncAt: null, lastSyncError: keepRefundError, updatedAt: now.getTime() })
-      .where(mine);
-    return;
-  }
-  const attempts = res.syncAttempts + 1;
-  if (r.retryable && res.syncAttempts < MAX_SYNC_ATTEMPTS) {
-    await db.update(reservations)
-      .set({ syncAttempts: attempts, nextSyncAt: now.getTime() + SYNC_RETRY_MS, lastSyncError: r.error, updatedAt: now.getTime() })
-      .where(mine);
-    return;
-  }
-  const failed = await db.update(reservations)
-    .set({ syncState: "failed", syncAttempts: attempts, nextSyncAt: null, lastSyncError: r.error, updatedAt: now.getTime() })
-    .where(mine).returning({ id: reservations.id });
-  if (failed.length) await notifyStaff(deps, reservationId, "staff_sync_failed", now, {}, `modify:${res.modCount}`);
 }
 
 /**

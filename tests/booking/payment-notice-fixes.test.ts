@@ -8,7 +8,7 @@ import { notifications, paymentEvents, payments, reservations } from "@/lib/db/s
 import { bookingSetup, minutes, PAY_NOW, STAFF } from "@/tests/helpers/booking";
 import { rawSqlite } from "@/tests/helpers/test-db";
 
-test("a paid booking passes through paid_pending_confirm before it is pushed", async () => {
+test("a paid booking is confirmed here before it is handed to the channel", async () => {
   const seenAtPush: string[] = [];
   const channel = new MockChannelManager();
   const { db, deps, book, reservation, notice } = await bookingSetup({ channel });
@@ -19,7 +19,7 @@ test("a paid booking passes through paid_pending_confirm before it is pushed", a
   };
   const code = await book();
   await handlePaymentNotice(deps, await notice(code), minutes(2));
-  expect(seenAtPush).toEqual(["paid_pending_confirm"]);
+  expect(seenAtPush).toEqual(["confirmed"]);
   expect((await reservation(code)).status).toBe("confirmed");
 });
 
@@ -65,17 +65,15 @@ test("a stray charge whose refund fails stays recorded, flagged and alerted", as
 });
 
 test("a stray charge on a refunded booking is refunded too", async () => {
-  const { deps, gateway, book, reservation, notice } = await bookingSetup({
-    channel: new MockChannelManager({ failNext: 1, retryable: false }),
-  });
+  const { deps, gateway, book, reservation, notice } = await bookingSetup();
   const refund = vi.spyOn(gateway, "refund");
   const code = await book();
-  await handlePaymentNotice(deps, await notice(code), minutes(2));
+  await handlePaymentNotice(deps, await notice(code, { amount: PAY_NOW - 1 }), minutes(2)); // refunded: wrong amount
   expect((await reservation(code)).status).toBe("confirm_failed_refunded");
   expect(await handlePaymentNotice(deps, await notice(code, { providerRef: "REF-LATE" }), minutes(3)))
     .toEqual({ status: 200, verdict: "stray_charge" });
   expect(refund).toHaveBeenLastCalledWith(expect.objectContaining({ providerRef: "REF-LATE", amount: PAY_NOW }));
-  expect((await reservation(code)).refundedAmount).toBe(PAY_NOW);
+  expect((await reservation(code)).refundedAmount).toBe(PAY_NOW - 1); // the stray refund is not the booking's own
 });
 
 test("a guest email that throws does not stop the booking or the staff email", async () => {

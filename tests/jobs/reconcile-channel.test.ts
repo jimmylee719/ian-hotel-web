@@ -182,3 +182,34 @@ test("the run stops issuing channel calls once its wall-clock budget is spent", 
   expect(CHANNEL_RECONCILE_BUDGET_MS).toBeLessThanOrEqual(20 * 60_000);
   expect(await runChannelReconcile(s.deps, RUN, { clock: () => t })).toMatchObject({ checked: 2, stoppedEarly: "deadline" });
 });
+
+test("a channel without lookup (SiteMinder) is not reconciled: nothing is looked up, pushed or cancelled", async () => {
+  const s = await confirmed();
+  const { MockChannelManager } = await import("@/lib/channel/mock");
+  const inner = new MockChannelManager();
+  const push = vi.spyOn(inner, "pushReservation");
+  const channel = {
+    timeoutMs: inner.timeoutMs,
+    pushReservation: inner.pushReservation.bind(inner),
+    modifyReservation: inner.modifyReservation.bind(inner),
+    cancelReservation: inner.cancelReservation.bind(inner),
+  };
+  expect(await runChannelReconcile({ ...s.deps, channel }, RUN)).toEqual({
+    checked: 0, repushed: 0, cancelled: 0, lookupErrors: 0, failed: 0, mismatches: [], unsupported: "NO_LOOKUP",
+  });
+  expect(push).not.toHaveBeenCalled();
+});
+
+test("a re-push or cancel waits while another call holds the property's channel lease", async () => {
+  const s = await bookingSetup();
+  const code = await s.book();
+  await handlePaymentNotice(s.deps, await s.notice(code), minutes(1));
+  const { MockChannelManager } = await import("@/lib/channel/mock");
+  const { takePropertyLease } = await import("@/lib/booking/channel-sync");
+  const channel = new MockChannelManager(); // never got it
+  const push = vi.spyOn(channel, "pushReservation");
+  await takePropertyLease(s.db, s.propertyId, RUN);
+  expect(await runChannelReconcile({ ...s.deps, channel }, RUN)).toMatchObject({ checked: 1, repushed: 0, deferred: 1 });
+  expect(push).not.toHaveBeenCalled();
+  expect(await s.reservation(code)).toMatchObject({ syncState: "synced" });
+});

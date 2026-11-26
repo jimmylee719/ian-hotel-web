@@ -1,3 +1,4 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { Deps } from "@/lib/booking/notify";
 import { MockChannelManager } from "@/lib/channel/mock";
 import type { ChannelManager } from "@/lib/channel/types";
@@ -96,7 +97,23 @@ export function buildCoreDeps(env: AppEnv, db: Db, origin: string): CoreDeps {
  * Throws BookingDisabledError while PAYMENT_MODE is unset.
  */
 export async function getDeps(origin: string): Promise<Deps> {
-  return buildDeps(await appEnv(), await getDb(), origin);
+  return withDefer(buildDeps(await appEnv(), await getDb(), origin));
+}
+
+/**
+ * The request's ctx.waitUntil as `deps.defer`, so the channel hand-off a request starts runs after its response.
+ * Outside the Workers runtime (next dev without a context, tests) there is none and the hand-off runs inline.
+ * (waitUntil may stop the work ~30 s after the response; a call cut off that way is like a timeout: the property
+ * lease lapses and the retry job sends it again.)
+ */
+async function withDefer(deps: Deps): Promise<Deps> {
+  try {
+    const { ctx } = await getCloudflareContext({ async: true });
+    if (typeof ctx?.waitUntil === "function") return { ...deps, defer: (work) => ctx.waitUntil(work) };
+  } catch {
+    // No Cloudflare context.
+  }
+  return deps;
 }
 
 export function buildDeps(env: AppEnv, db: Db, origin: string): Deps {
@@ -112,7 +129,7 @@ export function buildDeps(env: AppEnv, db: Db, origin: string): Deps {
  * cancel refunding 0 — the channel cancel then waits in syncState pending for the retry job).
  */
 export async function getOfflineDeps(origin: string): Promise<Deps> {
-  return buildOfflineDeps(await appEnv(), await getDb(), origin);
+  return withDefer(buildOfflineDeps(await appEnv(), await getDb(), origin));
 }
 
 export function buildOfflineDeps(env: AppEnv, db: Db, origin: string): Deps {
@@ -124,7 +141,8 @@ export function buildOfflineDeps(env: AppEnv, db: Db, origin: string): Deps {
  * channel refuse) with `paymentsUnavailable: true`, for staff actions that can run without them.
  */
 export async function getDepsOrOffline(origin: string): Promise<{ deps: Deps; paymentsUnavailable: boolean }> {
-  return buildDepsOrOffline(await appEnv(), await getDb(), origin);
+  const r = buildDepsOrOffline(await appEnv(), await getDb(), origin);
+  return { ...r, deps: await withDefer(r.deps) };
 }
 
 export function buildDepsOrOffline(env: AppEnv, db: Db, origin: string): { deps: Deps; paymentsUnavailable: boolean } {
@@ -183,8 +201,8 @@ const disabledChannel: ChannelManager = {
   async pushReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
   async modifyReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
   async cancelReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
-  async lookupReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
   timeoutMs: 1,
+  disabled: true,
 };
 
 function paymentGateway(env: AppEnv, baseUrl: string): PaymentGateway {

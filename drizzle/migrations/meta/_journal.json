@@ -162,6 +162,13 @@
       "when": 1795611382734,
       "tag": "0022_thin_weapon_omega",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1795711500259,
+      "tag": "0023_sparkling_albert_cleary",
+      "breakpoints": true
     }
   ]
 }

@@ -186,15 +186,16 @@ test("a retryable channel cancel failure is retried by the sync job", async () =
   expect(channel.pushed).toEqual([]);
 });
 
-test("a channel cancel that keeps failing alerts staff and stops retrying", async () => {
+test("a channel cancel refused (not retryable) stops retrying and alerts staff at the next run", async () => {
   const { deps, channel, email, code, reservation } = await confirmedBooking();
   vi.spyOn(channel, "cancelReservation").mockResolvedValue({ ok: false, retryable: false, error: "REJECTED" });
   await cancelReservation(deps, code, GUEST, EARLY);
   const res = await reservation(code);
   expect(res.status).toBe("cancelled");
   expect(res.syncState).toBe("failed");
+  expect(await runSyncRetry(deps, new Date(EARLY.getTime() + 60 * 60_000))).toEqual({ attempted: 0, alerted: [code] });
   expect(email.sent.filter((e) => e.to === STAFF && e.subject.includes("同步"))).toHaveLength(1);
-  expect(await runSyncRetry(deps, new Date(EARLY.getTime() + 60 * 60_000))).toEqual({ attempted: 0 });
+  expect(await runSyncRetry(deps, new Date(EARLY.getTime() + 65 * 60_000))).toEqual({ attempted: 0 });
 });
 
 test("a cancel that crashed after refunding is finished by a later request without refunding twice", async () => {
