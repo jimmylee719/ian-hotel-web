@@ -72,12 +72,13 @@ export class MockChannelManager implements ChannelManager {
   }
 
   /** Idempotent: cancelling a cancelled reservation succeeds; an unknown code or another smConfirmation does not. */
-  async cancelReservation(code: string, smConfirmation: string): Promise<CancelResult> {
+  async cancelReservation(r: ChannelReservation, smConfirmation: string): Promise<CancelResult> {
     return this.call((): CancelResult => {
-      const h = this.held.get(code);
+      const h = this.held.get(r.code);
       const bad = this.refuse(h, smConfirmation);
       if (bad) return bad;
       h!.state = "cancelled";
+      h!.reservation = r;
       return { ok: true, retryable: false };
     });
   }

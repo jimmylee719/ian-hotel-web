@@ -144,8 +144,9 @@ export async function runChannelReconcile(
         }
       } else if (l.found && l.state === "active") {
         // Cancelled (or refunded) here, active there: cancel it under the smConfirmation the channel reported.
-        const r: CancelResult = await deps.channel.cancelReservation(res.code, l.smConfirmation)
-          .catch((e: unknown) => ({ ok: false, retryable: true, error: errorText(e) }));
+        const r: CancelResult = await toChannelReservation(db, res.id)
+          .then((body) => deps.channel.cancelReservation(body, l.smConfirmation))
+          .catch((e: unknown) => ({ ok: false as const, retryable: true, error: errorText(e) }));
         budget.record(r.ok || !r.retryable);
         if (!r.ok) {
           out.failed++;

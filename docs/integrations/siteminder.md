@@ -139,6 +139,14 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
 - **SiteMinder 不會因為取消而自動釋出房量**：除非飯店開了 Auto-Replenishment。房量以 SiteMinder 之後推回來的 `OTA_HotelAvailNotifRQ` 為準 [RES]。
 - **超賣時 SiteMinder 照樣收單**，由飯店和通路自己處理 [RES]。
 
+### 3.5 我們的實作（Task 3，`lib/channel/siteminder/{client,xml,map,errors}.ts`）
+- `CHANNEL_MODE=siteminder`：需要 `SITEMINDER_ENDPOINT`、`SITEMINDER_USERNAME`、`SITEMINDER_PASSWORD`（secrets）和 `SITEMINDER_REQUESTOR_ID`（SiteMinder 給的 channel code），缺任何一個就關閉訂房和通路（`SITEMINDER_NOT_CONFIGURED: <名稱>`）。HotelCode 取唯一一間有 `smPropertyCode` 的館；沒有或不只一間時不送、可重試。`SITEMINDER_HOSTS` 仍是空的，staging／production 會被 config-guard 擋下，要等 SiteMinder 回答 Q3。
+- 新訂單 `Commit`、修改 `Modify`、取消 `Cancel`，每次都帶整筆訂單（所以 `cancelReservation` 改成收整筆 `ChannelReservation`）。UniqueID = 代碼去掉非英數字（`NK-AB12CD` → `NKAB12CD`，Q4）。
+- 折扣分攤到每晚價格（照比例，餘數給小數部分最大的晚上），RoomStay 小計和總額都已扣掉，另在 `ResGlobalInfo/Comments` 寫一句說明；人數平均分到各房，每房至少 1 位成人（Q9）；兒童不帶 Age（我們沒有年齡）；金額是整數字串、只送 AmountAfterTax（Q8）；已付金額見 Q18。特殊需求目前沒有資料（訂房表單沒收，員工備註不送）。
+- `smConfirmation` = RS 的 `HotelReservationID @ResID_Value`；Success 裡沒有這個值時，用我們送的 UniqueID 代替（inferred）。Modify／Cancel 的回應帶了另一個 ResID_Value 時，當成不可重試的失敗（SiteMinder 已經套用了，但對不上，要員工查）。
+- 錯誤分類照 5.1 的表；結構化結果（`detail.kind/httpStatus/type/code/echoToken`）給 `resendAnswer`（Q1）用，不再比對錯誤文字。逾時預設 60 秒（AbortController，請求和讀 body 都算在內）。
+- 每個請求一個新的 UUID EchoToken，寫在 log 和失敗原因（`lastSyncError` 結尾的 `(echo=…)`）裡；log 不含帳密、XML 和顧客資料。
+
 ## 4. 接收 ARI
 
 ### 4.1 `OTA_HotelAvailNotifRQ`（可售數量和限制）[AR]
@@ -381,6 +389,10 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
     - 中文：我們自己定的飯店、房型、方案代碼可以用哪些字元、最長幾碼？有沒有分大小寫？
 17. **Q17（AvailRatesOnly）** `OTA_HotelAvailRQ@AvailRatesOnly="true"` is listed as mandatory. If a Rooms and Rates request arrives without it (or with `false`), should we still return the room and rate list, or an error (which Type/Code)?
     - 中文：Rooms and Rates 請求沒帶 `AvailRatesOnly="true"` 時，要照樣回清單還是回錯誤？（目前照樣回清單。）
+18. **Q18（已付金額的位置）** To tell the hotel how much the guest already paid (no card details), we send `HotelReservation/ResGlobalInfo/DepositPayments/GuaranteePayment/AmountPercent @Amount @CurrencyCode` (your "Deposit Only" sample shows `DepositPayments/GuaranteePayment/AmountPercent` but not its parent). Is `ResGlobalInfo` the right parent, and is a full prepayment sent the same way?
+    - 中文：已付金額放在 `ResGlobalInfo/DepositPayments` 底下對不對？全額預付也這樣送嗎？（[RES] 的範例只有 DepositPayments 這一段，沒有寫上層元素，見 3.3。）
+19. **Q19（SOAPAction）** Which `SOAPAction` HTTP header value does the reservation endpoint expect (SOAP 1.1)? We send `""`.
+    - 中文：推訂單時 HTTP header `SOAPAction` 要帶什麼值？（文件沒寫，目前送 `""`；WSDL 拿到後確認。）
 
 ## 8. 影響設計的發現（給 Task 3、4 實作者）
 

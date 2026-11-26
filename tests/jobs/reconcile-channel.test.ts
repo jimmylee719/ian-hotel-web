@@ -28,7 +28,7 @@ test("a booking cancelled here but active on the channel is cancelled there, und
   const cancel = vi.spyOn(channel, "cancelReservation");
 
   expect(await runChannelReconcile(deps, RUN)).toMatchObject({ checked: 1, cancelled: 1 });
-  expect(cancel).toHaveBeenCalledWith(code, channel.records[0].smConfirmation);
+  expect(cancel).toHaveBeenCalledWith(expect.objectContaining({ code }), channel.records[0].smConfirmation);
   expect(channel.records).toMatchObject([{ code, state: "cancelled" }]);
   expect(await reservation(code)).toMatchObject({ status: "cancelled", syncState: "synced", lastSyncError: null });
 

@@ -22,9 +22,10 @@ const freshCode = () => `NK-C${Date.now().toString(36).toUpperCase()}${(++seq).t
 
 const defaultReservation = (code: string): ChannelReservation => ({
   code, smPropertyCode: "NK", checkIn: "2026-12-01", checkOut: "2026-12-03",
-  rooms: [{ smRoomCode: "MIX", smRatePlanCode: "DIRECT", nightlyPrices: [2000, 2400] }],
+  rooms: [{ smRoomCode: "MIX", smRatePlanCode: "DIRECT", nightlyPrices: [2000, 2400], roomName: "混合房", ratePlanName: "官網價" }],
   guest: { firstName: "Mei", lastName: "Lin", email: "mei@example.com", phone: "+886900000000" },
-  total: 4400, paidAmount: 4400, addons: [],
+  adults: 2, children: 0, currency: "TWD", createdAt: Date.UTC(2026, 10, 20), lastModifiedAt: Date.UTC(2026, 10, 20),
+  total: 4400, paidAmount: 4400, discount: 0, addons: [],
 });
 
 export function channelConformance(make: () => ChannelManager, opts: ChannelConformanceOptions = {}): void {
@@ -49,14 +50,14 @@ export function channelConformance(make: () => ChannelManager, opts: ChannelConf
       const cm = make();
       const { r, smConfirmation } = await pushed(cm);
       expect(await cm.modifyReservation({ ...r, total: r.total + 100 }, smConfirmation)).toEqual({ ok: true, smConfirmation });
-      expect(await cm.cancelReservation(r.code, smConfirmation)).toMatchObject({ ok: true });
+      expect(await cm.cancelReservation(r, smConfirmation)).toMatchObject({ ok: true });
     });
 
     test("2. modify and cancel of an unknown code fail, not retryable", async () => {
       const cm = make();
       const r = reservation(freshCode());
       expect(await cm.modifyReservation(r, "SM-UNKNOWN")).toMatchObject({ ok: false, retryable: false });
-      expect(await cm.cancelReservation(r.code, "SM-UNKNOWN")).toMatchObject({ ok: false, retryable: false });
+      expect(await cm.cancelReservation(r, "SM-UNKNOWN")).toMatchObject({ ok: false, retryable: false });
     });
 
     test("2. modify and cancel with another smConfirmation fail, not retryable", async () => {
@@ -64,7 +65,7 @@ export function channelConformance(make: () => ChannelManager, opts: ChannelConf
       const { r, smConfirmation } = await pushed(cm);
       const wrong = `${smConfirmation}-X`;
       expect(await cm.modifyReservation({ ...r, total: r.total + 100 }, wrong)).toMatchObject({ ok: false, retryable: false });
-      expect(await cm.cancelReservation(r.code, wrong)).toMatchObject({ ok: false, retryable: false });
+      expect(await cm.cancelReservation(r, wrong)).toMatchObject({ ok: false, retryable: false });
       if (cm.lookupReservation) expect(await cm.lookupReservation(r.code)).toEqual({ found: true, smConfirmation, state: "active" });
     });
 
@@ -86,7 +87,7 @@ export function channelConformance(make: () => ChannelManager, opts: ChannelConf
     test("6. a cancelled code never becomes active again", async () => {
       const cm = make();
       const { r, smConfirmation } = await pushed(cm);
-      expect(await cm.cancelReservation(r.code, smConfirmation)).toMatchObject({ ok: true });
+      expect(await cm.cancelReservation(r, smConfirmation)).toMatchObject({ ok: true });
       const again = await cm.pushReservation(r);
       if (!again.ok) expect(again.retryable).toBe(false);
       else expect(again.smConfirmation).toBe(smConfirmation);
@@ -108,7 +109,7 @@ export function channelConformance(make: () => ChannelManager, opts: ChannelConf
       if (!cm.lookupReservation) return ctx.skip();
       expect(await cm.lookupReservation(freshCode())).toEqual({ found: false });
       const { r, smConfirmation } = await pushed(cm);
-      expect(await cm.cancelReservation(r.code, smConfirmation)).toMatchObject({ ok: true });
+      expect(await cm.cancelReservation(r, smConfirmation)).toMatchObject({ ok: true });
       expect([{ found: false }, { found: true, smConfirmation, state: "cancelled" }]).toContainEqual(await cm.lookupReservation(r.code));
     });
   });

@@ -1,8 +1,10 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { Deps } from "@/lib/booking/notify";
 import { MockChannelManager } from "@/lib/channel/mock";
+import { SiteMinderChannelManager } from "@/lib/channel/siteminder/client";
 import type { ChannelManager } from "@/lib/channel/types";
 import { getDb } from "@/lib/db/client";
+import { properties } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 import { MockEmailSender } from "@/lib/email/mock";
 import { ResendEmailSender, withPrefix } from "@/lib/email/resend";
@@ -33,7 +35,8 @@ export class BookingDisabledError extends Error {
  * env.staging / env.production set "staging" / "production", and unset or mistyped values count as neither), so
  * mock payments can never serve staging or production. In "preview" the mock modes are the only ones allowed and
  * MOCK_PAYMENT_SECRET must be set (the default secret is public, so anyone could forge a paid notice with it).
- * Staging and production need BASE_URL. (The reason code MOCK_MODE_IN_PRODUCTION keeps its historical name.)
+ * Staging and production need BASE_URL; CHANNEL_MODE=siteminder needs every SITEMINDER_SETTINGS value (siteMinderNotConfigured).
+ * (The reason code MOCK_MODE_IN_PRODUCTION keeps its historical name.)
  */
 export function bookingDisabledReason(env: AppEnv): string | null {
   if (!env.PAYMENT_MODE) return "PAYMENT_MODE_NOT_SET";
@@ -43,7 +46,7 @@ export function bookingDisabledReason(env: AppEnv): string | null {
     if (env.PAYMENT_MODE !== "mock" || env.CHANNEL_MODE !== "mock") return "REAL_MODE_IN_PREVIEW";
     if (!env.MOCK_PAYMENT_SECRET) return "MOCK_PAYMENT_SECRET_NOT_SET";
   }
-  return baseUrlMissingReason(env);
+  return baseUrlMissingReason(env) ?? siteMinderNotConfigured(env);
 }
 
 /**
@@ -120,7 +123,7 @@ export function buildDeps(env: AppEnv, db: Db, origin: string): Deps {
   const reason = bookingDisabledReason(env);
   if (reason) throw new BookingDisabledError(reason);
   const core = buildCoreDeps(env, db, origin);
-  return { ...core, gateway: paymentGateway(env, core.baseUrl), channel: channelManager(env) };
+  return { ...core, gateway: paymentGateway(env, core.baseUrl), channel: channelManager(env, db) };
 }
 
 /**
@@ -141,10 +144,9 @@ export function buildOfflineDeps(env: AppEnv, db: Db, origin: string): Deps {
  * real channel on the preview. Payments do not matter (a channel hand-off moves no money).
  */
 export function channelDisabledReason(env: AppEnv): string | null {
-  if (!env.CHANNEL_MODE) return "CHANNEL_MODE_NOT_SET";
   if (env.CHANNEL_MODE === "mock" && !isMockEnvironment(env.ENVIRONMENT)) return "MOCK_MODE_IN_PRODUCTION";
   if (environmentOf(env) === "preview" && env.CHANNEL_MODE !== "mock") return "REAL_MODE_IN_PREVIEW";
-  return null;
+  return siteMinderNotConfigured(env);
 }
 
 /**
@@ -155,7 +157,7 @@ export function channelDisabledReason(env: AppEnv): string | null {
 export function buildChannelDeps(env: AppEnv, db: Db, origin: string): Deps {
   const reason = channelDisabledReason(env);
   if (reason) throw new BookingDisabledError(reason);
-  return { ...buildCoreDeps(env, db, origin), gateway: disabledGateway, channel: channelManager(env) };
+  return { ...buildCoreDeps(env, db, origin), gateway: disabledGateway, channel: channelManager(env, db) };
 }
 
 export async function getChannelDeps(origin: string): Promise<Deps> {
@@ -201,7 +203,7 @@ export function buildScheduledDeps(env: AppEnv, db: Db): ScheduledDeps {
   if (!syncSkipReason) {
     try {
       gateway = paymentGateway(env, core.baseUrl);
-      channel = channelManager(env);
+      channel = channelManager(env, db);
     } catch (e) {
       log.error("scheduled: payment/channel config failed; sync retry is off", e);
       gateway = disabledGateway;
@@ -245,15 +247,50 @@ function paymentGateway(env: AppEnv, baseUrl: string): PaymentGateway {
   }
 }
 
-function channelManager(env: AppEnv): ChannelManager {
+/** What CHANNEL_MODE=siteminder needs (names only; values are secrets or vars, never logged). */
+export const SITEMINDER_SETTINGS = ["SITEMINDER_ENDPOINT", "SITEMINDER_USERNAME", "SITEMINDER_PASSWORD", "SITEMINDER_REQUESTOR_ID"] as const;
+
+/**
+ * With CHANNEL_MODE=siteminder: why the adapter cannot be built ("SITEMINDER_NOT_CONFIGURED: <missing names>"), or
+ * null. Fails closed: booking and the channel stay off until every setting is there. (Where the endpoint may point
+ * is config-guard's job: SITEMINDER_HOSTS stays empty until SiteMinder confirms its hosts, SITEMINDER-OPEN-Q3, so
+ * staging and production refuse to run with one set.)
+ */
+export function siteMinderNotConfigured(env: AppEnv): string | null {
+  if (env.CHANNEL_MODE !== "siteminder") return null;
+  const missing = SITEMINDER_SETTINGS.filter((name) => !env[name]?.trim());
+  return missing.length ? `SITEMINDER_NOT_CONFIGURED: ${missing.join(", ")} not set` : null;
+}
+
+/**
+ * The HotelCode the SiteMinder adapter sends: the smPropertyCode of the one property that has one (one hotel per
+ * set of credentials). None, or several, is our configuration problem: the call is not made and is retried.
+ */
+export async function propertyHotelCode(db: Db): Promise<string> {
+  const codes = (await db.select({ code: properties.smPropertyCode }).from(properties))
+    .map((p) => p.code?.trim() ?? "").filter(Boolean);
+  if (codes.length !== 1) throw new Error(codes.length ? "SITEMINDER_SEVERAL_HOTEL_CODES" : "SITEMINDER_HOTEL_CODE_NOT_SET");
+  return codes[0];
+}
+
+function channelManager(env: AppEnv, db: Db): ChannelManager {
   switch (env.CHANNEL_MODE) {
     case undefined:
     case "":
       throw new BookingDisabledError("CHANNEL_MODE_NOT_SET");
     case "mock":
       return new MockChannelManager();
-    case "siteminder":
-      throw new Error("SITEMINDER_NOT_CONFIGURED"); // Plan 4
+    case "siteminder": {
+      const missing = siteMinderNotConfigured(env);
+      if (missing) throw new BookingDisabledError(missing);
+      return new SiteMinderChannelManager({
+        endpoint: env.SITEMINDER_ENDPOINT!.trim(),
+        username: env.SITEMINDER_USERNAME!,
+        password: env.SITEMINDER_PASSWORD!,
+        requestorId: env.SITEMINDER_REQUESTOR_ID!.trim(),
+        hotelCode: () => propertyHotelCode(db),
+      });
+    }
     default:
       throw new Error(`UNKNOWN_CHANNEL_MODE: ${env.CHANNEL_MODE}`);
   }

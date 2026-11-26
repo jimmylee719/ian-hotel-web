@@ -1,10 +1,14 @@
 import { expect, test, vi } from "vitest";
 import { MockChannelManager } from "@/lib/channel/mock";
+import { SiteMinderChannelManager } from "@/lib/channel/siteminder/client";
+import { properties } from "@/lib/db/schema";
+import { seedNk } from "@/lib/db/seed-nk";
 import { MockEmailSender } from "@/lib/email/mock";
 import { ResendEmailSender } from "@/lib/email/resend";
 import { MockSinoPacGateway } from "@/lib/payments/mock-sinopac";
 import {
-  BookingDisabledError, buildChannelDeps, buildCoreDeps, buildDeps, buildScheduledDeps, bookingDisabledReason, paymentsConfigured,
+  BookingDisabledError, buildChannelDeps, buildCoreDeps, buildDeps, buildScheduledDeps, bookingDisabledReason, channelDisabledReason,
+  paymentsConfigured, propertyHotelCode,
 } from "@/lib/runtime/deps";
 import { createTestDb } from "@/tests/helpers/test-db";
 
@@ -46,7 +50,7 @@ test("ENVIRONMENT=production refuses the mock modes", () => {
   expect(bookingDisabledReason({ ...base, ENVIRONMENT: "local" })).toBeNull();
 });
 
-test("sinopac and siteminder are not available yet; PAYMENT_MODE must be set", () => {
+test("sinopac is not available yet; siteminder needs its settings; PAYMENT_MODE must be set", () => {
   expect(() => buildDeps({ ...base, PAYMENT_MODE: "sinopac" }, db, "http://x")).toThrow("SINOPAC_NOT_CONFIGURED");
   expect(() => buildDeps({ ...base, CHANNEL_MODE: "siteminder" }, db, "http://x")).toThrow("SITEMINDER_NOT_CONFIGURED");
   expect(() => buildDeps({ CHANNEL_MODE: "mock" }, db, "http://x")).toThrow("PAYMENT_MODE_NOT_SET");
@@ -95,7 +99,8 @@ test("ENVIRONMENT=production requires BASE_URL: booking is off and the cron neve
   expect(bookingDisabledReason(prod)).toBe("BASE_URL_NOT_SET");
   expect(() => buildDeps(prod, db, "https://nkhostel.com")).toThrow("BASE_URL_NOT_SET");
   expect(() => buildDeps(prod, db, "https://nkhostel.com")).toThrow(BookingDisabledError);
-  expect(bookingDisabledReason({ ...prod, BASE_URL: "https://nkhostel.com" })).toBeNull();
+  expect(bookingDisabledReason({ ...prod, BASE_URL: "https://nkhostel.com" })).toMatch(/^SITEMINDER_NOT_CONFIGURED/);
+  expect(bookingDisabledReason({ ...prod, BASE_URL: "https://nkhostel.com", ...SM })).toBeNull();
 
   const cron = buildScheduledDeps({ ENVIRONMENT: "production" }, db);
   expect(cron.baseUrl).not.toContain("localhost");
@@ -133,4 +138,76 @@ test("channel-only deps (manual channel retry) need the channel, not payments", 
   expect(reason({ PAYMENT_MODE: "mock", ENVIRONMENT: "local" })).toBe("CHANNEL_MODE_NOT_SET");
   expect(reason({ CHANNEL_MODE: "mock", ENVIRONMENT: "production" })).toBe("MOCK_MODE_IN_PRODUCTION");
   expect(reason({ CHANNEL_MODE: "siteminder", ENVIRONMENT: "preview" })).toBe("REAL_MODE_IN_PREVIEW");
+});
+
+const SM = {
+  SITEMINDER_ENDPOINT: "https://siteminder.test/reservation-gateway/services", SITEMINDER_USERNAME: "fake-user",
+  SITEMINDER_PASSWORD: "Fake-Passw0rd!2026", SITEMINDER_REQUESTOR_ID: "NKDIRECT",
+};
+
+test("CHANNEL_MODE=siteminder with every setting builds the SiteMinder adapter", () => {
+  const env = { ...base, CHANNEL_MODE: "siteminder", ...SM };
+  expect(bookingDisabledReason(env)).toBeNull();
+  expect(buildDeps(env, db, "http://x").channel).toBeInstanceOf(SiteMinderChannelManager);
+  expect(buildChannelDeps(env, db, "http://x").channel).toBeInstanceOf(SiteMinderChannelManager);
+  expect(buildScheduledDeps(env, db)).toMatchObject({ syncSkipReason: null });
+  expect(buildScheduledDeps(env, db).channel).toBeInstanceOf(SiteMinderChannelManager);
+});
+
+test("CHANNEL_MODE=siteminder fails closed while a setting is missing, naming it (never its value)", () => {
+  for (const name of Object.keys(SM) as (keyof typeof SM)[]) {
+    const env = { ...base, CHANNEL_MODE: "siteminder", ...SM, [name]: " " };
+    const want = `SITEMINDER_NOT_CONFIGURED: ${name} not set`;
+    expect(bookingDisabledReason(env)).toBe(want);
+    expect(channelDisabledReason(env)).toBe(want);
+    expect(() => buildDeps(env, db, "http://x")).toThrow(BookingDisabledError);
+    expect(() => buildChannelDeps(env, db, "http://x")).toThrow(want);
+    const cron = buildScheduledDeps(env, db);
+    expect(cron.syncSkipReason).toBe(want);
+    expect(cron.channel.disabled).toBe(true);
+  }
+  const none = { ...base, CHANNEL_MODE: "siteminder" };
+  expect(bookingDisabledReason(none)).toBe(
+    "SITEMINDER_NOT_CONFIGURED: SITEMINDER_ENDPOINT, SITEMINDER_USERNAME, SITEMINDER_PASSWORD, SITEMINDER_REQUESTOR_ID not set");
+  expect(bookingDisabledReason({ ...none, ...SM })).toBeNull();
+  // The preview stays mock-only, whatever is set.
+  expect(channelDisabledReason({ CHANNEL_MODE: "siteminder", ENVIRONMENT: "preview", ...SM })).toBe("REAL_MODE_IN_PREVIEW");
+});
+
+test("the HotelCode is the one property's smPropertyCode; none or several is refused", async () => {
+  const d = createTestDb();
+  await expect(propertyHotelCode(d)).rejects.toThrow("SITEMINDER_HOTEL_CODE_NOT_SET");
+  await seedNk(d);
+  expect(await propertyHotelCode(d)).toBe("NKHOSTEL");
+  await d.insert(properties).values({
+    id: "p2", slug: "other", type: "hotel", name: { "zh-TW": "另一館", en: "Other", ja: "Other", ko: "Other" }, timezone: "Asia/Taipei",
+    currency: "TWD", address: { "zh-TW": "", en: "", ja: "", ko: "" }, phone: "", email: "", smPropertyCode: "OTHER", createdAt: 0,
+  });
+  await expect(propertyHotelCode(d)).rejects.toThrow("SITEMINDER_SEVERAL_HOTEL_CODES");
+});
+
+test("the wired adapter sends the property's HotelCode and, without one, sends nothing and retries", async () => {
+  const d = createTestDb();
+  const calls: string[] = [];
+  const env = { ...base, CHANNEL_MODE: "siteminder", ...SM };
+  const channel = buildDeps(env, d, "http://x").channel as SiteMinderChannelManager;
+  // No property code yet: not sent, retryable.
+  const r = {
+    code: "NK-AB12CD", smPropertyCode: "", checkIn: "2026-12-01", checkOut: "2026-12-02",
+    rooms: [{ smRoomCode: "MIXEDCUBE", smRatePlanCode: "DIRECTFLEX", nightlyPrices: [2000], roomName: "r", ratePlanName: "p" }],
+    guest: { firstName: "M", lastName: "L", email: "m@example.com", phone: "" }, adults: 1, children: 0, currency: "TWD",
+    createdAt: 0, lastModifiedAt: 0, total: 2000, paidAmount: 0, discount: 0, addons: [],
+  };
+  const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_u, init) => {
+    calls.push(String(init?.body));
+    return new Response("unavailable", { status: 503 });
+  });
+  expect(await channel.pushReservation(r)).toMatchObject({ ok: false, retryable: true, error: "SITEMINDER_HOTEL_CODE_NOT_SET" });
+  expect(calls).toHaveLength(0);
+  await seedNk(d);
+  expect(await channel.pushReservation({ ...r, smPropertyCode: "NKHOSTEL" })).toMatchObject({ ok: false, retryable: true, detail: { kind: "http", httpStatus: 503 } });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toContain('<BasicPropertyInfo HotelCode="NKHOSTEL"/>');
+  expect(calls[0]).toContain('<RequestorID Type="22" ID="NKDIRECT"/>');
+  fetchSpy.mockRestore();
 });

@@ -175,11 +175,9 @@ async function syncStep(deps: Deps, res: Reservation, now: Date): Promise<SyncOu
 
   let r: PushResult | CancelResult;
   try {
-    if (action === "cancel") r = await deps.channel.cancelReservation(res.code, res.smConfirmation!);
-    else {
-      const body = await toChannelReservation(db, res.id);
-      r = action === "push" ? await deps.channel.pushReservation(body) : await deps.channel.modifyReservation(body, res.smConfirmation!);
-    }
+    const body = await toChannelReservation(db, res.id);
+    if (action === "cancel") r = await deps.channel.cancelReservation(body, res.smConfirmation!);
+    else r = action === "push" ? await deps.channel.pushReservation(body) : await deps.channel.modifyReservation(body, res.smConfirmation!);
   } catch (e) {
     r = { ok: false, retryable: true, error: errorText(e) };
   }
@@ -234,15 +232,28 @@ async function syncStep(deps: Deps, res: Reservation, now: Date): Promise<SyncOu
 }
 
 /**
+ * SITEMINDER-OPEN-Q1: the channel answers that would mean "this UniqueID is already held" when a push is resent.
+ * The docs say only that a UniqueID sent again is ignored ([REQ][RES]); [HTTP] reads 409 as a duplicate. When
+ * SiteMinder answers Q1, put its HTTP status or OTA Error Code here (matched on the adapter's structured detail).
+ */
+export const RESEND_ALREADY_HELD: { readonly httpStatuses: readonly number[]; readonly otaCodes: readonly number[] } = {
+  httpStatuses: [409],
+  otaCodes: [],
+};
+
+/**
  * SITEMINDER-OPEN-Q1, in one place: what the channel's answer to a resent push (the same UniqueID again) means.
  * Assumed now: a success carries the smConfirmation of the reservation the channel already holds (possibly an older
- * version: the caller follows a live booking with a modify), and any error is taken as it comes. If SiteMinder
- * answers a known UniqueID with an "already exists" error (e.g. HTTP 409) instead, map it here to a success with the
- * smConfirmation that answer carries, or, without one, to the refusal below (staff then check SiteMinder by hand).
+ * version: the caller follows a live booking with a modify), and any error is taken as it comes, except an
+ * "already held" answer (RESEND_ALREADY_HELD, read from the adapter's structured `detail`, never from the error
+ * text): it carries no smConfirmation, so it becomes the refusal below (staff then check SiteMinder by hand).
  */
 export function resendAnswer(r: PushResult): PushResult {
   if (r.ok) return r;
-  if (/\b409\b|ALREADY[_ ]EXISTS|DUPLICATE/i.test(r.error))
-    return { ok: false, retryable: false, error: `RESEND_ALREADY_HELD_NO_CONFIRMATION: ${r.error}` };
+  const d = r.detail;
+  const held = d !== undefined && (
+    (d.httpStatus !== undefined && RESEND_ALREADY_HELD.httpStatuses.includes(d.httpStatus))
+    || (d.kind === "ota" && d.code !== undefined && RESEND_ALREADY_HELD.otaCodes.includes(d.code)));
+  if (held) return { ...r, retryable: false, error: `RESEND_ALREADY_HELD_NO_CONFIRMATION: ${r.error}` };
   return r;
 }

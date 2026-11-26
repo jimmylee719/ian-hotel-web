@@ -37,8 +37,8 @@ class GatedChannel extends MockChannelManager {
   override pushReservation(r: ChannelReservation) {
     return this.gated(() => super.pushReservation(r));
   }
-  override cancelReservation(code: string, sm: string): Promise<CancelResult> {
-    return this.gated(() => super.cancelReservation(code, sm));
+  override cancelReservation(r: ChannelReservation, sm: string): Promise<CancelResult> {
+    return this.gated(() => super.cancelReservation(r, sm));
   }
   /** Let the oldest waiting call answer (as the mock would, or with `r`). */
   async open(r?: PushResult) {
@@ -236,7 +236,7 @@ test("a cancel after a push whose answer was lost re-sends the same code first, 
   const sm = channel.records[0].smConfirmation;
   expect(push).toHaveBeenCalledTimes(2);
   expect(push.mock.calls[1][0].code).toBe(code);
-  expect(cancel).toHaveBeenCalledWith(code, sm);
+  expect(cancel).toHaveBeenCalledWith(expect.objectContaining({ code }), sm);
   expect(await reservation(code)).toMatchObject({ status: "cancelled", syncState: "synced", smConfirmation: sm });
   expect(channel.records).toEqual([{ code, smConfirmation: sm, state: "cancelled" }]);
 });
@@ -409,8 +409,15 @@ test("a push that landed but timed out, then a staff change: the resend is follo
 test("a resend answered 'already exists' without a confirmation stops for staff (SITEMINDER-OPEN-Q1)", () => {
   expect(resendAnswer({ ok: true, smConfirmation: "SM-1" })).toEqual({ ok: true, smConfirmation: "SM-1" });
   expect(resendAnswer({ ok: false, retryable: true, error: "TIMEOUT" })).toEqual({ ok: false, retryable: true, error: "TIMEOUT" });
-  expect(resendAnswer({ ok: false, retryable: false, error: "HTTP 409" }))
-    .toEqual({ ok: false, retryable: false, error: "RESEND_ALREADY_HELD_NO_CONFIRMATION: HTTP 409" });
+  // Read from the adapter's structured detail, never from the error text.
+  const http409 = { ok: false as const, retryable: false, error: "SITEMINDER_HTTP_409", detail: { kind: "http" as const, httpStatus: 409 } };
+  expect(resendAnswer(http409)).toEqual({ ...http409, error: "RESEND_ALREADY_HELD_NO_CONFIRMATION: SITEMINDER_HTTP_409" });
+  expect(resendAnswer({ ok: false, retryable: false, error: "HTTP 409 ALREADY_EXISTS DUPLICATE" }))
+    .toEqual({ ok: false, retryable: false, error: "HTTP 409 ALREADY_EXISTS DUPLICATE" });
+  const http503 = { ok: false as const, retryable: true, error: "SITEMINDER_HTTP_503", detail: { kind: "http" as const, httpStatus: 503 } };
+  expect(resendAnswer(http503)).toEqual(http503);
+  const ota = { ok: false as const, retryable: false, error: "SITEMINDER_ERROR type=6: Hotel not found", detail: { kind: "ota" as const, type: 6 } };
+  expect(resendAnswer(ota)).toEqual(ota);
 });
 
 test("a first push refused outright is not counted as pushed: a later cancel sends nothing", async () => {

@@ -57,7 +57,7 @@ test("a push that reached the channel but timed out is recovered by sending the 
   expect(modify).toHaveBeenCalledWith(expect.objectContaining({ code }), held.smConfirmation);
   expect(await reservation(code)).toMatchObject({ syncState: "synced", smConfirmation: held.smConfirmation });
   expect(await cancelReservation(deps, code, "mei@example.com", minutes(9))).toMatchObject({ ok: true });
-  expect(cancel).toHaveBeenCalledWith(code, held.smConfirmation);
+  expect(cancel).toHaveBeenCalledWith(expect.objectContaining({ code }), held.smConfirmation);
   expect(await reservation(code)).toMatchObject({ status: "cancelled", syncState: "synced" });
   expect(channel.records).toEqual([{ code, smConfirmation: held.smConfirmation, state: "cancelled" }]);
 });
@@ -79,7 +79,7 @@ test("a booking the earlier design refunded after push attempts is sent again, t
 
   const cancel = vi.spyOn(channel, "cancelReservation");
   expect(await runSyncRetry(deps, minutes(30))).toEqual({ attempted: 1 });
-  expect(cancel).toHaveBeenCalledWith(code, channel.records[0].smConfirmation);
+  expect(cancel).toHaveBeenCalledWith(expect.objectContaining({ code }), channel.records[0].smConfirmation);
   expect(channel.records).toMatchObject([{ code, state: "cancelled" }]);
   expect(await reservation(code)).toMatchObject({ status: "confirm_failed_refunded", syncState: "synced", nextSyncAt: null, lastSyncError: "TIMEOUT" });
   expect(await runSyncRetry(deps, minutes(60))).toEqual({ attempted: 0 });

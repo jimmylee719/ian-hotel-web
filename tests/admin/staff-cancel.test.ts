@@ -121,7 +121,7 @@ test("cancelling during the stay releases only tonight and later; after check-ou
   expect(await staffCancel(b.deps, b.frontDesk, b.id, opts(), AFTER_CHECKOUT)).toEqual({ ok: true, refunded: 0, alreadyCancelled: false });
   expect(await b.avail("2026-12-10")).toBe(2);
   expect(await b.avail("2026-12-11")).toBe(2);
-  expect(cancel).toHaveBeenCalledWith(b.code, expect.stringMatching(/^SM-/));
+  expect(cancel).toHaveBeenCalledWith(expect.objectContaining({ code: b.code }), expect.stringMatching(/^SM-/));
 });
 
 test("another property's booking is NOT_FOUND, revealing nothing", async () => {
