@@ -208,7 +208,7 @@ test("a re-push or cancel waits while another call holds the property's channel 
   const { takePropertyLease } = await import("@/lib/booking/channel-sync");
   const channel = new MockChannelManager(); // never got it
   const push = vi.spyOn(channel, "pushReservation");
-  await takePropertyLease(s.db, s.propertyId, RUN);
+  await takePropertyLease(s.db, s.propertyId); // held now, by the real clock
   expect(await runChannelReconcile({ ...s.deps, channel }, RUN)).toMatchObject({ checked: 1, repushed: 0, deferred: 1 });
   expect(push).not.toHaveBeenCalled();
   expect(await s.reservation(code)).toMatchObject({ syncState: "synced" });

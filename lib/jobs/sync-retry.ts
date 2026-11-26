@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, isNull, lte, notExists, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, notExists, or, sql } from "drizzle-orm";
 import { CHANNEL_ALERT_AFTER, CHANNEL_SYNC_STATUSES, syncWithChannel } from "@/lib/booking/channel-sync";
 import { confirmPaid } from "@/lib/booking/confirm";
 import { notifyStaff, type Deps } from "@/lib/booking/notify";
@@ -66,7 +66,8 @@ export async function runSyncRetry(deps: Deps, now: Date, o: { clock?: () => num
 }
 
 /**
- * Tell staff (staff_sync_failed) about each direct booking whose channel copy is not up to date and is not getting
+ * Tell staff (staff_sync_failed) about each direct booking (confirmed, cancelled, or a refunded one the earlier design
+ * had pushed) whose channel copy is not up to date and is not getting
  * there by itself: CHANNEL_ALERT_AFTER (3) or more failed hand-offs in a row, or a non-retryable failure (syncState
  * failed: it waits for a staff retry). Once per booking per Taipei day (ref `channel-unsynced:<date>`), for as long
  * as it stays so: never given up silently. Returns the codes alerted (the cron also alerts ops about them).
@@ -76,7 +77,11 @@ export async function alertUnsynced(deps: Deps, now: Date): Promise<string[]> {
   const rows = await deps.db.select({ id: reservations.id, code: reservations.code }).from(reservations)
     .where(and(
       eq(reservations.channel, "direct"),
-      inArray(reservations.status, ["confirmed", "cancelled"]),
+      // Live and cancelled bookings; a refunded one only if the earlier design pushed it (it may be at the channel).
+      or(
+        inArray(reservations.status, ["confirmed", "cancelled"]),
+        and(eq(reservations.status, "confirm_failed_refunded"), isNotNull(reservations.channelPushedAt)),
+      ),
       or(
         and(eq(reservations.syncState, "pending"), gte(reservations.syncAttempts, CHANNEL_ALERT_AFTER)),
         eq(reservations.syncState, "failed"),

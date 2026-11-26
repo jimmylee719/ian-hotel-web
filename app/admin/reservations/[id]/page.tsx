@@ -112,7 +112,7 @@ export default async function Page({
         <div className="adm-alert" role="status">
           <strong>尚未同步到 SiteMinder</strong>
           <p className="adm-muted">
-            {r.status === "cancelled" ? "這筆取消還沒送到 SiteMinder。" : "這筆訂單還沒（或修改還沒）送到 SiteMinder，OTA 端可能仍可售出這些房間。"}
+            {r.status === "confirmed" ? "這筆訂單還沒（或修改還沒）送到 SiteMinder，OTA 端可能仍可售出這些房間。" : "這筆取消還沒送到 SiteMinder。"}
             {r.syncState === "failed"
               ? "上次的錯誤不會自動重試，請排除原因後按「重試同步」。"
               : r.syncAttempts > 0 ? `已失敗 ${r.syncAttempts} 次，系統會繼續自動重試。` : "系統會在背景送出。"}

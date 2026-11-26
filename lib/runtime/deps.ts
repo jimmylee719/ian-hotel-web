@@ -137,6 +137,32 @@ export function buildOfflineDeps(env: AppEnv, db: Db, origin: string): Deps {
 }
 
 /**
+ * Why the channel cannot be used here, or null: CHANNEL_MODE unset, the mock channel outside local / preview, or a
+ * real channel on the preview. Payments do not matter (a channel hand-off moves no money).
+ */
+export function channelDisabledReason(env: AppEnv): string | null {
+  if (!env.CHANNEL_MODE) return "CHANNEL_MODE_NOT_SET";
+  if (env.CHANNEL_MODE === "mock" && !isMockEnvironment(env.ENVIRONMENT)) return "MOCK_MODE_IN_PRODUCTION";
+  if (environmentOf(env) === "preview" && env.CHANNEL_MODE !== "mock") return "REAL_MODE_IN_PREVIEW";
+  return null;
+}
+
+/**
+ * Deps for a channel-only action (staff's manual channel retry): the email deps and the channel, with the payment
+ * gateway refusing, so it works while PAYMENT_MODE is unset. Throws BookingDisabledError (channelDisabledReason)
+ * when the channel itself is unavailable, or the channel builder's error (e.g. SITEMINDER_NOT_CONFIGURED).
+ */
+export function buildChannelDeps(env: AppEnv, db: Db, origin: string): Deps {
+  const reason = channelDisabledReason(env);
+  if (reason) throw new BookingDisabledError(reason);
+  return { ...buildCoreDeps(env, db, origin), gateway: disabledGateway, channel: channelManager(env) };
+}
+
+export async function getChannelDeps(origin: string): Promise<Deps> {
+  return buildChannelDeps(await appEnv(), await getDb(), origin);
+}
+
+/**
  * The full deps when online payments are configured, else the offline ones (db and email only; the gateway and
  * channel refuse) with `paymentsUnavailable: true`, for staff actions that can run without them.
  */

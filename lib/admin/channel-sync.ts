@@ -8,12 +8,14 @@ import type { StaffContext } from "./auth";
 import { can } from "./permissions";
 
 /**
- * A direct booking whose channel copy is not up to date: confirmed or cancelled here, its hand-off still pending
- * (queued or retrying) or stopped (failed). The admin reservation page shows 「尚未同步到 SiteMinder」 for it.
+ * A direct booking whose channel copy is not up to date: confirmed or cancelled here (or refunded after the earlier
+ * design had pushed it: channelPushedAt set), its hand-off still pending (queued or retrying) or stopped (failed).
+ * The admin reservation page shows 「尚未同步到 SiteMinder」 for it. A booking refunded before any push (syncState
+ * failed, never pushed) is not: nothing of it is at the channel.
  */
-export function unsyncedWithChannel(r: { channel: string; status: string; syncState: string }): boolean {
-  return r.channel === "direct" && (r.status === "confirmed" || r.status === "cancelled")
-    && (r.syncState === "pending" || r.syncState === "failed");
+export function unsyncedWithChannel(r: { channel: string; status: string; syncState: string; channelPushedAt: number | null }): boolean {
+  const tracked = r.status === "confirmed" || r.status === "cancelled" || (r.status === "confirm_failed_refunded" && r.channelPushedAt != null);
+  return r.channel === "direct" && tracked && (r.syncState === "pending" || r.syncState === "failed");
 }
 
 export type RetryChannelSyncResult =

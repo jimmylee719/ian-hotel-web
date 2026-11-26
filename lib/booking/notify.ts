@@ -27,6 +27,8 @@ export type Deps = {
    * (lib/booking/channel-sync.ts kickChannelSync). Unset (jobs, tests): the hand-off runs inline.
    */
   defer?: (work: Promise<unknown>) => void;
+  /** The real clock for channel leases (lib/booking/channel-sync.ts); default Date.now. Tests inject one. */
+  clock?: () => number;
 };
 
 const STAFF_LOCALE: Locale = "zh-TW";

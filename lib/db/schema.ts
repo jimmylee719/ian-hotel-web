@@ -206,6 +206,8 @@ export const reservations = sqliteTable(
      * so a cancel must reach it. Null = never sent: a cancel then sends nothing (lib/booking/channel-sync.ts).
      */
     channelPushedAt: integer("channel_pushed_at"),
+    /** Epoch ms of the latest channel hand-off failure (retryable or not); what the dashboard's sync_failed alert dates from. */
+    lastSyncAt: integer("last_sync_at"),
   },
   (t) => [
     index("reservations_property_checkin").on(t.propertyId, t.checkIn),

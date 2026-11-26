@@ -2,17 +2,19 @@ import { and, eq } from "drizzle-orm";
 import { expect, test, vi } from "vitest";
 import type { StaffContext } from "@/lib/admin/auth";
 import { applyModification, previewModification } from "@/lib/admin/modify";
-import { retryChannelSync } from "@/lib/admin/channel-sync";
+import { retryChannelSync, unsyncedWithChannel } from "@/lib/admin/channel-sync";
+import { getDashboard } from "@/lib/admin/dashboard";
 import {
-  CHANNEL_ALERT_AFTER, releasePropertyLease, retryDelayMs, SYNC_LEASE_MS, syncWithChannel, takePropertyLease,
+  CHANNEL_ALERT_AFTER, releasePropertyLease, renewPropertyLease, resendAnswer, retryDelayMs, SYNC_LEASE_MS, syncWithChannel,
+  takePropertyLease,
 } from "@/lib/booking/channel-sync";
 import { cancelReservation } from "@/lib/booking/manage";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { MockChannelManager } from "@/lib/channel/mock";
 import { CHANNEL_MAX_TIMEOUT_MS, type CancelResult, type ChannelReservation, type PushResult } from "@/lib/channel/types";
-import { notifications, payments, staff } from "@/lib/db/schema";
+import { notifications, payments, reservations, staff } from "@/lib/db/schema";
 import { runSyncRetry, SYNC_RUN_BUDGET_MS } from "@/lib/jobs/sync-retry";
-import { bookingSetup, minutes, STAFF } from "@/tests/helpers/booking";
+import { bookingSetup, minutes, PAY_NOW, STAFF } from "@/tests/helpers/booking";
 
 const GUEST = "mei@example.com";
 const tick = () => new Promise((r) => setImmediate(r));
@@ -184,17 +186,18 @@ test("one channel call in flight per property: a second booking waits for the fi
 test("the property lease: one holder at a time, taken over once it lapses, released only by its holder", async () => {
   const { db, propertyId } = await bookingSetup();
   expect(SYNC_LEASE_MS).toBeGreaterThanOrEqual(CHANNEL_MAX_TIMEOUT_MS + 30_000);
-  const h1 = await takePropertyLease(db, propertyId, minutes(0));
+  const at = (d: Date) => () => d.getTime();
+  const h1 = await takePropertyLease(db, propertyId, at(minutes(0)));
   expect(h1).toEqual(expect.any(String));
-  expect(await takePropertyLease(db, propertyId, minutes(1))).toBeNull();
-  expect(await takePropertyLease(db, "prop-other", minutes(1))).toEqual(expect.any(String)); // another hotel is not blocked
+  expect(await takePropertyLease(db, propertyId, at(minutes(1)))).toBeNull();
+  expect(await takePropertyLease(db, "prop-other", at(minutes(1)))).toEqual(expect.any(String)); // another hotel is not blocked
   await releasePropertyLease(db, propertyId, "someone-else");
-  expect(await takePropertyLease(db, propertyId, minutes(1))).toBeNull();
-  const h2 = await takePropertyLease(db, propertyId, new Date(minutes(0).getTime() + SYNC_LEASE_MS));
+  expect(await takePropertyLease(db, propertyId, at(minutes(1)))).toBeNull();
+  const h2 = await takePropertyLease(db, propertyId, at(new Date(minutes(0).getTime() + SYNC_LEASE_MS)));
   expect(h2).toEqual(expect.any(String));
   expect(h2).not.toBe(h1);
   await releasePropertyLease(db, propertyId, h2!);
-  expect(await takePropertyLease(db, propertyId, minutes(4))).toEqual(expect.any(String));
+  expect(await takePropertyLease(db, propertyId, at(minutes(4)))).toEqual(expect.any(String));
 });
 
 test("a cancel of a booking never pushed sends nothing to the channel", async () => {
@@ -238,7 +241,7 @@ test("a cancel after a push whose answer was lost re-sends the same code first, 
   expect(channel.records).toEqual([{ code, smConfirmation: sm, state: "cancelled" }]);
 });
 
-test("a staff change before the first push is sent as that push (Commit), never as a modify", async () => {
+test("a staff change before the first push goes out with that push (Commit); a modify only ever follows a successful push", async () => {
   const { db, deps, channel, book, reservation, notice, propertyId } = await bookingSetup({
     channel: new MockChannelManager({ failNext: 1, retryable: true }),
   });
@@ -255,8 +258,12 @@ test("a staff change before the first push is sent as that push (Commit), never 
   const p = await previewModification(db, ctx, id, c, minutes(2));
   if (!p.ok) throw new Error(p.error);
   expect(await applyModification(deps, ctx, id, c, { expectedDifference: p.difference, reason: "改期" }, minutes(2))).toMatchObject({ ok: true });
-  expect(modify).not.toHaveBeenCalled();
+  // The push goes first, with the new stay. The first attempt's outcome is unknown to us, so this push is a resend
+  // and a modify follows it (only once the push has succeeded and returned its smConfirmation).
   expect(push).toHaveBeenCalledWith(expect.objectContaining({ code, checkOut: "2026-12-04" }));
+  expect(modify).toHaveBeenCalledTimes(1);
+  expect(push.mock.invocationCallOrder[0]).toBeLessThan(modify.mock.invocationCallOrder[0]);
+  expect(modify.mock.calls[0][1]).toBe(channel.records[0].smConfirmation);
   const res = await reservation(code);
   expect(res).toMatchObject({ syncState: "synced", smConfirmation: channel.records[0].smConfirmation });
 
@@ -339,4 +346,108 @@ test("a run stops starting channel calls once its time budget is spent", async (
   let t = 0;
   const clock = () => (t += SYNC_RUN_BUDGET_MS / 2);
   expect((await runSyncRetry(deps, minutes(10), { clock })).attempted).toBe(1);
+});
+
+test("leases go by the real clock: a run's old business time cannot take a lease a call is holding", async () => {
+  const channel = new GatedChannel();
+  const { deps, book, reservation, notice, db, propertyId } = await bookingSetup({ channel });
+  const a = await book({ idempotencyKey: "key-aaaa-000001" });
+  // A cron run whose scheduled `now` is long past (it reached this booking late) is pushing A...
+  const payingA = handlePaymentNotice(deps, await notice(a), minutes(1));
+  while (channel.inFlight === 0) await tick();
+  // ...while a request at a business time far beyond the old lease's expiry kicks the same property: still busy.
+  const b = await book({ idempotencyKey: "key-bbbb-000002" });
+  await handlePaymentNotice(deps, await notice(b), minutes(60));
+  expect(channel.inFlight).toBe(1);
+  expect(await reservation(b)).toMatchObject({ syncState: "pending", syncAttempts: 0 });
+  expect(await takePropertyLease(db, propertyId)).toBeNull();
+  await channel.open();
+  await payingA;
+  expect(channel.maxInFlight).toBe(1);
+});
+
+test("a lease renewed between steps runs from the real time of the renewal; one already lapsed cannot be renewed", async () => {
+  const { db, propertyId } = await bookingSetup();
+  let t = 1_000_000;
+  const clock = () => t;
+  const h = (await takePropertyLease(db, propertyId, clock))!;
+  t += 150_000; // a 120 s call and our own work
+  expect(await renewPropertyLease(db, propertyId, h, clock)).toBe(true);
+  t += SYNC_LEASE_MS - 1; // the second step is still inside the renewed lease: nobody else can take it
+  expect(await takePropertyLease(db, propertyId, clock)).toBeNull();
+  t += 1; // lapsed
+  expect(await renewPropertyLease(db, propertyId, h, clock)).toBe(false);
+  const other = await takePropertyLease(db, propertyId, clock);
+  expect(other).toEqual(expect.any(String));
+  expect(await renewPropertyLease(db, propertyId, h, clock)).toBe(false); // two holders never both hold it
+});
+
+test("a push that landed but timed out, then a staff change: the resend is followed by a modify, so the channel has the new stay", async () => {
+  const channel = new MockChannelManager({ timeoutNext: 1 });
+  const { db, deps, book, reservation, notice, propertyId } = await bookingSetup({ channel });
+  const code = await book();
+  await handlePaymentNotice(deps, await notice(code), minutes(1));
+  expect(await reservation(code)).toMatchObject({ syncState: "pending", smConfirmation: null, lastSyncError: "TIMEOUT" });
+  expect(channel.pushed[0]).toMatchObject({ checkOut: "2026-12-03" }); // it landed, answer lost
+  const { id } = await reservation(code);
+  const row = { id: "s-fd", email: "fd@nk.test", name: "fd", role: "front_desk" as const, propertyIds: [propertyId], active: true };
+  await db.insert(staff).values(row);
+  const ctx: StaffContext = { staff: row, email: row.email };
+  const modify = vi.spyOn(channel, "modifyReservation");
+
+  const c = { checkIn: "2026-12-01", checkOut: "2026-12-04", adults: 2, children: 0 };
+  const p = await previewModification(db, ctx, id, c, minutes(2));
+  if (!p.ok) throw new Error(p.error);
+  await applyModification(deps, ctx, id, c, { expectedDifference: p.difference, reason: "改期" }, minutes(2));
+  // The resend of the same code is answered with what the channel holds (the old stay); a modify follows at once.
+  const sm = channel.records[0].smConfirmation;
+  expect(modify).toHaveBeenCalledWith(expect.objectContaining({ code, checkOut: "2026-12-04" }), sm);
+  expect(channel.pushed).toMatchObject([{ code, checkOut: "2026-12-04" }]);
+  expect(await reservation(code)).toMatchObject({ syncState: "synced", smConfirmation: sm });
+});
+
+test("a resend answered 'already exists' without a confirmation stops for staff (SITEMINDER-OPEN-Q1)", () => {
+  expect(resendAnswer({ ok: true, smConfirmation: "SM-1" })).toEqual({ ok: true, smConfirmation: "SM-1" });
+  expect(resendAnswer({ ok: false, retryable: true, error: "TIMEOUT" })).toEqual({ ok: false, retryable: true, error: "TIMEOUT" });
+  expect(resendAnswer({ ok: false, retryable: false, error: "HTTP 409" }))
+    .toEqual({ ok: false, retryable: false, error: "RESEND_ALREADY_HELD_NO_CONFIRMATION: HTTP 409" });
+});
+
+test("a first push refused outright is not counted as pushed: a later cancel sends nothing", async () => {
+  const { deps, channel, book, reservation, notice } = await bookingSetup({
+    channel: new MockChannelManager({ failNext: 1, retryable: false }),
+  });
+  const code = await book();
+  await handlePaymentNotice(deps, await notice(code), minutes(1));
+  expect(await reservation(code)).toMatchObject({ syncState: "failed", channelPushedAt: null, lastSyncAt: minutes(1).getTime() });
+  const push = vi.spyOn(channel, "pushReservation");
+  const cancel = vi.spyOn(channel, "cancelReservation");
+  expect(await cancelReservation(deps, code, GUEST, minutes(2))).toMatchObject({ ok: true });
+  expect(push).not.toHaveBeenCalled();
+  expect(cancel).not.toHaveBeenCalled();
+  expect(await reservation(code)).toMatchObject({ status: "cancelled", syncState: "not_required" });
+});
+
+test("the dashboard's sync_failed alert is dated from the failure, not from later edits of the booking", async () => {
+  const { db, deps, book, reservation, notice, propertyId } = await bookingSetup({
+    channel: new MockChannelManager({ failNext: 1, retryable: false }),
+  });
+  const code = await book();
+  await handlePaymentNotice(deps, await notice(code), minutes(1));
+  const { id } = await reservation(code);
+  await db.update(reservations).set({ updatedAt: minutes(30).getTime() }).where(eq(reservations.id, id));
+  const { alerts } = await getDashboard(db, propertyId, minutes(40));
+  expect(alerts.filter((a) => a.kind === "sync_failed")).toMatchObject([{ reservationId: id, since: minutes(1).getTime() }]);
+});
+
+test("a refunded booking the earlier design had pushed, still unsynced, is alerted and offered for retry", async () => {
+  const { db, deps, book, reservation, notice } = await bookingSetup();
+  const code = await book();
+  await handlePaymentNotice(deps, await notice(code, { amount: PAY_NOW - 1 }), minutes(1)); // refunded, never pushed
+  const { id } = await reservation(code);
+  expect(await runSyncRetry(deps, minutes(5))).toEqual({ attempted: 0 }); // nothing of it is at the channel
+  expect(unsyncedWithChannel(await reservation(code))).toBe(false);
+  await db.update(reservations).set({ channelPushedAt: minutes(0).getTime() }).where(eq(reservations.id, id)); // as a legacy row
+  expect(unsyncedWithChannel(await reservation(code))).toBe(true);
+  expect(await runSyncRetry(deps, minutes(10))).toEqual({ attempted: 0, alerted: [code] });
 });

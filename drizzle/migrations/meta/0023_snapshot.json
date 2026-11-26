@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3fb1ace7-f769-495b-83cd-e190e9bb48d0",
+  "id": "90e983d8-4dc9-4ec5-840a-f27e05adf325",
   "prevId": "87443306-87cf-4fd9-a09c-3f23e7e769e8",
   "tables": {
     "addons": {
@@ -2065,6 +2065,13 @@
         },
         "channel_pushed_at": {
           "name": "channel_pushed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_sync_at": {
+          "name": "last_sync_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,

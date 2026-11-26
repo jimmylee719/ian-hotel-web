@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { CHANNEL_MAX_TIMEOUT_MS, type CancelResult, type PushResult } from "@/lib/channel/types";
 import { channelLeases, reservations } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
@@ -43,20 +43,32 @@ export const CHANNEL_SYNC_STATUSES = ["confirmed", "cancelled", "confirm_failed_
 /** lastSyncError prefix of a modification refund that did not go through; a later channel success keeps it. */
 export const MODIFY_REFUND_FAILED = "MODIFY_REFUND_FAILED";
 
-/** Take `propertyId`'s channel lease until now + SYNC_LEASE_MS, unless another holder's lease is still running. */
-export async function takePropertyLease(db: Db, propertyId: string, now: Date): Promise<string | null> {
+/** The real clock (epoch ms). Leases always use it, never a job's business `now` (a scheduled time, fixed for a whole run). */
+export type Clock = () => number;
+
+/**
+ * Take `propertyId`'s channel lease until clock() + SYNC_LEASE_MS, unless another holder's lease is still running
+ * by the same real clock.
+ */
+export async function takePropertyLease(db: Db, propertyId: string, clock: Clock = Date.now): Promise<string | null> {
   const holder = crypto.randomUUID();
-  const until = now.getTime() + SYNC_LEASE_MS;
+  const t = clock();
+  const until = t + SYNC_LEASE_MS;
   const rows = await db.insert(channelLeases).values({ propertyId, holder, until })
-    .onConflictDoUpdate({ target: channelLeases.propertyId, set: { holder, until }, setWhere: lte(channelLeases.until, now.getTime()) })
+    .onConflictDoUpdate({ target: channelLeases.propertyId, set: { holder, until }, setWhere: lte(channelLeases.until, t) })
     .returning({ holder: channelLeases.holder });
   return rows[0]?.holder === holder ? holder : null;
 }
 
-/** Extend a lease this worker still holds; false if it lapsed and someone else took it. */
-async function renewPropertyLease(db: Db, propertyId: string, holder: string, now: Date): Promise<boolean> {
-  const rows = await db.update(channelLeases).set({ until: now.getTime() + SYNC_LEASE_MS })
-    .where(and(eq(channelLeases.propertyId, propertyId), eq(channelLeases.holder, holder))).returning({ h: channelLeases.holder });
+/**
+ * Extend a lease this worker still holds and that has not lapsed by the real clock; false otherwise (it may already
+ * be someone else's, so no further call may be made under it).
+ */
+export async function renewPropertyLease(db: Db, propertyId: string, holder: string, clock: Clock = Date.now): Promise<boolean> {
+  const t = clock();
+  const rows = await db.update(channelLeases).set({ until: t + SYNC_LEASE_MS })
+    .where(and(eq(channelLeases.propertyId, propertyId), eq(channelLeases.holder, holder), gt(channelLeases.until, t)))
+    .returning({ h: channelLeases.holder });
   return rows.length === 1;
 }
 
@@ -87,11 +99,12 @@ export async function syncWithChannel(deps: Deps, reservationId: string, now: Da
   if (deps.channel.disabled) return "not_configured";
   const first = await dueRow(db, reservationId, now);
   if (!first) return "not_due";
-  const holder = await takePropertyLease(db, first.propertyId, now);
+  const clock = deps.clock ?? Date.now;
+  const holder = await takePropertyLease(db, first.propertyId, clock);
   if (!holder) return "busy";
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
-      if (step > 0 && !await renewPropertyLease(db, first.propertyId, holder, now)) return "busy";
+      if (step > 0 && !await renewPropertyLease(db, first.propertyId, holder, clock)) return "busy";
       const res = await dueRow(db, reservationId, now);
       if (!res) return "not_due";
       const outcome = await syncStep(deps, res, now);
@@ -153,7 +166,9 @@ async function syncStep(deps: Deps, res: Reservation, now: Date): Promise<SyncOu
     return cancelled ? "not_required" : "synced";
   }
 
-  if (action === "push") {
+  // A push of a booking already pushed once (its answer lost, or before a cancel) is a resend of the same UniqueID.
+  const resend = action === "push" && res.channelPushedAt != null;
+  if (action === "push" && !resend) {
     // Marked before the call: from now on the channel may hold it, whatever becomes of the answer.
     await db.update(reservations).set({ channelPushedAt: at }).where(and(eq(reservations.id, res.id), isNull(reservations.channelPushedAt)));
   }
@@ -168,6 +183,7 @@ async function syncStep(deps: Deps, res: Reservation, now: Date): Promise<SyncOu
   } catch (e) {
     r = { ok: false, retryable: true, error: errorText(e) };
   }
+  if (resend) r = resendAnswer(r as PushResult);
 
   // Sync writes leave updatedAt alone: it is the optimistic lock of modifications and the lease of cancellations.
   // A success clears the channel error but keeps a modification-refund failure; a refunded booking keeps its reason.
@@ -182,7 +198,9 @@ async function syncStep(deps: Deps, res: Reservation, now: Date): Promise<SyncOu
     if (sm && action === "modify") await db.update(reservations).set({ smConfirmation: sm }).where(eq(reservations.id, res.id));
     // Done only if what was sent is still the booking as it is: same status (a push of a cancelled booking is
     // followed by its cancel) and, for a live one, no modification since it was read.
-    const sentIsCurrent = res.status === "confirmed" || action === "cancel";
+    // A resend proves only that the channel holds the code, not which version: it may have kept the first one and
+    // ignored this (SITEMINDER-OPEN-Q1), so a live booking is followed by a modify carrying the current stay.
+    const sentIsCurrent = (res.status === "confirmed" && !resend) || action === "cancel";
     if (sentIsCurrent) {
       const done = await db.update(reservations)
         .set({ syncState: "synced", syncAttempts: 0, nextSyncAt: null, lastSyncError: keptError })
@@ -199,14 +217,32 @@ async function syncStep(deps: Deps, res: Reservation, now: Date): Promise<SyncOu
   const attempts = res.syncAttempts + 1;
   if (r.retryable) {
     await db.update(reservations)
-      .set({ syncAttempts: attempts, nextSyncAt: at + retryDelayMs(attempts), lastSyncError: error })
+      .set({ syncAttempts: attempts, nextSyncAt: at + retryDelayMs(attempts), lastSyncError: error, lastSyncAt: at })
       .where(pending);
     return "retry";
   }
   // Not retryable (our message or our credentials are wrong): stop until staff retry it (doc §5.1). The retry job
-  // alerts them, at once and then daily.
+  // alerts them, at once and then daily. A definite refusal is atomic (nothing was taken, doc §3.1): if this step
+  // was the booking's first push, it never reached the channel, so it is not marked pushed.
   await db.update(reservations)
-    .set({ syncState: "failed", syncAttempts: attempts, nextSyncAt: null, lastSyncError: error })
+    .set({
+      syncState: "failed", syncAttempts: attempts, nextSyncAt: null, lastSyncError: error, lastSyncAt: at,
+      ...(action === "push" && !resend ? { channelPushedAt: null } : {}),
+    })
     .where(pending);
   return "failed";
+}
+
+/**
+ * SITEMINDER-OPEN-Q1, in one place: what the channel's answer to a resent push (the same UniqueID again) means.
+ * Assumed now: a success carries the smConfirmation of the reservation the channel already holds (possibly an older
+ * version: the caller follows a live booking with a modify), and any error is taken as it comes. If SiteMinder
+ * answers a known UniqueID with an "already exists" error (e.g. HTTP 409) instead, map it here to a success with the
+ * smConfirmation that answer carries, or, without one, to the refusal below (staff then check SiteMinder by hand).
+ */
+export function resendAnswer(r: PushResult): PushResult {
+  if (r.ok) return r;
+  if (/\b409\b|ALREADY[_ ]EXISTS|DUPLICATE/i.test(r.error))
+    return { ok: false, retryable: false, error: `RESEND_ALREADY_HELD_NO_CONFIRMATION: ${r.error}` };
+  return r;
 }

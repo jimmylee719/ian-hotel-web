@@ -68,6 +68,8 @@ export async function runChannelReconcile(
   deps: Deps, now: Date, o: { clock?: () => number } = {},
 ): Promise<ChannelReconcileResult> {
   const budget = new CallBudget(CHANNEL_RECONCILE_BUDGET_MS, o.clock);
+  // Leases go by the real clock, never the run's scheduled `now`.
+  const leaseClock = o.clock ?? deps.clock ?? Date.now;
   const { db } = deps;
   const today = todayInTaipei(now);
   const horizon = addDaysISO(today, CHANNEL_RECONCILE_DAYS);
@@ -104,7 +106,7 @@ export async function runChannelReconcile(
     const unchanged = and(eq(reservations.id, res.id), eq(reservations.status, res.status), eq(reservations.syncState, res.syncState));
     // The fix below is a channel message: made only under the property's lease.
     const fixes = res.status === "confirmed" ? !l.found : l.found && l.state === "active";
-    const holder = fixes ? await takePropertyLease(db, res.propertyId, now) : null;
+    const holder = fixes ? await takePropertyLease(db, res.propertyId, leaseClock) : null;
     if (fixes && !holder) {
       out.deferred = (out.deferred ?? 0) + 1;
       continue;
@@ -123,7 +125,7 @@ export async function runChannelReconcile(
             // Confirmed here, not held there: the room can be sold twice. A red alert (sync_failed) and on-duty
             // staff told (spec §5.3); the row stays in this job's set, so tomorrow's run pushes again.
             const marked = await db.update(reservations)
-              .set({ syncState: "failed", nextSyncAt: null, lastSyncError: `${CHANNEL_MISSING}: ${r.error}`, updatedAt: now.getTime() })
+              .set({ syncState: "failed", nextSyncAt: null, lastSyncError: `${CHANNEL_MISSING}: ${r.error}`, lastSyncAt: now.getTime(), updatedAt: now.getTime() })
               .where(unchanged).returning({ id: reservations.id });
             if (marked.length) await notifyStaff(deps, res.id, "staff_sync_failed", now, {}, `channel-missing:${today}`);
             out.failed++;

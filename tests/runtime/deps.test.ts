@@ -3,7 +3,9 @@ import { MockChannelManager } from "@/lib/channel/mock";
 import { MockEmailSender } from "@/lib/email/mock";
 import { ResendEmailSender } from "@/lib/email/resend";
 import { MockSinoPacGateway } from "@/lib/payments/mock-sinopac";
-import { BookingDisabledError, buildCoreDeps, buildDeps, buildScheduledDeps, bookingDisabledReason, paymentsConfigured } from "@/lib/runtime/deps";
+import {
+  BookingDisabledError, buildChannelDeps, buildCoreDeps, buildDeps, buildScheduledDeps, bookingDisabledReason, paymentsConfigured,
+} from "@/lib/runtime/deps";
 import { createTestDb } from "@/tests/helpers/test-db";
 
 const db = createTestDb();
@@ -119,4 +121,16 @@ test("BOOKING_OPEN=false closes guest booking even with payments configured", as
   expect(guestBookingOpen({ ...base, BOOKING_OPEN: "true" }, { BOOKING_OPEN: "false" })).toBe(true);
   expect(guestBookingOpen({ PAYMENT_MODE: "mock" })).toBe(false);
   expect(paymentsConfigured({ ...base, BOOKING_OPEN: "false" })).toBe(true);
+});
+
+test("channel-only deps (manual channel retry) need the channel, not payments", async () => {
+  const d = buildChannelDeps({ CHANNEL_MODE: "mock", ENVIRONMENT: "local" }, db, "http://localhost:3000");
+  expect(d.channel).toBeInstanceOf(MockChannelManager);
+  await expect(d.gateway.refund({ providerRef: "x", amount: 1, reason: "r", idempotencyKey: "k" })).rejects.toThrow(BookingDisabledError);
+  const reason = (env: Record<string, string>) => {
+    try { buildChannelDeps(env, db, "http://localhost:3000"); return null; } catch (e) { return (e as BookingDisabledError).reason; }
+  };
+  expect(reason({ PAYMENT_MODE: "mock", ENVIRONMENT: "local" })).toBe("CHANNEL_MODE_NOT_SET");
+  expect(reason({ CHANNEL_MODE: "mock", ENVIRONMENT: "production" })).toBe("MOCK_MODE_IN_PRODUCTION");
+  expect(reason({ CHANNEL_MODE: "siteminder", ENVIRONMENT: "preview" })).toBe("REAL_MODE_IN_PREVIEW");
 });
