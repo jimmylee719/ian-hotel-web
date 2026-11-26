@@ -16,8 +16,11 @@ const SETTLED = new Set(["confirmed", "confirm_failed_refunded", "expired", "can
 
 type Phase = "needEmail" | "polling" | "done" | "timedOut";
 
-/** Back from the payment page: poll the booking every 2 seconds for up to a minute and say where it stands. */
-export function ReturnStatus({ code }: { code: string }) {
+/**
+ * Back from the payment page: poll the booking every 2 seconds for up to a minute and say where it stands.
+ * `confirmedNoEmail`: on a test site that sends no email, said instead of "the confirmation was sent to …".
+ */
+export function ReturnStatus({ code, confirmedNoEmail }: { code: string; confirmedNoEmail?: string }) {
   const t = useTranslations("bookingStatus");
   const [email, setEmail] = useState<string | null>(null);
   const [view, setView] = useState<StatusView | null>(null);
@@ -101,7 +104,7 @@ export function ReturnStatus({ code }: { code: string }) {
         {s === "confirmed" && (
           <>
             <h2>{t("confirmedTitle")}</h2>
-            <p>{t("confirmedBody", { email: email ?? "" })}</p>
+            <p>{confirmedNoEmail ?? t("confirmedBody", { email: email ?? "" })}</p>
           </>
         )}
         {s === "paid_pending_confirm" && <p>{t("paidPending", { email: email ?? "" })}</p>}

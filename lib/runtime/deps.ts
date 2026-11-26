@@ -4,18 +4,18 @@ import type { ChannelManager } from "@/lib/channel/types";
 import { getDb } from "@/lib/db/client";
 import type { Db } from "@/lib/db/types";
 import { MockEmailSender } from "@/lib/email/mock";
-import { ResendEmailSender } from "@/lib/email/resend";
+import { ResendEmailSender, withPrefix } from "@/lib/email/resend";
 import type { EmailSender } from "@/lib/email/types";
 import { MOCK_DEFAULT_SECRET } from "@/lib/payments/mock-page";
 import { MockSinoPacGateway } from "@/lib/payments/mock-sinopac";
 import type { PaymentGateway } from "@/lib/payments/types";
 import type { OpsDeps } from "@/lib/ops/alerts";
-import { appEnv, type AppEnv } from "./env";
+import { appEnv, isMockEnvironment, isTestSite, type AppEnv } from "./env";
 import { log } from "./log";
 
 /**
  * Thrown when online booking is switched off: PAYMENT_MODE or CHANNEL_MODE is unset (production before
- * SinoPac / SiteMinder are configured), or a mock mode is set outside ENVIRONMENT=local. Routes turn
+ * SinoPac / SiteMinder are configured), or a mock mode is set outside ENVIRONMENT=local / preview. Routes turn
  * it into a 503; pages show the "booking coming soon" notice. The message is the reason code, so logs say why.
  */
 export class BookingDisabledError extends Error {
@@ -27,14 +27,21 @@ export class BookingDisabledError extends Error {
 
 /**
  * Why online booking must stay off, or null if it may run. Fails closed: both modes must be set, and
- * the mock modes are accepted only when ENVIRONMENT === "local" (wrangler.jsonc sets it for the default
- * env; env.staging / env.production set "staging" / "production"), so mock payments can never serve a
- * public host; and staging and production need BASE_URL. (The reason code keeps its historical name.)
+ * the mock modes are accepted only when ENVIRONMENT is exactly "local" or "preview" (isMockEnvironment;
+ * wrangler.jsonc sets "local" for the default env and "preview" for env.preview, the owner's labelled test site;
+ * env.staging / env.production set "staging" / "production", and unset or mistyped values count as neither), so
+ * mock payments can never serve staging or production. In "preview" the mock modes are the only ones allowed and
+ * MOCK_PAYMENT_SECRET must be set (the default secret is public, so anyone could forge a paid notice with it).
+ * Staging and production need BASE_URL. (The reason code MOCK_MODE_IN_PRODUCTION keeps its historical name.)
  */
 export function bookingDisabledReason(env: AppEnv): string | null {
   if (!env.PAYMENT_MODE) return "PAYMENT_MODE_NOT_SET";
   if (!env.CHANNEL_MODE) return "CHANNEL_MODE_NOT_SET";
-  if ((env.PAYMENT_MODE === "mock" || env.CHANNEL_MODE === "mock") && env.ENVIRONMENT !== "local") return "MOCK_MODE_IN_PRODUCTION";
+  if ((env.PAYMENT_MODE === "mock" || env.CHANNEL_MODE === "mock") && !isMockEnvironment(env.ENVIRONMENT)) return "MOCK_MODE_IN_PRODUCTION";
+  if (env.ENVIRONMENT === "preview") {
+    if (env.PAYMENT_MODE !== "mock" || env.CHANNEL_MODE !== "mock") return "REAL_MODE_IN_PREVIEW";
+    if (!env.MOCK_PAYMENT_SECRET) return "MOCK_PAYMENT_SECRET_NOT_SET";
+  }
   return baseUrlMissingReason(env);
 }
 
@@ -216,13 +223,21 @@ export function buildOpsDeps(env: AppEnv, db: Db): OpsDeps {
   };
 }
 
-/** Resend when configured; otherwise a mock that logs each email (local dev). */
-function emailSender(env: AppEnv): EmailSender {
+/** Subject prefix of every email a test site (isTestSite: local dev or the public preview) sends or logs. */
+export const TEST_EMAIL_PREFIX = "【測試】";
+
+/**
+ * Resend when configured; otherwise a mock that logs each email (local dev, and the preview while it has no Resend
+ * key: nothing is sent). On a test site every subject starts with 【測試】, whichever sender is used.
+ */
+export function emailSender(env: AppEnv): EmailSender {
+  const subjectPrefix = isTestSite(env) ? TEST_EMAIL_PREFIX : "";
   if (env.RESEND_API_KEY)
-    return new ResendEmailSender({ apiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM ?? "NK Hostel <noreply@nkhostel.com>" });
+    return new ResendEmailSender({ apiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM ?? "NK Hostel <noreply@nkhostel.com>", subjectPrefix });
   const mock = new MockEmailSender();
   return {
-    async send(e) {
+    async send(email) {
+      const e = { ...email, subject: withPrefix(email.subject, subjectPrefix) };
       log.info(`[email] RESEND_API_KEY not set; not sent:\nTo: ${e.to}${e.replyTo ? `\nReply-To: ${e.replyTo}` : ""}\nSubject: ${e.subject}\n\n${e.text}\n`);
       return mock.send(e);
     },

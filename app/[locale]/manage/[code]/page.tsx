@@ -4,7 +4,9 @@ import { ManageBooking } from "@/components/booking/ManageBooking";
 import { CONTACT } from "@/components/layout/Footer";
 import { loadProperty } from "@/components/site/data";
 import { PageHead } from "@/components/site/PageHead";
+import { TestNote } from "@/components/site/TestMode";
 import type { Locale } from "@/lib/db/schema";
+import { appEnv, isTestSite } from "@/lib/runtime/env";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,7 @@ export default async function ManageCodePage({ params }: Props) {
   return (
     <main id="main" className="wrap book-page">
       <PageHead title={t("title")} theme="paper" />
+      {isTestSite(await appEnv()) && <TestNote locale={locale} />}
       <ManageBooking
         code={decodeURIComponent(code).toUpperCase()}
         hotelPhone={property?.phone ?? CONTACT.phone}

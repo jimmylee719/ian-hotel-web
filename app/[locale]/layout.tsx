@@ -7,7 +7,10 @@ import { Footer } from "@/components/layout/Footer";
 import { CjkFonts } from "@/components/layout/CjkFonts";
 import { Header } from "@/components/layout/Header";
 import { BookingDock } from "@/components/site/BookingDock";
-import { SITE_URL } from "@/lib/seo";
+import { TestSiteBanner } from "@/components/site/TestMode";
+import type { Locale } from "@/lib/db/schema";
+import { appEnv, isTestSite } from "@/lib/runtime/env";
+import { isIndexable, NOINDEX, SITE_URL } from "@/lib/seo";
 import { fontVariables } from "./fonts";
 
 export function generateStaticParams() {
@@ -22,6 +25,8 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     metadataBase: new URL(SITE_URL),
     title: { default: t("title"), template: `%s｜${t("siteName")}` },
     description: t("description"),
+    // Only production may be indexed; the preview, staging and local copies are noindex, nofollow (lib/seo.ts).
+    ...(isIndexable(await appEnv()) ? {} : { robots: NOINDEX }),
   };
 }
 
@@ -33,6 +38,7 @@ export default async function LocaleLayout({
   if (!hasLocale(routing.locales, locale)) notFound();
   setRequestLocale(locale);
   const t = await getTranslations({ locale, namespace: "header" });
+  const testSite = isTestSite(await appEnv());
 
   return (
     <html lang={locale} className={fontVariables}>
@@ -42,6 +48,7 @@ export default async function LocaleLayout({
           <a className="skip-link" href="#main">
             {t("skipToContent")}
           </a>
+          {testSite && <TestSiteBanner locale={locale as Locale} />}
           <Header />
           {children}
           <BookingDock />

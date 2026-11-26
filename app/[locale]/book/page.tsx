@@ -7,6 +7,7 @@ import { INLINE_BOOKING_ID } from "@/components/site/BookingDock";
 import { loadProperty, loadRoom } from "@/components/site/data";
 import { PageHead } from "@/components/site/PageHead";
 import { Photo } from "@/components/site/Photo";
+import { TestNote } from "@/components/site/TestMode";
 import { Link } from "@/i18n/navigation";
 import { defaultStay, nightsBetween } from "@/lib/booking-search";
 import { photosOf } from "@/lib/content-repo";
@@ -14,6 +15,7 @@ import { searchAvailability, type RichOffer } from "@/lib/db/ari-repo";
 import { getDb } from "@/lib/db/client";
 import type { Locale } from "@/lib/db/schema";
 import { bookingEnabled } from "@/lib/runtime/deps";
+import { appEnv, isTestSite } from "@/lib/runtime/env";
 import { buildMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +57,7 @@ export default async function BookPage({ params, searchParams }: Props) {
     );
   }
 
+  const testSite = isTestSite(await appEnv());
   const property = await loadProperty();
   const result = property
     ? await searchAvailability(await getDb(), { propertyId: property.id, ...stay, ...guests })
@@ -78,6 +81,7 @@ export default async function BookPage({ params, searchParams }: Props) {
         <BookingBar initial={{ ...stay, ...guests }} />
       </div>
       {usingDefault && <p className="book-note">{t("defaultDates")}</p>}
+      {testSite && <TestNote locale={locale} />}
 
       {!result.ok ? (
         <p className="book-message" role="alert">

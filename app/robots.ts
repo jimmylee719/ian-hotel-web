@@ -1,9 +1,10 @@
 import type { MetadataRoute } from "next";
-import { SITE_URL } from "@/lib/seo";
+import { appEnv } from "@/lib/runtime/env";
+import { robotsFor } from "@/lib/seo";
 
-export default function robots(): MetadataRoute.Robots {
-  return {
-    rules: [{ userAgent: "*", allow: "/", disallow: ["/api/", "/dev/"] }],
-    sitemap: new URL("/sitemap.xml", SITE_URL).toString(),
-  };
+// Per request: the answer depends on the Worker's ENVIRONMENT, which is only known at run time.
+export const dynamic = "force-dynamic";
+
+export default async function robots(): Promise<MetadataRoute.Robots> {
+  return robotsFor(await appEnv());
 }
