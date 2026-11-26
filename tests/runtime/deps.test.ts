@@ -136,6 +136,8 @@ test("channel-only deps (manual channel retry) need the channel, not payments", 
     try { buildChannelDeps(env, db, "http://localhost:3000"); return null; } catch (e) { return (e as BookingDisabledError).reason; }
   };
   expect(reason({ PAYMENT_MODE: "mock", ENVIRONMENT: "local" })).toBe("CHANNEL_MODE_NOT_SET");
+  expect(channelDisabledReason({ ENVIRONMENT: "local" })).toBe("CHANNEL_MODE_NOT_SET");
+  expect(channelDisabledReason({ ENVIRONMENT: "preview" })).toBe("CHANNEL_MODE_NOT_SET");
   expect(reason({ CHANNEL_MODE: "mock", ENVIRONMENT: "production" })).toBe("MOCK_MODE_IN_PRODUCTION");
   expect(reason({ CHANNEL_MODE: "siteminder", ENVIRONMENT: "preview" })).toBe("REAL_MODE_IN_PREVIEW");
 });

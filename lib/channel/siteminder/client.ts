@@ -3,7 +3,7 @@ import {
   CHANNEL_MAX_TIMEOUT_MS, CHANNEL_MIN_TIMEOUT_MS,
   type CancelResult, type ChannelFailure, type ChannelManager, type ChannelReservation, type PushResult,
 } from "../types";
-import { classifyAnswer, networkFailure, timeoutFailure, type ClassifiedAnswer } from "./errors";
+import { classifyAnswer, networkFailure, retryAfterMs, timeoutFailure, type ClassifiedAnswer } from "./errors";
 import { XML_CONTENT_TYPE } from "./inbound/soap";
 import { RES_STATUS, resNotifRQ, uniqueIdFor, unsendableReason, type ResStatus } from "./map";
 import { requestEnvelope } from "./xml";
@@ -41,8 +41,9 @@ export const SITEMINDER_DEFAULT_TIMEOUT_MS = CHANNEL_MIN_TIMEOUT_MS;
  *   and detail, so a call can be traced with SiteMinder.
  * - smConfirmation is SiteMinder's HotelReservationID@ResID_Value. Without one in a Success, the UniqueID we sent
  *   stands in (inferred: SiteMinder finds a reservation by UniqueID [RES]; SITEMINDER-OPEN-Q1).
- * - A modify or cancel whose answer carries another ResID_Value than the smConfirmation given is reported as a
- *   failure, not retryable: SiteMinder has applied it, but its id for the booking is not ours, so staff check.
+ * - A modify or cancel answered without a ResID_Value succeeds and keeps the smConfirmation given; one answered
+ *   with a DIFFERENT ResID_Value is reported as a failure, not retryable (SiteMinder has applied it, but its id for
+ *   the booking is not ours, so staff check). SITEMINDER-OPEN-Q1: whether Modify / Cancel answers carry it at all.
  * - Never throws; every failure is structured (lib/channel/types.ts ChannelErrorDetail).
  * - Logs (through redact) carry the status, UniqueID, EchoToken and outcome only: never credentials, XML or guest data.
  */
@@ -71,38 +72,35 @@ export class SiteMinderChannelManager implements ChannelManager {
     if (!smConfirmation) return local("NO_SM_CONFIRMATION");
     const a = await this.send(RES_STATUS.modify, r);
     if (!a.ok) return a;
-    return this.sameReservation(a, r, smConfirmation) ?? { ok: true, smConfirmation };
+    return sameReservation(a, smConfirmation) ?? { ok: true, smConfirmation };
   }
 
   async cancelReservation(r: ChannelReservation, smConfirmation: string): Promise<CancelResult> {
     if (!smConfirmation) return local("NO_SM_CONFIRMATION");
     const a = await this.send(RES_STATUS.cancel, r);
     if (!a.ok) return a;
-    return this.sameReservation(a, r, smConfirmation) ?? { ok: true, retryable: false };
+    return sameReservation(a, smConfirmation) ?? { ok: true, retryable: false };
   }
 
-  /** A failure when the answer names another reservation than `smConfirmation`, else null. */
-  private sameReservation(a: { resId?: string }, r: ChannelReservation, smConfirmation: string): ChannelFailure | null {
-    const theirs = a.resId ?? uniqueIdFor(r.code);
-    return theirs === smConfirmation ? null : local("SM_CONFIRMATION_MISMATCH");
-  }
-
-  private async hotelCode(): Promise<string> {
+  /** The HotelCode, or why there is none (the resolver's own SITEMINDER_… reason is kept). */
+  private async hotelCode(): Promise<{ code: string } | { reason: string }> {
     const h = this.opts.hotelCode;
     try {
-      return (typeof h === "function" ? await h() : h).trim();
-    } catch {
-      return "";
+      const code = (typeof h === "function" ? await h() : h).trim();
+      return code ? { code } : { reason: "SITEMINDER_HOTEL_CODE_NOT_SET" };
+    } catch (e) {
+      const m = e instanceof Error ? e.message : "";
+      return { reason: /^SITEMINDER_[A-Z_]+$/.test(m) ? m : "SITEMINDER_HOTEL_CODE_NOT_SET" };
     }
   }
 
   /** One OTA_HotelResNotifRQ for `r`, its answer classified. */
-  private async send(status: ResStatus, r: ChannelReservation): Promise<ClassifiedAnswer> {
+  private async send(status: ResStatus, r: ChannelReservation): Promise<Sent> {
     const uid = uniqueIdFor(r.code);
     const hotel = await this.hotelCode();
     // Our configuration: retried, so bookings go out once it is fixed.
-    if (!hotel) return local("SITEMINDER_HOTEL_CODE_NOT_SET", true);
-    if (r.smPropertyCode !== hotel) return local("HOTEL_CODE_MISMATCH");
+    if ("reason" in hotel) return local(hotel.reason, true);
+    if (r.smPropertyCode !== hotel.code) return local("HOTEL_CODE_MISMATCH");
     const bad = unsendableReason(r);
     if (bad) return local(bad);
 
@@ -117,7 +115,7 @@ export class SiteMinderChannelManager implements ChannelManager {
         log.warn(`siteminder ${status} ${uid}: answer EchoToken differs from the request's (echo=${echoToken})`);
       for (const w of answer.warnings) log.warn(`siteminder ${status} ${uid} echo=${echoToken}: warning type=${w.type ?? "?"} code=${w.code ?? "-"}`);
       log.info(`siteminder ${status} ${uid} echo=${echoToken}: ok`);
-      return answer;
+      return { ...answer, echoToken };
     }
     const d = answer.detail;
     log.warn(`siteminder ${status} ${uid} echo=${echoToken}: ${answer.retryable ? "retryable" : "not retryable"} kind=${d?.kind}`
@@ -140,7 +138,7 @@ export class SiteMinderChannelManager implements ChannelManager {
         method: "POST", body: xml, signal: ctrl.signal,
         headers: { "content-type": XML_CONTENT_TYPE, accept: "text/xml", soapaction: '""' },
       });
-      return { status: res.status, body: await res.text() };
+      return { status: res.status, body: await res.text(), retryAfter: retryAfterMs(res.headers.get("retry-after"), this.now()) };
     })();
     try {
       const out = await Promise.race([call, timedOut]);
@@ -148,7 +146,7 @@ export class SiteMinderChannelManager implements ChannelManager {
         call.catch(() => {}); // the abandoned call may still settle
         return timeoutFailure(echoToken);
       }
-      return classifyAnswer(out.status, out.body, echoToken);
+      return classifyAnswer(out.status, out.body, echoToken, out.retryAfter);
     } catch (e) {
       if (ctrl.signal.aborted || (e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError")))
         return timeoutFailure(echoToken);
@@ -157,6 +155,22 @@ export class SiteMinderChannelManager implements ChannelManager {
       clearTimeout(timer);
     }
   }
+}
+
+/** A classified answer; a success carries the request's EchoToken. */
+type Sent = ClassifiedAnswer;
+
+/**
+ * SITEMINDER-OPEN-Q1: a Modify / Cancel answer names the reservation by ResID_Value, or not at all. None = the one
+ * we hold (success). A different one = a failure (the message was sent and applied: kind confirmation_mismatch).
+ */
+function sameReservation(a: { resId?: string; echoToken?: string }, smConfirmation: string): ChannelFailure | null {
+  if (a.resId === undefined || a.resId === smConfirmation) return null;
+  return {
+    ok: false, retryable: false,
+    error: `SM_CONFIRMATION_MISMATCH: the channel answered for ${a.resId} (echo=${a.echoToken ?? "?"})`,
+    detail: { kind: "confirmation_mismatch", echoToken: a.echoToken },
+  };
 }
 
 /** A failure decided here, without calling SiteMinder. */

@@ -56,12 +56,15 @@ export type ChannelReservation = {
  * - "soap_fault": a SOAP Fault (`code` is not set: faults carry text codes);
  * - "http": a non-2xx HTTP status without an OTA answer (`httpStatus`);
  * - "timeout" / "network": no answer at all; "bad_response": an answer we could not read;
- * - "config": not sent, our own configuration is incomplete.
+ * - "config": not sent, our own configuration or data is incomplete;
+ * - "confirmation_mismatch": sent and applied, but the channel answered for another reservation id.
  * `echoToken` is the request's, for tracing it with the channel.
  */
 export type ChannelErrorDetail = {
-  kind: "ota" | "soap_fault" | "http" | "timeout" | "network" | "bad_response" | "config";
+  kind: "ota" | "soap_fault" | "http" | "timeout" | "network" | "bad_response" | "config" | "confirmation_mismatch";
   httpStatus?: number;
+  /** The channel's Retry-After, in ms (HTTP 408 / 425 / 429 / 5xx): the next attempt waits this long instead of the backoff. */
+  retryAfterMs?: number;
   type?: number;
   code?: number;
   echoToken?: string;

@@ -143,7 +143,11 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
 - `CHANNEL_MODE=siteminder`：需要 `SITEMINDER_ENDPOINT`、`SITEMINDER_USERNAME`、`SITEMINDER_PASSWORD`（secrets）和 `SITEMINDER_REQUESTOR_ID`（SiteMinder 給的 channel code），缺任何一個就關閉訂房和通路（`SITEMINDER_NOT_CONFIGURED: <名稱>`）。HotelCode 取唯一一間有 `smPropertyCode` 的館；沒有或不只一間時不送、可重試。`SITEMINDER_HOSTS` 仍是空的，staging／production 會被 config-guard 擋下，要等 SiteMinder 回答 Q3。
 - 新訂單 `Commit`、修改 `Modify`、取消 `Cancel`，每次都帶整筆訂單（所以 `cancelReservation` 改成收整筆 `ChannelReservation`）。UniqueID = 代碼去掉非英數字（`NK-AB12CD` → `NKAB12CD`，Q4）。
 - 折扣分攤到每晚價格（照比例，餘數給小數部分最大的晚上），RoomStay 小計和總額都已扣掉，另在 `ResGlobalInfo/Comments` 寫一句說明；人數平均分到各房，每房至少 1 位成人（Q9）；兒童不帶 Age（我們沒有年齡）；金額是整數字串、只送 AmountAfterTax（Q8）；已付金額見 Q18。特殊需求目前沒有資料（訂房表單沒收，員工備註不送）。
-- `smConfirmation` = RS 的 `HotelReservationID @ResID_Value`；Success 裡沒有這個值時，用我們送的 UniqueID 代替（inferred）。Modify／Cancel 的回應帶了另一個 ResID_Value 時，當成不可重試的失敗（SiteMinder 已經套用了，但對不上，要員工查）。
+- `smConfirmation` = Commit 回應的 `HotelReservationID @ResID_Value`；Commit 的 Success 裡沒有這個值時，用我們送的 UniqueID 代替（inferred）。Modify／Cancel 的回應沒帶 ResID_Value 時算成功、保留原本的 smConfirmation；帶了**不同的** ResID_Value 時，當成不可重試的失敗（`confirmation_mismatch`，Q1）。
+- Conformance 規則 2（「帶錯的 smConfirmation 要失敗」）在 SiteMinder 上只能從回應判斷：SiteMinder 用 UniqueID 找訂單，訊息**已經套用**之後我們才知道對不上，所以這個失敗代表「請員工到 SiteMinder 查」，不是「沒有送出」。
+- 送出前先擋掉資料不對的訂單（不可重試、不送）：缺房型／方案代碼、成人數少於房數（`ADULTS_FEWER_THAN_ROOMS`，不會自己補人數）、每晚價格的筆數和住宿晚數不同（`NIGHTS_MISMATCH`）、各房小計加額外費用不等於總額（`TOTALS_DO_NOT_ADD_UP`）。
+- HTTP 408、425、429 視為可重試（inferred：[HTTP] 只列 400–415）；可重試的 HTTP 回應帶 `Retry-After` 時，下次重試照它等（最多 1 小時），否則照原本的退避。
+- 所有文字和屬性值送出前移除 XML 1.0 不允許的字元（tab／LF／CR 以外的 C0 控制字元、U+FFFE／U+FFFF、落單的 surrogate）；電話截到 32 個字元時不會切斷 surrogate pair。
 - 錯誤分類照 5.1 的表；結構化結果（`detail.kind/httpStatus/type/code/echoToken`）給 `resendAnswer`（Q1）用，不再比對錯誤文字。逾時預設 60 秒（AbortController，請求和讀 body 都算在內）。
 - 每個請求一個新的 UUID EchoToken，寫在 log 和失敗原因（`lastSyncError` 結尾的 `(echo=…)`）裡；log 不含帳密、XML 和顧客資料。
 
@@ -372,7 +376,8 @@ XML 路徑都從 `OTA_HotelResNotifRQ/HotelReservations/HotelReservation` 開始
 8. **Q8（幣別、稅、小數）** For a TWD property with tax-inclusive integer prices: should reservations carry `AmountAfterTax` only, with no `Taxes` element? Will rate pushes for TWD always be whole numbers, and may we ask for `CurrencyCode` to be disabled?
    - 中文：台幣、含稅、整數價格要怎麼送、怎麼收？
 9. **Q9（多房人數）** For multi-room bookings, `GuestCounts` is per `RoomStay`. If our booking stores only a total of adults and children, how should we split them across rooms? Is the same `ResGuest` acceptable for every room?
-   - 中文：多房訂單只知道總人數時，人數要怎麼分配到各房？
+   - Is `GuestCount @Age` required for children (`AgeQualifyingCode="8"`)? We do not hold children's ages and send `Count` only.
+   - 中文：多房訂單只知道總人數時，人數要怎麼分配到各房？兒童（代碼 8）的 `@Age` 是不是必填？我們沒有兒童年齡，只送 `Count`。
 10. **Q10（取消與修改的限制）** May a `Modify` change the room type or rate plan, add or remove a room, or change dates (as in certification "Booking 05")? Is a `Cancel` for a reservation whose Commit you never received rejected or ignored?
     - 中文：修改可以改到什麼程度？SiteMinder 沒收到 Commit 就直接送 Cancel 會怎樣？
 11. **Q11（ARI 逾時）** Is your timeout for our ARI endpoint 15 seconds (FAQ) or 20 seconds (Integration Requirements)? What is the default update period configured for a new channel (365 or 750 days)?

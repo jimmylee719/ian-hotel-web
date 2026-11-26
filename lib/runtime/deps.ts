@@ -144,6 +144,7 @@ export function buildOfflineDeps(env: AppEnv, db: Db, origin: string): Deps {
  * real channel on the preview. Payments do not matter (a channel hand-off moves no money).
  */
 export function channelDisabledReason(env: AppEnv): string | null {
+  if (!env.CHANNEL_MODE) return "CHANNEL_MODE_NOT_SET";
   if (env.CHANNEL_MODE === "mock" && !isMockEnvironment(env.ENVIRONMENT)) return "MOCK_MODE_IN_PRODUCTION";
   if (environmentOf(env) === "preview" && env.CHANNEL_MODE !== "mock") return "REAL_MODE_IN_PREVIEW";
   return siteMinderNotConfigured(env);

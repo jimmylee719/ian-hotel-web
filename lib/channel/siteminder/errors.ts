@@ -11,7 +11,8 @@ import { child, children, readResponse } from "./xml";
  * | OTA_HotelResNotifRS with <Success/>      | ok (smConfirmation from HotelReservationID@ResID_Value) |
  * | OTA_HotelResNotifRS with <Errors>        | not retryable (fix the data first, [ERR-G])         |
  * | SOAP Fault (any HTTP status)             | not retryable (SITEMINDER-OPEN-Q2)                  |
- * | HTTP 4xx                                 | not retryable ([ERR-G][HTTP]; 409 = duplicate, Q1)  |
+ * | HTTP 408, 425, 429                       | retryable (timeout / too early / rate limited; Retry-After respected) |
+ * | other HTTP 4xx                           | not retryable ([ERR-G][HTTP]; 409 = duplicate, Q1)  |
  * | HTTP 500, 502, 503, 504 (other 5xx too)  | retryable                                           |
  * | HTTP 501, 505                            | not retryable ([HTTP])                              |
  * | timeout, network error                   | retryable (inferred; resend converges, Q1)          |
@@ -62,17 +63,32 @@ function resIdOf(rs: XmlNode): string | undefined {
 
 const failure = (retryable: boolean, error: string, detail: ChannelErrorDetail): ChannelFailure => ({ ok: false, retryable, error, detail });
 
+/**
+ * 4xx statuses that are about timing, not about our message (Request Timeout, Too Early, Too Many Requests): sent
+ * again later, unchanged. Inferred: [HTTP] says 4xx is not retried but lists only 400–415.
+ */
+export const RETRYABLE_4XX: readonly number[] = [408, 425, 429];
+
 /** The HTTP-status rule alone (no OTA answer to go by). */
 export function httpRetryable(status: number): boolean {
   if (status >= 500) return !NON_RETRYABLE_5XX.includes(status);
-  return false;
+  return RETRYABLE_4XX.includes(status);
+}
+
+/** Retry-After (delay-seconds or an HTTP date) in ms from `now`; undefined when absent or unreadable. */
+export function retryAfterMs(header: string | null | undefined, now: Date): number | undefined {
+  const v = header?.trim();
+  if (!v) return undefined;
+  if (/^\d+$/.test(v)) return Number(v) * 1000;
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? undefined : Math.max(0, t - now.getTime());
 }
 
 /**
  * Classify one HTTP answer. `echoToken` is the request's (kept in the detail for tracing). The body is read as an
  * OTA_HotelResNotifRS or a SOAP Fault whatever the status; only an answer that is neither falls back to the status.
  */
-export function classifyAnswer(httpStatus: number, body: string, echoToken: string): ClassifiedAnswer {
+export function classifyAnswer(httpStatus: number, body: string, echoToken: string, retryAfter?: number): ClassifiedAnswer {
   const parsed = readResponse(body);
   const ok2xx = httpStatus >= 200 && httpStatus < 300;
 
@@ -97,8 +113,11 @@ export function classifyAnswer(httpStatus: number, body: string, echoToken: stri
       return { ok: true, resId: resIdOf(rs), echoToken: attr(rs, "EchoToken"), warnings: issues(rs, "Warnings", "Warning") };
   }
 
-  if (!ok2xx)
-    return failure(httpRetryable(httpStatus), `SITEMINDER_HTTP_${httpStatus}`, { kind: "http", httpStatus, echoToken });
+  if (!ok2xx) {
+    const retryable = httpRetryable(httpStatus);
+    return failure(retryable, `SITEMINDER_HTTP_${httpStatus}`,
+      { kind: "http", httpStatus, echoToken, ...(retryable && retryAfter !== undefined ? { retryAfterMs: retryAfter } : {}) });
+  }
   return failure(true, "SITEMINDER_BAD_RESPONSE", { kind: "bad_response", httpStatus, echoToken });
 }
 

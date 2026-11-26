@@ -10,18 +10,30 @@ export const WSSE_NS = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-
 
 export type Attrs = Record<string, string | number | undefined>;
 
+/**
+ * Characters XML 1.0 does not allow (its Char production): C0 controls other than tab, LF and CR, U+FFFE / U+FFFF,
+ * and lone surrogates. One bad character in a guest's name would make SiteMinder refuse the whole message.
+ */
+const XML_INVALID = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/** `s` without the characters XML cannot carry. Every text and attribute value we send goes through it. */
+export const xmlSafe = (s: string): string => s.replace(XML_INVALID, "");
+
+/** At most `max` characters (code points: a surrogate pair is never split). */
+export const clipChars = (s: string, max: number): string => Array.from(s).slice(0, max).join("");
+
 /** One element, minified: attributes in the given order (undefined ones left out), children concatenated. */
 export function el(name: string, attrs: Attrs = {}, ...children: string[]): string {
   const a = Object.entries(attrs)
     .filter((e): e is [string, string | number] => e[1] !== undefined)
-    .map(([k, v]) => ` ${k}="${escapeXml(String(v))}"`)
+    .map(([k, v]) => ` ${k}="${escapeXml(xmlSafe(String(v)))}"`)
     .join("");
   const body = children.join("");
   return body ? `<${name}${a}>${body}</${name}>` : `<${name}${a}/>`;
 }
 
 /** Text content, escaped. */
-export const txt = (s: string): string => escapeXml(s);
+export const txt = (s: string): string => escapeXml(xmlSafe(s));
 
 /**
  * The request envelope: WS-Security UsernameToken with a PasswordText password ([QS][REQ]: the password travels in

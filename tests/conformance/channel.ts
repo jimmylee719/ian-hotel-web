@@ -28,6 +28,13 @@ const defaultReservation = (code: string): ChannelReservation => ({
   total: 4400, paidAmount: 4400, discount: 0, addons: [],
 });
 
+/** A real change of `r` that stays consistent: its first night costs 100 more, and so does the total. */
+const changed = (r: ChannelReservation): ChannelReservation => ({
+  ...r,
+  rooms: r.rooms.map((room, i) => (i === 0 ? { ...room, nightlyPrices: room.nightlyPrices.map((p, n) => (n === 0 ? p + 100 : p)) } : room)),
+  total: r.total + 100,
+});
+
 export function channelConformance(make: () => ChannelManager, opts: ChannelConformanceOptions = {}): void {
   const reservation = opts.fixtures?.reservation ?? defaultReservation;
 
@@ -49,7 +56,7 @@ export function channelConformance(make: () => ChannelManager, opts: ChannelConf
     test("2. modify and cancel carrying a known code's smConfirmation keep it", async () => {
       const cm = make();
       const { r, smConfirmation } = await pushed(cm);
-      expect(await cm.modifyReservation({ ...r, total: r.total + 100 }, smConfirmation)).toEqual({ ok: true, smConfirmation });
+      expect(await cm.modifyReservation(changed(r), smConfirmation)).toEqual({ ok: true, smConfirmation });
       expect(await cm.cancelReservation(r, smConfirmation)).toMatchObject({ ok: true });
     });
 
@@ -60,11 +67,13 @@ export function channelConformance(make: () => ChannelManager, opts: ChannelConf
       expect(await cm.cancelReservation(r, "SM-UNKNOWN")).toMatchObject({ ok: false, retryable: false });
     });
 
+    // Rule 2's "another smConfirmation" can only be judged from the answer, after SiteMinder has applied the message
+    // (SiteMinder finds a reservation by UniqueID; doc §3.5): the adapter reports it, staff check.
     test("2. modify and cancel with another smConfirmation fail, not retryable", async () => {
       const cm = make();
       const { r, smConfirmation } = await pushed(cm);
       const wrong = `${smConfirmation}-X`;
-      expect(await cm.modifyReservation({ ...r, total: r.total + 100 }, wrong)).toMatchObject({ ok: false, retryable: false });
+      expect(await cm.modifyReservation(changed(r), wrong)).toMatchObject({ ok: false, retryable: false });
       expect(await cm.cancelReservation(r, wrong)).toMatchObject({ ok: false, retryable: false });
       if (cm.lookupReservation) expect(await cm.lookupReservation(r.code)).toEqual({ found: true, smConfirmation, state: "active" });
     });
@@ -91,7 +100,7 @@ export function channelConformance(make: () => ChannelManager, opts: ChannelConf
       const again = await cm.pushReservation(r);
       if (!again.ok) expect(again.retryable).toBe(false);
       else expect(again.smConfirmation).toBe(smConfirmation);
-      expect(await cm.modifyReservation({ ...r, total: r.total + 100 }, smConfirmation)).toMatchObject({ ok: false, retryable: false });
+      expect(await cm.modifyReservation(changed(r), smConfirmation)).toMatchObject({ ok: false, retryable: false });
       if (cm.lookupReservation)
         expect([{ found: false }, { found: true, smConfirmation, state: "cancelled" }]).toContainEqual(await cm.lookupReservation(r.code));
     });

@@ -37,6 +37,15 @@ export function retryDelayMs(attempts: number): number {
   return Math.min(FIRST_RETRY_MS * 2 ** Math.max(0, attempts - 1), MAX_RETRY_MS);
 }
 
+/**
+ * The wait before the next attempt after a retryable failure: the channel's Retry-After when it sent one (at most
+ * MAX_RETRY_MS), else the backoff.
+ */
+export function nextRetryMs(r: { detail?: { retryAfterMs?: number } }, attempts: number): number {
+  const ra = r.detail?.retryAfterMs;
+  return ra !== undefined && Number.isFinite(ra) && ra >= 0 ? Math.min(ra, MAX_RETRY_MS) : retryDelayMs(attempts);
+}
+
 /** The statuses whose channel copy the sync keeps: live bookings, cancelled ones, and (legacy) refunded ones. */
 export const CHANNEL_SYNC_STATUSES = ["confirmed", "cancelled", "confirm_failed_refunded"] as const;
 
@@ -215,7 +224,7 @@ async function syncStep(deps: Deps, res: Reservation, now: Date): Promise<SyncOu
   const attempts = res.syncAttempts + 1;
   if (r.retryable) {
     await db.update(reservations)
-      .set({ syncAttempts: attempts, nextSyncAt: at + retryDelayMs(attempts), lastSyncError: error, lastSyncAt: at })
+      .set({ syncAttempts: attempts, nextSyncAt: at + nextRetryMs(r, attempts), lastSyncError: error, lastSyncAt: at })
       .where(pending);
     return "retry";
   }

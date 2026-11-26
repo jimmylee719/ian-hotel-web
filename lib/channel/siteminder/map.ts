@@ -1,7 +1,7 @@
 import { addDaysISO } from "@/lib/domain/dates";
 import type { ChannelReservation } from "../types";
 import { isoTimestamp } from "./inbound/soap";
-import { el, otaRequest, txt } from "./xml";
+import { clipChars, el, otaRequest, txt, xmlSafe } from "./xml";
 
 /**
  * ChannelReservation → OTA_HotelResNotifRQ, exactly per docs/integrations/siteminder.md §3 (table §3.3, element
@@ -33,14 +33,15 @@ export function amount(n: number): string {
 
 /**
  * SITEMINDER-OPEN-Q9: GuestCounts is per RoomStay, but a booking holds only its total adults and children. Split
- * evenly, the remainder to the first rooms; every room gets at least one adult (OTA: the adult count is mandatory
- * and Count ≥ 1 [RES]). Children are sent without @Age (we hold no ages).
+ * evenly, the remainder to the first rooms. Every room needs an adult (OTA: the adult count is mandatory and
+ * Count ≥ 1 [RES]): fewer adults than rooms is refused before sending (unsendableReason), never inflated.
+ * Children are sent without @Age (we hold no ages; whether it is required is part of Q9).
  */
 export function guestsPerRoom(adults: number, children: number, rooms: number): { adults: number; children: number }[] {
   const split = (n: number) => Array.from({ length: rooms }, (_, i) => Math.floor(n / rooms) + (i < n % rooms ? 1 : 0));
   const a = split(Math.max(0, adults));
   const c = split(Math.max(0, children));
-  return a.map((x, i) => ({ adults: Math.max(1, x), children: c[i] }));
+  return a.map((x, i) => ({ adults: x, children: c[i] }));
 }
 
 /**
@@ -93,7 +94,7 @@ function customer(r: ChannelReservation): string {
   const g = r.guest;
   return el("Customer", {},
     el("PersonName", {}, el("GivenName", {}, txt(g.firstName)), el("Surname", {}, txt(g.lastName))),
-    g.phone ? el("Telephone", { PhoneNumber: g.phone.slice(0, PHONE_MAX) }) : "",
+    g.phone ? el("Telephone", { PhoneNumber: clipChars(xmlSafe(g.phone), PHONE_MAX) }) : "",
     g.email ? el("Email", {}, txt(g.email)) : "");
 }
 
@@ -191,6 +192,11 @@ export function unsendableReason(r: ChannelReservation): string | null {
   if (r.rooms.some((x) => x.nightlyPrices.length === 0)) return "NO_NIGHTS";
   if (!r.currency) return "MISSING_CURRENCY";
   if (r.adults < 1) return "NO_ADULTS";
+  if (r.adults < r.rooms.length) return "ADULTS_FEWER_THAN_ROOMS";
+  const nights = Math.round((Date.parse(`${r.checkOut}T00:00:00Z`) - Date.parse(`${r.checkIn}T00:00:00Z`)) / 86_400_000);
+  if (!(nights >= 1) || r.rooms.some((x) => x.nightlyPrices.length !== nights)) return "NIGHTS_MISMATCH";
+  const rooms = discountedNights(r.rooms.map((x) => x.nightlyPrices), r.discount).flat().reduce((s, p) => s + p, 0);
+  if (rooms + r.addons.reduce((s, a) => s + a.amount, 0) !== r.total) return "TOTALS_DO_NOT_ADD_UP";
   if (!uniqueIdFor(r.code)) return "EMPTY_UNIQUE_ID";
   return null;
 }

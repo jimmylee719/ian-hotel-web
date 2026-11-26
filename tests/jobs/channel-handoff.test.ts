@@ -5,7 +5,7 @@ import { applyModification, previewModification } from "@/lib/admin/modify";
 import { retryChannelSync, unsyncedWithChannel } from "@/lib/admin/channel-sync";
 import { getDashboard } from "@/lib/admin/dashboard";
 import {
-  CHANNEL_ALERT_AFTER, releasePropertyLease, renewPropertyLease, resendAnswer, retryDelayMs, SYNC_LEASE_MS, syncWithChannel,
+  CHANNEL_ALERT_AFTER, nextRetryMs, releasePropertyLease, renewPropertyLease, resendAnswer, retryDelayMs, SYNC_LEASE_MS, syncWithChannel,
   takePropertyLease,
 } from "@/lib/booking/channel-sync";
 import { cancelReservation } from "@/lib/booking/manage";
@@ -81,6 +81,21 @@ test("a non-retryable hand-off error keeps the booking confirmed, stops retrying
   await runSyncRetry(deps, minutes(60));
   expect(push).toHaveBeenCalledTimes(1);
   expect(refund).not.toHaveBeenCalled();
+});
+
+test("a channel's Retry-After replaces the backoff (at most an hour)", async () => {
+  expect(nextRetryMs({ detail: { retryAfterMs: 120_000 } }, 1)).toBe(120_000);
+  expect(nextRetryMs({ detail: { retryAfterMs: 5 * 3600_000 } }, 1)).toBe(60 * 60_000);
+  expect(nextRetryMs({ detail: {} }, 3)).toBe(retryDelayMs(3));
+  expect(nextRetryMs({}, 1)).toBe(retryDelayMs(1));
+
+  const { deps, channel, book, reservation, notice } = await bookingSetup();
+  vi.spyOn(channel, "pushReservation").mockResolvedValueOnce({
+    ok: false, retryable: true, error: "SITEMINDER_HTTP_429", detail: { kind: "http", httpStatus: 429, retryAfterMs: 90_000 },
+  });
+  const code = await book();
+  await handlePaymentNotice(deps, await notice(code), minutes(2));
+  expect(await reservation(code)).toMatchObject({ syncState: "pending", syncAttempts: 1, nextSyncAt: minutes(2).getTime() + 90_000 });
 });
 
 test("the retry job backs off 5, 10, 20, 40 minutes, then hourly, and never gives up", async () => {

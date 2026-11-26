@@ -166,7 +166,11 @@ describe("OTA_HotelResNotifRQ: every mapped field", () => {
     const { cm, sent } = manager();
     const p = await cm.pushReservation(reservation());
     if (!p.ok) throw new Error(p.error);
-    expect(await cm.modifyReservation(reservation({ checkOut: "2026-12-04" }), p.smConfirmation)).toEqual({ ok: true, smConfirmation: p.smConfirmation });
+    const longer = reservation({
+      checkOut: "2026-12-04", total: 12200,
+      rooms: reservation().rooms.map((x) => ({ ...x, nightlyPrices: [...x.nightlyPrices, x.nightlyPrices.at(-1)!] })),
+    });
+    expect(await cm.modifyReservation(longer, p.smConfirmation)).toEqual({ ok: true, smConfirmation: p.smConfirmation });
     let rq = xp(sent(), "Envelope/Body/OTA_HotelResNotifRQ");
     expect(rq["@ResStatus"]).toBe("Modify");
     expect(xp(rq, "HotelReservations/HotelReservation/UniqueID/@ID")).toBe("NKAB12CD");
@@ -206,10 +210,41 @@ describe("mapping rules", () => {
     expect(discountedNights([[333, 333, 334]], 100).flat().reduce((a, b) => a + b)).toBe(900);
   });
 
-  test("SITEMINDER-OPEN-Q9: guests are split over the rooms, at least one adult each", () => {
+  test("SITEMINDER-OPEN-Q9: guests are split over the rooms, never inflated", () => {
     expect(guestsPerRoom(3, 1, 2)).toEqual([{ adults: 2, children: 1 }, { adults: 1, children: 0 }]);
     expect(guestsPerRoom(2, 0, 1)).toEqual([{ adults: 2, children: 0 }]);
-    expect(guestsPerRoom(1, 0, 2)).toEqual([{ adults: 1, children: 0 }, { adults: 1, children: 0 }]);
+    expect(guestsPerRoom(1, 0, 2)).toEqual([{ adults: 1, children: 0 }, { adults: 0, children: 0 }]);
+  });
+
+  test.each([
+    ["ADULTS_FEWER_THAN_ROOMS", { adults: 1 }],
+    ["TOTALS_DO_NOT_ADD_UP", { total: 8301 }],
+    ["TOTALS_DO_NOT_ADD_UP", { discount: 0 }],
+    ["NIGHTS_MISMATCH", { checkOut: "2026-12-04" }],
+    ["NIGHTS_MISMATCH", { checkOut: "2026-12-01" }],
+  ] as [string, Partial<ChannelReservation>][])("bad data is refused before sending: %s", async (error, over) => {
+    const { cm, calls } = manager();
+    expect(await cm.pushReservation(reservation(over))).toMatchObject({ ok: false, retryable: false, error, detail: { kind: "config" } });
+    expect(calls).toHaveLength(0);
+  });
+
+  test("characters XML cannot carry are removed from every text and attribute; the phone is clipped by code point", async () => {
+    const { cm, calls } = manager();
+    const r = reservation({
+      guest: { firstName: "Mei\u0000\u0007", lastName: "Lin\uD800 \uDC00x\uFFFE", email: "mei\u001F@example.com", phone: `+886${"9".repeat(27)}😀😀` },
+      specialRequests: "tab\tok\nline\rcr\u000Bvt",
+      rooms: reservation().rooms.map((x, i) => (i === 0 ? { ...x, roomName: "混合\u0001旅艙" } : x)),
+    });
+    expect(await cm.pushReservation(r)).toMatchObject({ ok: true });
+    const raw = String(calls[0].init.body);
+    expect(raw).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/);
+    expect(raw).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+    expect(raw).toContain("<GivenName>Mei</GivenName>");
+    expect(raw).toContain("<Surname>Lin x</Surname>");
+    expect(raw).toContain("<Email>mei@example.com</Email>");
+    expect(raw).toContain('RoomDescription Name="混合旅艙"');
+    expect(raw).toContain("tab\tok\nline\rcrvt");
+    expect(raw).toContain(`PhoneNumber="+886${"9".repeat(27)}😀"`); // 32 code points, the pair kept whole
   });
 
   test("a reservation we cannot send is refused here, not retryable, nothing sent", async () => {
@@ -227,6 +262,9 @@ describe("mapping rules", () => {
     const unset = manager({ hotelCode: async () => { throw new Error("no property code"); } });
     expect(await unset.cm.pushReservation(reservation())).toMatchObject({ ok: false, retryable: true, error: "SITEMINDER_HOTEL_CODE_NOT_SET" });
     expect(unset.calls).toHaveLength(0);
+    const several = manager({ hotelCode: async () => { throw new Error("SITEMINDER_SEVERAL_HOTEL_CODES"); } });
+    expect(await several.cm.pushReservation(reservation())).toMatchObject({ ok: false, retryable: true, error: "SITEMINDER_SEVERAL_HOTEL_CODES" });
+    expect(several.calls).toHaveLength(0);
   });
 
   test("timeoutMs defaults to 60 s and must stay within 60–120 s", () => {
@@ -271,12 +309,24 @@ describe("answers: §5.1 classification", () => {
 
   test.each([
     [500, true], [502, true], [503, true], [504, true], [507, true],
+    [408, true], [425, true], [429, true],
     [501, false], [505, false],
     [400, false], [401, false], [403, false], [404, false], [405, false], [406, false], [409, false], [415, false],
   ])("HTTP %i without an OTA answer → retryable %s", (status, retryable) => {
     expect(classifyAnswer(status, "<html>gateway</html>", ECHO)).toEqual({
       ok: false, retryable, error: `SITEMINDER_HTTP_${status}`, detail: { kind: "http", httpStatus: status, echoToken: ECHO },
     });
+  });
+
+  test("Retry-After (seconds or an HTTP date) is kept on a retryable HTTP answer, ignored on a final one", async () => {
+    const at = (status: number, ra: string) => manager({
+      fetch: (async () => new Response("busy", { status, headers: { "retry-after": ra } })) as unknown as typeof fetch,
+    }).cm.pushReservation(reservation());
+    expect(await at(429, "120")).toMatchObject({ ok: false, retryable: true, detail: { kind: "http", httpStatus: 429, retryAfterMs: 120_000 } });
+    expect(await at(503, new Date(NOW.getTime() + 90_000).toUTCString())).toMatchObject({ retryable: true, detail: { retryAfterMs: 89_877 } });
+    expect(await at(408, "soon")).toMatchObject({ retryable: true, detail: { kind: "http", httpStatus: 408 } });
+    expect((await at(408, "soon")) as { detail: object }).not.toHaveProperty("detail.retryAfterMs");
+    expect((await at(400, "60")) as { detail: object }).not.toHaveProperty("detail.retryAfterMs");
   });
 
   test("a 2xx we cannot read is retryable (outcome unknown; the resend converges)", () => {
@@ -327,7 +377,20 @@ describe("answers: §5.1 classification", () => {
   test("a modify or cancel answered for another ResID_Value is refused, not retryable", async () => {
     const { cm } = manager();
     await cm.pushReservation(reservation());
-    expect(await cm.modifyReservation(reservation(), "SM-OTHER")).toMatchObject({ ok: false, retryable: false, error: "SM_CONFIRMATION_MISMATCH" });
+    expect(await cm.modifyReservation(reservation(), "SM-OTHER")).toEqual({
+      ok: false, retryable: false, error: `SM_CONFIRMATION_MISMATCH: the channel answered for SMR1NKAB12CD (echo=${ECHO})`,
+      detail: { kind: "confirmation_mismatch", echoToken: ECHO },
+    });
+  });
+
+  test("SITEMINDER-OPEN-Q1: a Modify / Cancel answer without ResID_Value keeps the smConfirmation the Commit got", async () => {
+    let n = 0;
+    const withId = filled("res-notif-rs-success.xml", { ...vals, RES_ID: "SM-42" });
+    const without = withId.replace(/<ResGlobalInfo>[\s\S]*<\/ResGlobalInfo>/, "");
+    const { cm } = manager({ fetch: (async () => answer(n++ === 0 ? withId : without)) as unknown as typeof fetch });
+    expect(await cm.pushReservation(reservation())).toEqual({ ok: true, smConfirmation: "SM-42" });
+    expect(await cm.modifyReservation(reservation(), "SM-42")).toEqual({ ok: true, smConfirmation: "SM-42" });
+    expect(await cm.cancelReservation(reservation(), "SM-42")).toEqual({ ok: true, retryable: false });
   });
 
   test("a Success without ResID_Value: the UniqueID stands in", async () => {
