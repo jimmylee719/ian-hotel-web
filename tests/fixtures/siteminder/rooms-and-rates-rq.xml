@@ -1,0 +1,24 @@
+<!-- Built from the Rooms and Rates sample request (https://developer.siteminder.com/siteconnect-api/reference/rooms-and-rates.md); credentials are fake. -->
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Header>
+    <wsse:Security SOAP-ENV:mustUnderstand="1" xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+      <wsse:UsernameToken>
+        <wsse:Username>fake-siteminder-user</wsse:Username>
+        <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText">Fake-Passw0rd!2026</wsse:Password>
+      </wsse:UsernameToken>
+    </wsse:Security>
+  </SOAP-ENV:Header>
+  <SOAP-ENV:Body>
+    <OTA_HotelAvailRQ xmlns="http://www.opentravel.org/OTA/2003/05" EchoToken="879791878" TimeStamp="2026-11-27T02:00:00Z" Version="1.0" AvailRatesOnly="true">
+      <AvailRequestSegments>
+        <AvailRequestSegment AvailReqType="Room">
+          <HotelSearchCriteria>
+            <Criterion>
+              <HotelRef HotelCode="NKHOSTEL"/>
+            </Criterion>
+          </HotelSearchCriteria>
+        </AvailRequestSegment>
+      </AvailRequestSegments>
+    </OTA_HotelAvailRQ>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

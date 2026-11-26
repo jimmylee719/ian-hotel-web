@@ -1,0 +1,11 @@
+<!-- NOT from the docs: [RES]'s RS table lists Success and Errors only. OTA allows Warnings beside Success; this checks we accept and log them. -->
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Header/>
+  <SOAP-ENV:Body>
+    <OTA_HotelResNotifRS xmlns="http://www.opentravel.org/OTA/2003/05" EchoToken="{{ECHO_TOKEN}}" TimeStamp="2026-11-27T02:00:06Z" Version="1.0">
+      <Success/>
+      <Warnings><Warning Type="11" Code="999">Advisory</Warning></Warnings>
+      <HotelReservations><HotelReservation><UniqueID Type="14" ID="{{UNIQUE_ID}}"/><ResGlobalInfo><HotelReservationIDs><HotelReservationID ResID_Type="14" ResID_Value="{{RES_ID}}"/></HotelReservationIDs></ResGlobalInfo></HotelReservation></HotelReservations>
+    </OTA_HotelResNotifRS>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

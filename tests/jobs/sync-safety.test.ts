@@ -1,14 +1,13 @@
 import { expect, test, vi } from "vitest";
-import { refundAndFail, SYNC_LEASE_MS } from "@/lib/booking/confirm";
+import { SYNC_LEASE_MS } from "@/lib/booking/channel-sync";
+import { refundAndFail } from "@/lib/booking/confirm";
 import { handlePaymentNotice } from "@/lib/booking/payment-notice";
 import { MockChannelManager } from "@/lib/channel/mock";
-import { CHANNEL_MAX_TIMEOUT_MS, type PushResult } from "@/lib/channel/types";
+import { CHANNEL_MAX_TIMEOUT_MS } from "@/lib/channel/types";
 import { runExpireHolds } from "@/lib/jobs/expire-holds";
 import { runSyncRetry } from "@/lib/jobs/sync-retry";
 import { bookingSetup, minutes, PAY_NOW } from "@/tests/helpers/booking";
 import { rawSqlite, type TestDb } from "@/tests/helpers/test-db";
-
-const tick = () => new Promise((r) => setImmediate(r));
 
 /** Make any UPDATE of next_sync_at on a paid_pending_confirm booking fail, i.e. crash right after the claim. */
 const crashAfterClaim = (db: TestDb) => rawSqlite(db).exec(`CREATE TRIGGER boom BEFORE UPDATE OF next_sync_at ON reservations
@@ -18,9 +17,9 @@ const crashBeforeClaim = (db: TestDb) => rawSqlite(db).exec(`CREATE TRIGGER boom
   BEGIN SELECT RAISE(ABORT, 'crash'); END`);
 const recover = (db: TestDb) => rawSqlite(db).exec(`DROP TRIGGER boom`);
 
-test("a sync lease outlasts the two channel calls made under it (lookup, then push or cancel), with margin", () => {
-  expect(CHANNEL_MAX_TIMEOUT_MS).toBe(60_000);
-  expect(SYNC_LEASE_MS).toBeGreaterThanOrEqual(2 * CHANNEL_MAX_TIMEOUT_MS + 30_000);
+test("a property's channel lease outlasts the one call made under it (renewed before a second), with margin", () => {
+  expect(CHANNEL_MAX_TIMEOUT_MS).toBe(120_000);
+  expect(SYNC_LEASE_MS).toBeGreaterThanOrEqual(CHANNEL_MAX_TIMEOUT_MS + 30_000);
 });
 
 test("overlapping retry runs push a booking exactly once", async () => {
@@ -38,34 +37,20 @@ test("overlapping retry runs push a booking exactly once", async () => {
   expect((await reservation(code)).status).toBe("confirmed");
 });
 
-test("a push that succeeds after a refund claimed the booking never confirms it", async () => {
-  let release!: (r: PushResult) => void;
-  class SlowChannel extends MockChannelManager {
-    override pushReservation() {
-      return new Promise<PushResult>((resolve) => { release = resolve; });
-    }
-  }
-  const { deps, gateway, book, reservation, notice } = await bookingSetup({ channel: new SlowChannel() });
+test("a refund that claimed a paid booking first wins: it is never confirmed nor handed to the channel", async () => {
+  const { db, deps, channel, book, reservation, notice } = await bookingSetup();
+  const push = vi.spyOn(channel, "pushReservation");
   const code = await book();
-  const handling = handlePaymentNotice(deps, await notice(code), minutes(2));
-  while (!release) await tick();
+  crashAfterClaim(db);
+  await expect(handlePaymentNotice(deps, await notice(code), minutes(2))).rejects.toThrow();
+  recover(db);
   const { id } = await reservation(code);
+  expect(await refundAndFail(deps, id, "TEST_GIVE_UP", minutes(3), { staffKind: "staff_payment_alert" })).toBe(true);
 
-  // Another worker gives up and refunds; while the refund is in flight the slow push succeeds.
-  const realRefund = gateway.refund.bind(gateway);
-  vi.spyOn(gateway, "refund").mockImplementation(async (r) => {
-    release({ ok: true, smConfirmation: "SM-LATE" });
-    await handling;
-    return realRefund(r);
-  });
-  expect(await refundAndFail(deps, id, "TEST_GIVE_UP", minutes(3), { staffKind: "staff_sync_failed" })).toBe(true);
-
+  expect(await runSyncRetry(deps, minutes(10))).toEqual({ attempted: 0 });
   const res = await reservation(code);
-  expect(res.status).toBe("confirm_failed_refunded");
-  expect(res.syncState).toBe("pending"); // the late push landed: the retry job checks the channel and cancels it there
-  expect(res.nextSyncAt).toBe(minutes(3).getTime() + SYNC_LEASE_MS);
-  expect(res.smConfirmation).toBeNull();
-  expect(res.refundedAmount).toBe(PAY_NOW);
+  expect(res).toMatchObject({ status: "confirm_failed_refunded", syncState: "failed", smConfirmation: null, refundedAmount: PAY_NOW });
+  expect(push).not.toHaveBeenCalled();
 });
 
 test("a crash after claiming a late (expired) payment is finished by the retry job", async () => {

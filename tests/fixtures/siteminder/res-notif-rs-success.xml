@@ -1,0 +1,19 @@
+<!-- Built from the Reservations "Confirmation Response" sample and the OTA_HotelResNotifRS field table (https://developer.siteminder.com/siteconnect-api/reference/reservations.md, read 2026-11-27). {{…}} are filled by the test. -->
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Header/>
+  <SOAP-ENV:Body>
+    <OTA_HotelResNotifRS xmlns="http://www.opentravel.org/OTA/2003/05" EchoToken="{{ECHO_TOKEN}}" TimeStamp="2026-11-27T02:00:06Z" Version="1.0">
+      <Success/>
+      <HotelReservations>
+        <HotelReservation>
+          <UniqueID Type="14" ID="{{UNIQUE_ID}}"/>
+          <ResGlobalInfo>
+            <HotelReservationIDs>
+              <HotelReservationID ResID_Type="14" ResID_Value="{{RES_ID}}"/>
+            </HotelReservationIDs>
+          </ResGlobalInfo>
+        </HotelReservation>
+      </HotelReservations>
+    </OTA_HotelResNotifRS>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

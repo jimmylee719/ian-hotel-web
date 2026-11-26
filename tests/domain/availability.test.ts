@@ -40,4 +40,15 @@ describe("evaluateOffer", () => {
   test("availableUnits is the minimum across nights", () => {
     expect(evaluateOffer(ids, nights, "2026-12-03", [night("2026-12-01", { available: 5 }), night("2026-12-02", { available: 2 })], 1)?.availableUnits).toBe(2);
   });
+  test("max stay applies on the arrival night only; null is no limit", () => {
+    const two = [night("2026-12-01", { maxStay: 1 }), night("2026-12-02")];
+    expect(evaluateOffer(ids, nights, "2026-12-03", two, 1)).toBeNull();
+    expect(evaluateOffer(ids, nights, "2026-12-03", [night("2026-12-01", { maxStay: 2 }), night("2026-12-02", { maxStay: 1 })], 1)).not.toBeNull();
+    expect(evaluateOffer(ids, nights, "2026-12-03", [night("2026-12-01", { maxStay: null }), night("2026-12-02")], 1)).not.toBeNull();
+  });
+  test("Stay Through min / max apply on every night of the stay", () => {
+    expect(evaluateOffer(ids, nights, "2026-12-03", [night("2026-12-01"), night("2026-12-02", { minStayThrough: 3 })], 1)).toBeNull();
+    expect(evaluateOffer(ids, nights, "2026-12-03", [night("2026-12-01"), night("2026-12-02", { maxStayThrough: 1 })], 1)).toBeNull();
+    expect(evaluateOffer(ids, nights, "2026-12-03", [night("2026-12-01", { minStayThrough: 2, maxStayThrough: 2 }), night("2026-12-02")], 1)).not.toBeNull();
+  });
 });

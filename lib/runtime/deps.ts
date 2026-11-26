@@ -1,7 +1,10 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import type { Deps } from "@/lib/booking/notify";
 import { MockChannelManager } from "@/lib/channel/mock";
+import { SiteMinderChannelManager } from "@/lib/channel/siteminder/client";
 import type { ChannelManager } from "@/lib/channel/types";
 import { getDb } from "@/lib/db/client";
+import { properties } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 import { MockEmailSender } from "@/lib/email/mock";
 import { ResendEmailSender, withPrefix } from "@/lib/email/resend";
@@ -32,7 +35,8 @@ export class BookingDisabledError extends Error {
  * env.staging / env.production set "staging" / "production", and unset or mistyped values count as neither), so
  * mock payments can never serve staging or production. In "preview" the mock modes are the only ones allowed and
  * MOCK_PAYMENT_SECRET must be set (the default secret is public, so anyone could forge a paid notice with it).
- * Staging and production need BASE_URL. (The reason code MOCK_MODE_IN_PRODUCTION keeps its historical name.)
+ * Staging and production need BASE_URL; CHANNEL_MODE=siteminder needs every SITEMINDER_SETTINGS value (siteMinderNotConfigured).
+ * (The reason code MOCK_MODE_IN_PRODUCTION keeps its historical name.)
  */
 export function bookingDisabledReason(env: AppEnv): string | null {
   if (!env.PAYMENT_MODE) return "PAYMENT_MODE_NOT_SET";
@@ -42,7 +46,7 @@ export function bookingDisabledReason(env: AppEnv): string | null {
     if (env.PAYMENT_MODE !== "mock" || env.CHANNEL_MODE !== "mock") return "REAL_MODE_IN_PREVIEW";
     if (!env.MOCK_PAYMENT_SECRET) return "MOCK_PAYMENT_SECRET_NOT_SET";
   }
-  return baseUrlMissingReason(env);
+  return baseUrlMissingReason(env) ?? siteMinderNotConfigured(env);
 }
 
 /**
@@ -96,14 +100,30 @@ export function buildCoreDeps(env: AppEnv, db: Db, origin: string): CoreDeps {
  * Throws BookingDisabledError while PAYMENT_MODE is unset.
  */
 export async function getDeps(origin: string): Promise<Deps> {
-  return buildDeps(await appEnv(), await getDb(), origin);
+  return withDefer(buildDeps(await appEnv(), await getDb(), origin));
+}
+
+/**
+ * The request's ctx.waitUntil as `deps.defer`, so the channel hand-off a request starts runs after its response.
+ * Outside the Workers runtime (next dev without a context, tests) there is none and the hand-off runs inline.
+ * (waitUntil may stop the work ~30 s after the response; a call cut off that way is like a timeout: the property
+ * lease lapses and the retry job sends it again.)
+ */
+async function withDefer(deps: Deps): Promise<Deps> {
+  try {
+    const { ctx } = await getCloudflareContext({ async: true });
+    if (typeof ctx?.waitUntil === "function") return { ...deps, defer: (work) => ctx.waitUntil(work) };
+  } catch {
+    // No Cloudflare context.
+  }
+  return deps;
 }
 
 export function buildDeps(env: AppEnv, db: Db, origin: string): Deps {
   const reason = bookingDisabledReason(env);
   if (reason) throw new BookingDisabledError(reason);
   const core = buildCoreDeps(env, db, origin);
-  return { ...core, gateway: paymentGateway(env, core.baseUrl), channel: channelManager(env) };
+  return { ...core, gateway: paymentGateway(env, core.baseUrl), channel: channelManager(env, db) };
 }
 
 /**
@@ -112,7 +132,7 @@ export function buildDeps(env: AppEnv, db: Db, origin: string): Deps {
  * cancel refunding 0 — the channel cancel then waits in syncState pending for the retry job).
  */
 export async function getOfflineDeps(origin: string): Promise<Deps> {
-  return buildOfflineDeps(await appEnv(), await getDb(), origin);
+  return withDefer(buildOfflineDeps(await appEnv(), await getDb(), origin));
 }
 
 export function buildOfflineDeps(env: AppEnv, db: Db, origin: string): Deps {
@@ -120,11 +140,38 @@ export function buildOfflineDeps(env: AppEnv, db: Db, origin: string): Deps {
 }
 
 /**
+ * Why the channel cannot be used here, or null: CHANNEL_MODE unset, the mock channel outside local / preview, or a
+ * real channel on the preview. Payments do not matter (a channel hand-off moves no money).
+ */
+export function channelDisabledReason(env: AppEnv): string | null {
+  if (!env.CHANNEL_MODE) return "CHANNEL_MODE_NOT_SET";
+  if (env.CHANNEL_MODE === "mock" && !isMockEnvironment(env.ENVIRONMENT)) return "MOCK_MODE_IN_PRODUCTION";
+  if (environmentOf(env) === "preview" && env.CHANNEL_MODE !== "mock") return "REAL_MODE_IN_PREVIEW";
+  return siteMinderNotConfigured(env);
+}
+
+/**
+ * Deps for a channel-only action (staff's manual channel retry): the email deps and the channel, with the payment
+ * gateway refusing, so it works while PAYMENT_MODE is unset. Throws BookingDisabledError (channelDisabledReason)
+ * when the channel itself is unavailable, or the channel builder's error (e.g. SITEMINDER_NOT_CONFIGURED).
+ */
+export function buildChannelDeps(env: AppEnv, db: Db, origin: string): Deps {
+  const reason = channelDisabledReason(env);
+  if (reason) throw new BookingDisabledError(reason);
+  return { ...buildCoreDeps(env, db, origin), gateway: disabledGateway, channel: channelManager(env, db) };
+}
+
+export async function getChannelDeps(origin: string): Promise<Deps> {
+  return buildChannelDeps(await appEnv(), await getDb(), origin);
+}
+
+/**
  * The full deps when online payments are configured, else the offline ones (db and email only; the gateway and
  * channel refuse) with `paymentsUnavailable: true`, for staff actions that can run without them.
  */
 export async function getDepsOrOffline(origin: string): Promise<{ deps: Deps; paymentsUnavailable: boolean }> {
-  return buildDepsOrOffline(await appEnv(), await getDb(), origin);
+  const r = buildDepsOrOffline(await appEnv(), await getDb(), origin);
+  return { ...r, deps: await withDefer(r.deps) };
 }
 
 export function buildDepsOrOffline(env: AppEnv, db: Db, origin: string): { deps: Deps; paymentsUnavailable: boolean } {
@@ -157,7 +204,7 @@ export function buildScheduledDeps(env: AppEnv, db: Db): ScheduledDeps {
   if (!syncSkipReason) {
     try {
       gateway = paymentGateway(env, core.baseUrl);
-      channel = channelManager(env);
+      channel = channelManager(env, db);
     } catch (e) {
       log.error("scheduled: payment/channel config failed; sync retry is off", e);
       gateway = disabledGateway;
@@ -183,8 +230,8 @@ const disabledChannel: ChannelManager = {
   async pushReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
   async modifyReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
   async cancelReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
-  async lookupReservation() { throw new BookingDisabledError("CHANNEL_MODE_NOT_SET"); },
   timeoutMs: 1,
+  disabled: true,
 };
 
 function paymentGateway(env: AppEnv, baseUrl: string): PaymentGateway {
@@ -201,15 +248,52 @@ function paymentGateway(env: AppEnv, baseUrl: string): PaymentGateway {
   }
 }
 
-function channelManager(env: AppEnv): ChannelManager {
+/** What CHANNEL_MODE=siteminder needs (names only; values are secrets or vars, never logged). */
+export const SITEMINDER_SETTINGS = ["SITEMINDER_ENDPOINT", "SITEMINDER_USERNAME", "SITEMINDER_PASSWORD", "SITEMINDER_REQUESTOR_ID"] as const;
+
+/**
+ * With CHANNEL_MODE=siteminder: why the adapter cannot be built ("SITEMINDER_NOT_CONFIGURED: <missing names>"), or
+ * null. Fails closed: booking and the channel stay off until every setting is there. (Where the endpoint may point
+ * is config-guard's job: SITEMINDER_HOSTS stays empty until SiteMinder confirms its hosts, SITEMINDER-OPEN-Q3, so
+ * staging and production refuse to run with one set.)
+ */
+export function siteMinderNotConfigured(env: AppEnv): string | null {
+  if (env.CHANNEL_MODE !== "siteminder") return null;
+  const missing = SITEMINDER_SETTINGS.filter((name) => !env[name]?.trim());
+  return missing.length ? `SITEMINDER_NOT_CONFIGURED: ${missing.join(", ")} not set` : null;
+}
+
+/**
+ * The HotelCode the SiteMinder adapter sends: the smPropertyCode of the one property that has one (one hotel per
+ * set of credentials). None, or several, is our configuration problem: the call is not made and is retried.
+ */
+export async function propertyHotelCode(db: Db): Promise<string> {
+  const codes = (await db.select({ code: properties.smPropertyCode }).from(properties))
+    .map((p) => p.code?.trim() ?? "").filter(Boolean);
+  if (codes.length !== 1) throw new Error(codes.length ? "SITEMINDER_SEVERAL_HOTEL_CODES" : "SITEMINDER_HOTEL_CODE_NOT_SET");
+  return codes[0];
+}
+
+function channelManager(env: AppEnv, db: Db): ChannelManager {
   switch (env.CHANNEL_MODE) {
     case undefined:
     case "":
       throw new BookingDisabledError("CHANNEL_MODE_NOT_SET");
     case "mock":
-      return new MockChannelManager();
-    case "siteminder":
-      throw new Error("SITEMINDER_NOT_CONFIGURED"); // Plan 4
+      // The preview builds a fresh mock per request (no memory between them): lenient and quiet there, so a later
+      // modify or cancel is not refused and the preview never alerts staff. Local dev keeps the strict mock.
+      return new MockChannelManager(environmentOf(env) === "preview" ? { lenient: true } : {});
+    case "siteminder": {
+      const missing = siteMinderNotConfigured(env);
+      if (missing) throw new BookingDisabledError(missing);
+      return new SiteMinderChannelManager({
+        endpoint: env.SITEMINDER_ENDPOINT!.trim(),
+        username: env.SITEMINDER_USERNAME!,
+        password: env.SITEMINDER_PASSWORD!,
+        requestorId: env.SITEMINDER_REQUESTOR_ID!.trim(),
+        hotelCode: () => propertyHotelCode(db),
+      });
+    }
     default:
       throw new Error(`UNKNOWN_CHANNEL_MODE: ${env.CHANNEL_MODE}`);
   }

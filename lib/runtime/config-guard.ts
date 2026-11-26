@@ -7,6 +7,7 @@ import { log } from "./log";
  * While a list is empty, every endpoint of that vendor is refused in that environment (fails closed).
  */
 export type VendorHosts = { production: string[]; sandbox: string[] };
+/** SITEMINDER-OPEN-Q3: which pre-production and production reservation hosts are correct (doc §7 Q3). */
 export const SITEMINDER_HOSTS: VendorHosts = { production: [], sandbox: [] };
 export const SINOPAC_HOSTS: VendorHosts = { production: [], sandbox: [] };
 

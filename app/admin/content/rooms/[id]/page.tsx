@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { SmCode } from "@/components/admin/SmCode";
 import { RoomForm } from "@/components/admin/ContentForms";
 import { getUnitTypeForAdmin } from "@/lib/admin/content";
 import { requirePage } from "@/lib/admin/page-guard";
@@ -18,6 +19,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
       <p><Link href="/admin/content">← 內容</Link></p>
       <h1 className="adm-h1">{u.name["zh-TW"]}</h1>
       <p className="adm-muted">公開頁面：<a href={`/zh-TW/rooms/${u.slug}`} target="_blank" rel="noreferrer">/rooms/{u.slug}</a></p>
+      <SmCode label="房型代碼（RoomTypeCode）" code={u.smRoomCode} />
       <RoomForm room={{
         id: u.id, slug: u.slug, name: u.name, description: u.description, bedType: u.bedType, amenities: u.amenities,
         sizeSqm: u.sizeSqm, maxAdults: u.maxAdults, maxOccupancy: u.maxOccupancy, sortOrder: u.sortOrder, active: u.active, images: u.images,

@@ -29,7 +29,7 @@ test("[review#2] two rate plans share one room type's inventory", async () => {
   const db = createTestDb();
   const { propertyId } = await seedNk(db);
   const [flex] = await db.select().from(ratePlans);
-  await db.insert(ratePlans).values({ ...flex, id: "plan-b", slug: "direct-breakfast" });
+  await db.insert(ratePlans).values({ ...flex, id: "plan-b", slug: "direct-breakfast", smRatePlanCode: "DIRECTBREAKFAST" });
   await fillAri(db, propertyId, "2026-12-01", 1, { available: 1 });
   const a = await idsFor(db, "mixed-cube", "direct-flex");
   const b = await idsFor(db, "mixed-cube", "direct-breakfast");

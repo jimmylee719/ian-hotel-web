@@ -88,6 +88,8 @@ export async function updateUnitType(
   if (!row) return { ok: false, error: "NOT_FOUND" };
   if (!can(ctx.staff, "content.edit", row.propertyId)) return { ok: false, error: "FORBIDDEN" };
 
+  // Our SiteMinder RoomTypeCode is written once (lib/channel/siteminder/codes.ts); changing it breaks the hotel's mapping.
+  if ("smRoomCode" in input) return invalid("smRoomCode");
   const patch = defined({ ...input });
   const i18nError = checkI18n(patch, ["name", "description", "bedType"]);
   if (i18nError) return i18nError;

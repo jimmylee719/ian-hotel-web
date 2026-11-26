@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { properties, ratePlans, unitTypes, type I18n } from "./schema";
 import type { Db } from "./types";
+import { fillMissingSmCodes } from "../channel/siteminder/codes";
 
 /** zh-TW + en from the current site; ja/ko are machine translations (messages/_review.md). */
 const t = (zh: string, en: string, ja = en, ko = en): I18n => ({ "zh-TW": zh, en, ja, ko });
@@ -26,7 +27,11 @@ const DIRECTIONS: I18n = {
 
 export async function seedNk(db: Db): Promise<{ propertyId: string }> {
   const existing = await db.select({ id: properties.id }).from(properties).where(eq(properties.slug, "nk-hostel"));
-  if (existing.length) return { propertyId: existing[0].id };
+  if (existing.length) {
+    // An existing database: still give any row without a SiteMinder code its code (never changes one).
+    await fillMissingSmCodes(db);
+    return { propertyId: existing[0].id };
+  }
 
   const propertyId = crypto.randomUUID();
   await db.insert(properties).values({
@@ -74,6 +79,9 @@ export async function seedNk(db: Db): Promise<{ propertyId: string }> {
     depositPct: 0,
     cancelPolicy: { rules: [{ daysBefore: 3, refundPct: 100 }, { daysBefore: 1, refundPct: 50 }] },
   });
+
+  // Our SiteMinder codes (HotelCode / RoomTypeCode / RatePlanCode), derived from the slugs; read-only from here on.
+  await fillMissingSmCodes(db);
 
   return { propertyId };
 }

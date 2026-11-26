@@ -95,6 +95,25 @@ export function ResendNotificationAction({ notificationId, to }: { notificationI
   );
 }
 
+/** 重試同步: send a booking's pending or stopped SiteMinder hand-off now (the server re-checks everything). */
+export function RetryChannelSyncAction({ reservationId }: { reservationId: string }) {
+  const router = useRouter();
+  const { show, view } = useToast();
+  async function confirm() {
+    const r = await post<{ syncState: string }>(`/api/admin/reservations/${encodeURIComponent(reservationId)}/channel-sync`, {});
+    show(r.syncState === "synced" || r.syncState === "not_required" ? "已同步到 SiteMinder" : "仍未同步成功，系統會繼續重試；錯誤訊息見訂單資訊");
+    router.refresh();
+  }
+  return (
+    <>
+      <ConfirmDialog triggerLabel="重試同步" title="現在重試同步到 SiteMinder？" confirmLabel="重試" onConfirm={confirm}>
+        <p>會立刻把這筆訂單目前的內容送到 SiteMinder（或送出取消）。不影響旅客的訂房與付款。</p>
+      </ConfirmDialog>
+      {view}
+    </>
+  );
+}
+
 const OFFLINE_LABEL = { transfer: "匯款", cash: "現金", edc: "刷卡機退刷" } as const;
 type OfflineMethod = keyof typeof OFFLINE_LABEL;
 

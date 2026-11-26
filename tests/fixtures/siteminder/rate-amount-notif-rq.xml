@@ -1,0 +1,35 @@
+<!-- Built from the Rates (PDP) sample request (https://developer.siteminder.com/siteconnect-api/reference/rates.md): our codes and currency, TWD amounts, fake credentials. The sample's Single Guest Discount (NumberOfGuests="1") and AdditionalGuestAmounts are kept: we ignore both. -->
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Header>
+    <wsse:Security SOAP-ENV:mustUnderstand="1" xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+      <wsse:UsernameToken>
+        <wsse:Username>fake-siteminder-user</wsse:Username>
+        <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText">Fake-Passw0rd!2026</wsse:Password>
+      </wsse:UsernameToken>
+    </wsse:Security>
+  </SOAP-ENV:Header>
+  <SOAP-ENV:Body>
+    <OTA_HotelRateAmountNotifRQ xmlns="http://www.opentravel.org/OTA/2003/05" EchoToken="5f0c3a52-1b7e-4c2a-9d1e-2a3b4c5d6e7f" TimeStamp="2026-11-27T01:59:43+00:00" Version="1.0">
+      <RateAmountMessages HotelCode="NKHOSTEL">
+        <RateAmountMessage>
+          <StatusApplicationControl Start="2026-12-05" End="2026-12-07" InvTypeCode="MIXEDCUBE" RatePlanCode="DIRECTFLEX"/>
+          <Rates>
+            <Rate>
+              <BaseByGuestAmts>
+                <BaseByGuestAmt AgeQualifyingCode="10" AmountAfterTax="1800.00" CurrencyCode="TWD" NumberOfGuests="1"/>
+                <BaseByGuestAmt AgeQualifyingCode="10" AmountAfterTax="2400.00" CurrencyCode="TWD" NumberOfGuests="2"/>
+              </BaseByGuestAmts>
+              <AdditionalGuestAmounts>
+                <AdditionalGuestAmount AgeQualifyingCode="10" Amount="500" CurrencyCode="TWD"/>
+                <AdditionalGuestAmount AgeQualifyingCode="8" Amount="300" CurrencyCode="TWD"/>
+              </AdditionalGuestAmounts>
+              <RateDescription>
+                <Text>Room only</Text>
+              </RateDescription>
+            </Rate>
+          </Rates>
+        </RateAmountMessage>
+      </RateAmountMessages>
+    </OTA_HotelRateAmountNotifRQ>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

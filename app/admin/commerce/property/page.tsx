@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { SmCode } from "@/components/admin/SmCode";
 import { PropertyForm } from "@/components/admin/CommerceForms";
 import { getPropertyForAdmin } from "@/lib/admin/commerce";
 import { requirePage } from "@/lib/admin/page-guard";
@@ -16,6 +17,7 @@ export default async function Page() {
     <>
       <p><Link href="/admin/commerce">← 加購與折扣</Link></p>
       <h1 className="adm-h1">館別設定</h1>
+      <SmCode label="館別代碼（HotelCode）" code={p.smPropertyCode} />
       <PropertyForm property={p} />
     </>
   );

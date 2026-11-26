@@ -23,7 +23,8 @@ export const properties = sqliteTable("properties", {
   address: i18n("address"),
   phone: text("phone").notNull(),
   email: text("email").notNull(),
-  smPropertyCode: text("sm_property_code"),
+  /** Our SiteMinder HotelCode (lib/channel/siteminder/codes.ts): set once, never edited. */
+  smPropertyCode: text("sm_property_code").unique(),
   sinopacMerchantId: text("sinopac_merchant_id"),
   /** 'HH:MM' Taipei wall-clock, shown in the pre-arrival email. */
   checkInTime: text("check_in_time").notNull().default("15:00"),
@@ -49,10 +50,14 @@ export const unitTypes = sqliteTable(
     /** R2 keys of the room's photos, cover first (staff-managed). Empty = the migrated old-site photos. */
     images: text("images", { mode: "json" }).$type<string[]>().notNull().default(sql`'[]'`),
     sortOrder: integer("sort_order").notNull().default(0),
+    /** Our SiteMinder RoomTypeCode (lib/channel/siteminder/codes.ts): set once, never edited. */
     smRoomCode: text("sm_room_code"),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
   },
-  (t) => [uniqueIndex("unit_types_property_slug").on(t.propertyId, t.slug)],
+  (t) => [
+    uniqueIndex("unit_types_property_slug").on(t.propertyId, t.slug),
+    uniqueIndex("unit_types_property_sm_room_code").on(t.propertyId, t.smRoomCode),
+  ],
 );
 
 export const units = sqliteTable("units", {
@@ -70,6 +75,7 @@ export const ratePlans = sqliteTable(
     propertyId: text("property_id").notNull().references(() => properties.id),
     slug: text("slug").notNull(),
     name: i18n("name"),
+    /** Our SiteMinder RatePlanCode (lib/channel/siteminder/codes.ts): set once, never edited. */
     smRatePlanCode: text("sm_rate_plan_code"),
     directOnly: bool("direct_only"),
     paymentMode: text("payment_mode", { enum: ["full", "deposit"] }).notNull(),
@@ -78,7 +84,10 @@ export const ratePlans = sqliteTable(
     includesBreakfast: bool("includes_breakfast"),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
   },
-  (t) => [uniqueIndex("rate_plans_property_slug").on(t.propertyId, t.slug)],
+  (t) => [
+    uniqueIndex("rate_plans_property_slug").on(t.propertyId, t.slug),
+    uniqueIndex("rate_plans_property_sm_rate_plan_code").on(t.propertyId, t.smRatePlanCode),
+  ],
 );
 
 /** Daily rates + restrictions per (room type, rate plan). Phase 1: a cache of SiteMinder. */
@@ -94,8 +103,19 @@ export const ariDaily = sqliteTable(
     closedToArrival: bool("closed_to_arrival"),
     closedToDeparture: bool("closed_to_departure"),
     stopSell: bool("stop_sell"),
+    /** Longest stay arriving on this date (SiteMinder SetMaxLOS); null = no limit. */
+    maxStay: integer("max_stay"),
+    /** Stay Through (SetForwardMinStay / SetForwardMaxStay): every stay covering this night must be at least / at most this long; null = no limit. */
+    minStayThrough: integer("min_stay_through"),
+    maxStayThrough: integer("max_stay_through"),
     source: text("source", { enum: ["siteminder", "local"] }).notNull(),
     syncedAt: ms("synced_at"),
+    /**
+     * The SiteMinder message TimeStamp (epoch ms, lib/channel/siteminder/inbound/ari.ts orderingTs) that last set this
+     * night's restrictions / its price: an older message never overwrites a newer one. Null = never set by SiteMinder.
+     */
+    restrictionsSourceTs: integer("restrictions_source_ts"),
+    priceSourceTs: integer("price_source_ts"),
   },
   (t) => [
     primaryKey({ columns: [t.unitTypeId, t.ratePlanId, t.date] }),
@@ -116,6 +136,13 @@ export const inventoryDaily = sqliteTable(
     available: integer("available").notNull(),
     source: text("source", { enum: ["siteminder", "local"] }).notNull(),
     syncedAt: ms("synced_at"),
+    /** The SiteMinder message TimeStamp (epoch ms) that last set `available`; see ariDaily.restrictionsSourceTs. */
+    sourceTs: integer("source_ts"),
+    /**
+     * The BookingLimit SiteMinder last sent (diagnosis only). `available` is it minus our rooms SiteMinder has not
+     * counted yet (lib/db/ari-sync.ts OUTSTANDING_ROOMS).
+     */
+    smAvailable: integer("sm_available"),
   },
   (t) => [
     primaryKey({ columns: [t.unitTypeId, t.date] }),
@@ -171,6 +198,8 @@ export const reservations = sqliteTable(
     syncAttempts: integer("sync_attempts").notNull().default(0),
     nextSyncAt: integer("next_sync_at"),
     lastSyncError: text("last_sync_error"),
+    /** Epoch ms the channel last answered Success to a push or modify of this booking (lib/booking/channel-sync.ts). */
+    channelSyncedAt: integer("channel_synced_at"),
     cancelledAt: integer("cancelled_at"),
     /** Epoch ms of the latest payment start (create, or a retry with the same idempotency key). */
     lastChargeStartedAt: integer("last_charge_started_at"),
@@ -200,9 +229,19 @@ export const reservations = sqliteTable(
     deskDueSince: integer("desk_due_since"),
     /** How many staff modifications this booking has had; the n-th one's refund key is `modify:<id>:<n>`. */
     modCount: integer("mod_count").notNull().default(0),
+    /**
+     * Epoch ms of the first push (new reservation) sent to the channel, set just before the call and never cleared:
+     * from then on the channel may hold the booking even without an smConfirmation (an answer lost to a timeout),
+     * so a cancel must reach it. Null = never sent: a cancel then sends nothing (lib/booking/channel-sync.ts).
+     */
+    channelPushedAt: integer("channel_pushed_at"),
+    /** Epoch ms of the latest channel hand-off failure (retryable or not); what the dashboard's sync_failed alert dates from. */
+    lastSyncAt: integer("last_sync_at"),
   },
   (t) => [
     index("reservations_property_checkin").on(t.propertyId, t.checkIn),
+    // The ARI outstanding-rooms query (lib/db/ari-sync.ts outstandingRooms): bookings not yet checked out.
+    index("reservations_property_checkout").on(t.propertyId, t.checkOut),
     index("reservations_guest_email_lower").on(t.guestEmailLower),
   ],
 );
@@ -213,7 +252,7 @@ export const reservationRooms = sqliteTable("reservation_rooms", {
   unitTypeId: text("unit_type_id").notNull().references(() => unitTypes.id),
   ratePlanId: text("rate_plan_id").notNull().references(() => ratePlans.id),
   nightlyPrices: text("nightly_prices", { mode: "json" }).$type<number[]>().notNull(),
-});
+}, (t) => [index("reservation_rooms_reservation").on(t.reservationId)]);
 
 /** Never add card number / CVV / expiry columns here (PCI-DSS). */
 export const payments = sqliteTable(
@@ -439,4 +478,48 @@ export const opsAlerts = sqliteTable(
     at: ms("at"),
   },
   (t) => [uniqueIndex("ops_alerts_key_hour").on(t.key, t.hour), index("ops_alerts_key_at").on(t.key, t.at)],
+);
+
+/**
+ * One channel message in flight per hotel (SiteMinder, doc §8.7): a property's row is its channel lease, held by
+ * one worker (`holder`) until `until` (epoch ms, real clock). Taken and released by lib/booking/channel-sync.ts;
+ * released leases keep their row (until = 0) so `cooldownUntil` survives.
+ */
+export const channelLeases = sqliteTable("channel_leases", {
+  propertyId: text("property_id").primaryKey(),
+  holder: text("holder").notNull(),
+  until: ms("until"),
+  /** Epoch ms (real clock) before which no call may start for the property: the channel asked us to wait (429 / Retry-After). */
+  cooldownUntil: integer("cooldown_until"),
+});
+
+/**
+ * Every ARI message SiteMinder sent us that passed authentication (lib/channel/siteminder/inbound/ari.ts), for
+ * /admin/system and the repeated-rejection ops alert. Never the XML itself. Rows older than ARI_LOG_KEEP_MS are pruned.
+ */
+export const channelAriMessages = sqliteTable(
+  "channel_ari_messages",
+  {
+    id: id(),
+    at: ms("at"),
+    /** Null when the HotelCode matched no property. */
+    propertyId: text("property_id"),
+    /** The request root, e.g. OTA_HotelAvailNotifRQ. */
+    messageType: text("message_type").notNull(),
+    echoToken: text("echo_token"),
+    /** Day rows the message expands to (one per day per room type / rate plan). */
+    days: integer("days").notNull(),
+    outcome: text("outcome", { enum: ["applied", "rejected"] }).notNull(),
+    /** The OTA error we answered with (rejected only). */
+    errorCode: integer("error_code"),
+    errorText: text("error_text"),
+    /** Room type / rate plan codes we answered 402 / 249 for. */
+    rejectedCodes: text("rejected_codes", { mode: "json" }).$type<{ kind: "room" | "rate"; code: string }[]>().notNull().default(sql`'[]'`),
+    /** Day rows not written because a newer message had already set them (ordering). */
+    staleRows: integer("stale_rows").notNull().default(0),
+    /** Day rows stored with price 0 or availability clamped because a value was unusable (warned, not refused). */
+    degradedRows: integer("degraded_rows").notNull().default(0),
+    durationMs: integer("duration_ms").notNull(),
+  },
+  (t) => [index("channel_ari_messages_at").on(t.at)],
 );

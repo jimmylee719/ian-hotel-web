@@ -13,12 +13,13 @@ import { redact } from "@/lib/runtime/redact";
  * - config_refused: assertConfig refused the config, so the cron was skipped (lib/jobs/cron.ts);
  * - reconcile_mismatch: a reconcile run (scope: its job_runs name) found what it also tells staff about
  *   (reconcileAlertDetail; lib/jobs/cron.ts);
- * - ari_unknown_code: the SiteMinder ARI push carried codes we do not map.
- *   TODO(Plan 4 Task 4): the ARI inbound endpoint does not exist yet. When it does, call
- *   `notifyOps(buildOpsDeps(env, db), { kind: "ari_unknown_code", detail: "<the unknown room/rate codes>" })`
- *   after answering the push (never let the email delay or fail the response).
+ * - channel_sync_failed: the 5-minute cron alerted staff about bookings whose channel hand-off keeps failing
+ *   (3 failures in a row, then daily; lib/jobs/sync-retry.ts) or stopped on a non-retryable error;
+ * - ari_rejected: SiteMinder ARI needs a person (lib/channel/siteminder/inbound/ari.ts, after the answer): scope
+ *   `mapping` at once on a 402 / 249 / 137 answer, `currency` at once on a CurrencyCode other than the property's
+ *   (stored as price 0), `degraded` on values stored in their safe form (price 0 / 0 rooms / closed), and unscoped when ARI_REJECTION_ALERT_COUNT messages were rejected within an hour.
  */
-export type OpsAlertKind = "cron_failed" | "config_refused" | "reconcile_mismatch" | "ari_unknown_code";
+export type OpsAlertKind = "cron_failed" | "config_refused" | "reconcile_mismatch" | "channel_sync_failed" | "ari_rejected";
 
 /** `scope` splits one kind into separately limited alerts (e.g. per job). `detail` is redacted before it is sent. */
 export type OpsAlert = { kind: OpsAlertKind; detail: string; scope?: string };
@@ -36,7 +37,8 @@ const TITLES: Record<OpsAlertKind, string> = {
   cron_failed: "排程工作連續失敗",
   config_refused: "設定被拒絕，網站與排程已停止",
   reconcile_mismatch: "對帳發現不一致，需人工處理",
-  ari_unknown_code: "ARI 推送含未知代碼",
+  channel_sync_failed: "訂單尚未同步到 SiteMinder，需人工處理",
+  ari_rejected: "SiteMinder ARI 需要人工處理",
 };
 
 /**

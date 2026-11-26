@@ -1,6 +1,6 @@
 import { and, desc, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import journal from "@/drizzle/migrations/meta/_journal.json";
-import { jobRuns, paymentEvents, reservations } from "@/lib/db/schema";
+import { channelAriMessages, jobRuns, paymentEvents, reservations } from "@/lib/db/schema";
 import type { Db } from "@/lib/db/types";
 import { bookingDisabledReason } from "@/lib/runtime/deps";
 import type { AppEnv } from "@/lib/runtime/env";
@@ -39,8 +39,22 @@ export type SystemStatus = {
   syncStates: Record<string, number>;
   paymentVerdicts24h: Record<string, number>;
   migrations: { applied: number; latest: string | null; expected: number; expectedLatest: string };
+  /** SiteMinder ARI (lib/channel/siteminder/inbound/ari.ts): the last message received, and codes we rejected lately. */
+  ari: {
+    last: {
+      at: number; messageType: string; days: number; outcome: "applied" | "rejected"; errorCode: number | null; errorText: string | null;
+      /** Day rows skipped because a newer message had set them; day rows stored in their safe form (price 0 / 0 rooms / closed). */
+      staleRows: number; degradedRows: number;
+    } | null;
+    /** Room type / rate plan codes answered 402 / 249 in the last ARI_REJECTED_SHOWN_MS, newest first. */
+    rejectedCodes: { kind: "room" | "rate"; code: string; at: number }[];
+    rejected24h: number;
+  };
   warnings: SystemWarning[];
 };
+
+/** How far back /admin/system lists rejected ARI codes. */
+export const ARI_REJECTED_SHOWN_MS = 7 * 86_400_000;
 
 const isSet = (v: unknown) => typeof v === "string" && v.trim() !== "";
 
@@ -76,6 +90,16 @@ export async function getSystemStatus(
     ))
     .groupBy(paymentEvents.verdict);
 
+  const ariScope = scope ? (scope.length ? or(isNull(channelAriMessages.propertyId), inArray(channelAriMessages.propertyId, scope)) : isNull(channelAriMessages.propertyId)) : undefined;
+  const [lastAri] = await db.select().from(channelAriMessages).where(ariScope).orderBy(desc(channelAriMessages.at)).limit(1);
+  const rejectedRows = await db.select({ at: channelAriMessages.at, codes: channelAriMessages.rejectedCodes }).from(channelAriMessages)
+    .where(and(ariScope, sql`${channelAriMessages.outcome} = 'rejected'`, gte(channelAriMessages.at, now.getTime() - ARI_REJECTED_SHOWN_MS)))
+    .orderBy(desc(channelAriMessages.at)).limit(200);
+  const rejectedCodes = new Map<string, { kind: "room" | "rate"; code: string; at: number }>();
+  for (const r of rejectedRows) for (const c of r.codes) if (!rejectedCodes.has(`${c.kind}|${c.code}`)) rejectedCodes.set(`${c.kind}|${c.code}`, { ...c, at: r.at });
+  const [rejected24h] = await db.select({ n: sql<number>`count(*)` }).from(channelAriMessages)
+    .where(and(ariScope, sql`${channelAriMessages.outcome} = 'rejected'`, gte(channelAriMessages.at, now.getTime() - DAY)));
+
   const migrations = await migrationState(db);
   const warnings: SystemWarning[] = [];
   // Local: DEV_STAFF_EMAIL is in effect, so Access is bypassed (lib/admin/auth.ts). Elsewhere it is ignored but must not exist.
@@ -92,6 +116,14 @@ export async function getSystemStatus(
     syncStates: Object.fromEntries(syncRows.map((r) => [r.state, r.n])),
     paymentVerdicts24h: Object.fromEntries(verdictRows.map((r) => [r.verdict, r.n])),
     migrations,
+    ari: {
+      last: lastAri ? {
+        at: lastAri.at, messageType: lastAri.messageType, days: lastAri.days, outcome: lastAri.outcome, errorCode: lastAri.errorCode,
+        errorText: lastAri.errorText, staleRows: lastAri.staleRows, degradedRows: lastAri.degradedRows,
+      } : null,
+      rejectedCodes: [...rejectedCodes.values()],
+      rejected24h: Number(rejected24h?.n ?? 0),
+    },
     warnings,
   };
 }

@@ -1,0 +1,10 @@
+<!-- [RES] says wrong credentials "return a SOAP fault with appropriate error code" but gives no example (docs/integrations/siteminder.md §5.1, Q2). A plain SOAP 1.1 Fault with the credentials text from the error-handling page. -->
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Header/>
+  <SOAP-ENV:Body>
+    <SOAP-ENV:Fault>
+      <faultcode>SOAP-ENV:Client</faultcode>
+      <faultstring>Invalid Username and/or Password for ABC</faultstring>
+    </SOAP-ENV:Fault>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

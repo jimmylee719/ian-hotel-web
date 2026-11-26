@@ -106,7 +106,8 @@ async function loadAlerts(db: Db, propertyId: string, nowMs: number): Promise<Al
   // How long the desk has owed it: since its desk-due last rose from 0.
   const owedSince = reservations.deskDueSince;
   const [failed, stale, strays, refunds, failedRefunds, emails, events, deskDue] = await Promise.all([
-    db.select({ id: reservations.id, code: reservations.code, err: reservations.lastSyncError, at: reservations.updatedAt })
+    // Dated from the sync failure itself (lastSyncAt); a booking claimed by a refund (no channel failure) from its updatedAt.
+    db.select({ id: reservations.id, code: reservations.code, err: reservations.lastSyncError, at: sql<number>`coalesce(${reservations.lastSyncAt}, ${reservations.updatedAt})` })
       .from(reservations).where(and(own, eq(reservations.syncState, "failed"))),
     db.select({ id: reservations.id, code: reservations.code, at: reservations.nextSyncAt })
       .from(reservations).where(and(own, eq(reservations.syncState, "pending"), lte(reservations.nextSyncAt, nowMs - SYNC_STALE_MS))),

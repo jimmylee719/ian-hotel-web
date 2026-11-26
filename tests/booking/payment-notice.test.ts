@@ -9,17 +9,20 @@ import { bookingSetup, minutes, NOW, PAY_NOW, STAFF } from "@/tests/helpers/book
 test("a paid notice confirms the booking, pushes it to the channel and emails guest and staff", async () => {
   const { db, deps, channel, email, book, reservation, notice } = await bookingSetup();
   const code = await book();
+  const before = Date.now();
   const r = await handlePaymentNotice(deps, await notice(code, { authCode: "A1", last4: "4242" }), minutes(2));
   expect(r).toEqual({ status: 200, verdict: "accepted" });
 
   const res = await reservation(code);
   expect(res.status).toBe("confirmed");
   expect(res.syncState).toBe("synced");
+  // The channel's acknowledgement (lib/db/ari-sync.ts): the real time the call returned, not the job's `now`.
+  expect(res.channelSyncedAt).toBeGreaterThanOrEqual(before);
   expect(res.smConfirmation).toMatch(/^SM-1-/);
 
   expect(channel.pushed).toHaveLength(1);
   expect(channel.pushed[0]).toMatchObject({ code, paidAmount: PAY_NOW, total: PAY_NOW, checkIn: "2026-12-01", checkOut: "2026-12-03" });
-  expect(channel.pushed[0].rooms).toEqual([{ smRoomCode: "", smRatePlanCode: "", nightlyPrices: [2000, 2000] }]);
+  expect(channel.pushed[0].rooms).toEqual([{ smRoomCode: "MIXEDCUBE", smRatePlanCode: "DIRECTFLEX", nightlyPrices: [2000, 2000], roomName: "男.女混合雙人旅艙", ratePlanName: "官網專屬・彈性取消" }]);
 
   expect(email.sent.map((e) => e.to).sort()).toEqual(["mei@example.com", STAFF]);
   expect(email.sent.find((e) => e.to === "mei@example.com")!.subject).toContain("Booking confirmed");
@@ -102,7 +105,7 @@ test("an amount one dollar short is refunded in full and staff are alerted", asy
   expect(refunds).toMatchObject([{ amount: PAY_NOW - 1, status: "succeeded", reservationId: res.id }]);
 });
 
-test("a non-retryable channel failure refunds, releases inventory and apologises", async () => {
+test("a non-retryable channel failure keeps the paid booking confirmed: no refund, rooms kept, the guest gets the confirmation", async () => {
   const { deps, gateway, email, book, reservation, notice, avail } = await bookingSetup({
     channel: new MockChannelManager({ failNext: 1, retryable: false }),
   });
@@ -112,24 +115,19 @@ test("a non-retryable channel failure refunds, releases inventory and apologises
   await handlePaymentNotice(deps, await notice(code), minutes(2));
 
   const res = await reservation(code);
-  expect(res.status).toBe("confirm_failed_refunded");
-  expect(res.syncState).toBe("pending"); // the retry job checks the channel never kept it
-  expect(res.refundedAmount).toBe(PAY_NOW);
-  expect(refund).toHaveBeenCalledWith(expect.objectContaining({ providerRef: `REF-${code}`, amount: PAY_NOW }));
-  expect(await avail()).toBe(3);
+  expect(res).toMatchObject({ status: "confirmed", syncState: "failed", refundedAmount: 0, lastSyncError: "MOCK_FAILURE" });
+  expect(refund).not.toHaveBeenCalled();
+  expect(await avail()).toBe(2);
   const guestMail = email.sent.find((e) => e.to === "mei@example.com")!;
-  expect(guestMail.subject).toContain("could not complete");
-  expect(guestMail.text).toContain("NT$4,000");
-  expect(email.sent.find((e) => e.to === STAFF)!.subject).toContain("通路同步失敗");
+  expect(guestMail.subject).not.toContain("could not complete");
+  expect(guestMail.text).not.toMatch(/SiteMinder|channel|sync/i);
+  expect(email.sent.find((e) => e.to === STAFF)!.subject).toContain("新訂單");
 });
 
 test("when the refund itself fails, the reservation is left for staff and never marked refunded", async () => {
-  const { db, deps, email, book, reservation, notice, avail } = await bookingSetup({
-    channel: new MockChannelManager({ failNext: 1, retryable: false }),
-    failRefund: true,
-  });
+  const { db, deps, email, book, reservation, notice, avail } = await bookingSetup({ failRefund: true });
   const code = await book();
-  await handlePaymentNotice(deps, await notice(code), minutes(2));
+  await handlePaymentNotice(deps, await notice(code, { amount: PAY_NOW - 1 }), minutes(2)); // a genuine payment problem
 
   const res = await reservation(code);
   expect(res.status).toBe("paid_pending_confirm");

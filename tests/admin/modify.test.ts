@@ -187,25 +187,21 @@ test("an expectedDifference that no longer matches is PRICE_CHANGED and changes 
   expect(await s.audits()).toEqual([]);
 });
 
-test("a retryable channel failure leaves the sync pending; the retry job then sends a modify, not a push", async () => {
+test("a retryable channel failure leaves the sync pending; the next change goes out as a modify with the latest stay, never a push", async () => {
   const s = await confirmed();
   const modify = vi.spyOn(s.channel, "modifyReservation")
     .mockResolvedValueOnce({ ok: false, retryable: true, error: "SM_TIMEOUT" });
   const push = vi.spyOn(s.channel, "pushReservation");
   const c = change({ checkOut: "2026-12-04" });
   expect(await applyModification(s.deps, s.frontDesk, s.id, c, opts(2000), AT)).toMatchObject({ ok: true });
-  expect(await s.reservation(s.code)).toMatchObject({ status: "confirmed", checkOut: "2026-12-04", syncState: "pending", lastSyncError: "SM_TIMEOUT" });
-  // A pending sync does not block another modification (M-3): the next push simply carries the latest stay.
-  // Its own push waits for the retry slot already set, so the channel never gets two pushes at once.
+  expect(await s.reservation(s.code)).toMatchObject({ status: "confirmed", checkOut: "2026-12-04", syncState: "pending", syncAttempts: 1, lastSyncError: "SM_TIMEOUT" });
+  // A pending sync does not block another modification (M-3): its hand-off simply carries the latest stay.
   expect(await applyModification(s.deps, s.frontDesk, s.id, change({ checkOut: "2026-12-05" }), opts(2000), minutes(11))).toMatchObject({ ok: true, modCount: 2 });
-  expect(modify).toHaveBeenCalledTimes(1);
-  expect(await s.reservation(s.code)).toMatchObject({ checkOut: "2026-12-05", modCount: 2, syncState: "pending" });
-
-  expect(await runSyncRetry(s.deps, minutes(16))).toEqual({ attempted: 1 });
   expect(modify).toHaveBeenCalledTimes(2);
   expect(push).not.toHaveBeenCalled();
   expect(modify.mock.calls[1][0]).toMatchObject({ code: s.code, checkOut: "2026-12-05", total: 8000 });
-  expect(await s.reservation(s.code)).toMatchObject({ status: "confirmed", syncState: "synced", lastSyncError: null });
+  expect(await s.reservation(s.code)).toMatchObject({ status: "confirmed", modCount: 2, syncState: "synced", syncAttempts: 0, lastSyncError: null });
+  expect(await runSyncRetry(s.deps, minutes(16))).toEqual({ attempted: 0 });
 });
 
 test("with no channel configured (offline mode) two modifications in a row both succeed; the sync waits, then sends the latest (M-3)", async () => {
@@ -242,7 +238,7 @@ test("a staff cancel in offline mode waits for the channel, and the retry job th
   const cancel = vi.spyOn(s.channel, "cancelReservation");
   const modify = vi.spyOn(s.channel, "modifyReservation");
   expect(await runSyncRetry(s.deps, minutes(30))).toEqual({ attempted: 1 });
-  expect(cancel).toHaveBeenCalledWith(s.code, (await s.reservation(s.code)).smConfirmation);
+  expect(cancel).toHaveBeenCalledWith(expect.objectContaining({ code: s.code }), (await s.reservation(s.code)).smConfirmation);
   expect(modify).not.toHaveBeenCalled();
   expect(await s.reservation(s.code)).toMatchObject({ status: "cancelled", syncState: "synced" });
 });
@@ -254,8 +250,10 @@ test("a non-retryable channel failure alerts staff and keeps the booking (no aut
   expect(await applyModification(s.deps, s.frontDesk, s.id, change({ checkOut: "2026-12-04" }), opts(2000), AT)).toMatchObject({ ok: true });
   expect(await s.reservation(s.code)).toMatchObject({ status: "confirmed", checkOut: "2026-12-04", syncState: "failed", lastSyncError: "SM_REJECTED" });
   expect(cancel).not.toHaveBeenCalled();
+  // Staff are told by the next retry run (and daily while it stays so); nothing is retried automatically.
+  expect(await runSyncRetry(s.deps, minutes(15))).toEqual({ attempted: 0, alerted: [s.code] });
   expect(await s.db.select().from(notifications).where(and(eq(notifications.reservationId, s.id), eq(notifications.kind, "staff_sync_failed"))))
-    .toMatchObject([{ ref: "modify:1" }]);
+    .toMatchObject([{ ref: "channel-unsynced:2026-11-24" }]);
 });
 
 test("a failed refund keeps the new stay, records the error and alerts staff with the refund row as ref", async () => {

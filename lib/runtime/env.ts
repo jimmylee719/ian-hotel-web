@@ -36,6 +36,24 @@ export type AppEnv = {
    * SINOPAC_…ENDPOINT (or …_URL) var that is set is checked by assertConfig against the vendor's host list.
    */
   SITEMINDER_ENDPOINT?: string;
+  /**
+   * CHANNEL_MODE=siteminder (lib/channel/siteminder/client.ts): the WS-Security credentials SiteMinder gives us for
+   * its reservation endpoint (secrets), and our channel code (POS/Source/RequestorID@ID, a var). All three and
+   * SITEMINDER_ENDPOINT are required; while any is unset the channel stays off (SITEMINDER_NOT_CONFIGURED). The
+   * HotelCode is the property's own smPropertyCode (exactly one property must have one).
+   */
+  SITEMINDER_USERNAME?: string;
+  SITEMINDER_PASSWORD?: string;
+  SITEMINDER_REQUESTOR_ID?: string;
+  /**
+   * Secrets: the WS-Security username / password SiteMinder must send to our inbound endpoint
+   * (POST /api/channel/siteminder, lib/channel/siteminder/inbound/dispatch.ts). We choose them and give them to
+   * SiteMinder (password 12–50 characters, upper and lower case, digits and a special character, none of < > & " '
+   * [REQ]). While either is unset, every inbound request is refused (Type 4 / Code 448). The preview may not set them
+   * (config-guard refuses any SITEMINDER_ setting there), so on the preview the endpoint always refuses.
+   */
+  SITEMINDER_INBOUND_USERNAME?: string;
+  SITEMINDER_INBOUND_PASSWORD?: string;
   SINOPAC_ENDPOINT?: string;
   /** Local dev only (ENVIRONMENT=local): act as this staff email without an Access JWT. */
   DEV_STAFF_EMAIL?: string;

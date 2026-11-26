@@ -1,8 +1,8 @@
 import { and, asc, eq, gt, inArray, lte } from "drizzle-orm";
-import { cancelIfActive } from "@/lib/booking/manage";
+import { releasePropertyLease, takePropertyLease } from "@/lib/booking/channel-sync";
 import { notifyStaff, type Deps } from "@/lib/booking/notify";
 import { toChannelReservation } from "@/lib/booking/to-channel";
-import type { LookupResult, PushResult } from "@/lib/channel/types";
+import type { CancelResult, LookupResult, PushResult } from "@/lib/channel/types";
 import { notifications, reservations } from "@/lib/db/schema";
 import { addDaysISO, todayInTaipei } from "@/lib/domain/dates";
 import { CallBudget, type StoppedEarly } from "./budget";
@@ -29,6 +29,10 @@ export type ChannelMismatch = {
 export type ChannelReconcileResult = {
   checked: number; repushed: number; cancelled: number; lookupErrors: number; failed: number;
   mismatches: ChannelMismatch[];
+  /** Fixes not made because another channel call held the property's lease (one in flight per hotel); tomorrow. */
+  deferred?: number;
+  /** Set when the channel cannot be asked what it holds (SiteMinder has no lookup, doc §8.3): nothing was checked. */
+  unsupported?: "NO_LOOKUP";
   /** Set when the run stopped issuing channel calls early: its wall-clock budget ran out, or too many errors in a row. */
   stoppedEarly?: StoppedEarly;
 };
@@ -46,7 +50,7 @@ export const CHANNEL_LOOKUP_ERRORS_REF = "channel-lookup-errors:";
  * (lookupReservation), and fix what is safe to fix:
  * - confirmed here, not on the channel → pushed again (pushReservation is idempotent by code); the channel's
  *   smConfirmation is stored (a failure: see below);
- * - cancelled / refunded here, active there → cancelled there under the channel's smConfirmation (cancelIfActive);
+ * - cancelled / refunded here, active there → cancelled there under the smConfirmation the lookup reported;
  * - confirmed on both sides under different smConfirmations, or confirmed here but cancelled there → reported as a
  *   mismatch (the dashboard's channel_mismatch alert, from this run's job_runs row); nothing is changed.
  * Bookings the sync-retry job currently owns (syncState pending: a push, modify or cancel in progress or queued)
@@ -56,15 +60,22 @@ export const CHANNEL_LOOKUP_ERRORS_REF = "channel-lookup-errors:";
  * counted (failed). Failed rows stay in this job's set, so all of these are tried again tomorrow.
  * The run stops issuing channel calls 20 minutes after it started, or after 5 errors in a row (lib/jobs/budget.ts),
  * and records `stoppedEarly`; the bookings it did not reach are checked tomorrow.
+ * A re-push or cancel is made under the property's channel lease (one message in flight per hotel); if another call
+ * holds it, that fix waits for tomorrow (`deferred`). A channel without lookup (SiteMinder) cannot be compared at
+ * all: the run returns `unsupported: "NO_LOOKUP"` and the sync job's durable retries are the only safety net.
  */
 export async function runChannelReconcile(
   deps: Deps, now: Date, o: { clock?: () => number } = {},
 ): Promise<ChannelReconcileResult> {
   const budget = new CallBudget(CHANNEL_RECONCILE_BUDGET_MS, o.clock);
+  // Leases go by the real clock, never the run's scheduled `now`.
+  const leaseClock = o.clock ?? deps.clock ?? Date.now;
   const { db } = deps;
   const today = todayInTaipei(now);
   const horizon = addDaysISO(today, CHANNEL_RECONCILE_DAYS);
   const out: ChannelReconcileResult = { checked: 0, repushed: 0, cancelled: 0, lookupErrors: 0, failed: 0, mismatches: [] };
+  const lookup = deps.channel.lookupReservation?.bind(deps.channel);
+  if (!lookup) return { ...out, unsupported: "NO_LOOKUP" };
   let firstLookupError: typeof reservations.$inferSelect | undefined;
 
   const rows = await db.select().from(reservations)
@@ -81,7 +92,7 @@ export async function runChannelReconcile(
     out.checked++;
     let l: LookupResult;
     try {
-      l = await deps.channel.lookupReservation(res.code);
+      l = await lookup(res.code);
     } catch (e) {
       l = { error: errorText(e), retryable: true };
     }
@@ -93,6 +104,13 @@ export async function runChannelReconcile(
     }
     // Written back only while the booking is as read: a staff modification or cancel since then wins.
     const unchanged = and(eq(reservations.id, res.id), eq(reservations.status, res.status), eq(reservations.syncState, res.syncState));
+    // The fix below is a channel message: made only under the property's lease.
+    const fixes = res.status === "confirmed" ? !l.found : l.found && l.state === "active";
+    const holder = fixes ? await takePropertyLease(db, res.propertyId, leaseClock) : null;
+    if (fixes && !holder) {
+      out.deferred = (out.deferred ?? 0) + 1;
+      continue;
+    }
     try {
       if (res.status === "confirmed") {
         if (!l.found) {
@@ -107,14 +125,14 @@ export async function runChannelReconcile(
             // Confirmed here, not held there: the room can be sold twice. A red alert (sync_failed) and on-duty
             // staff told (spec §5.3); the row stays in this job's set, so tomorrow's run pushes again.
             const marked = await db.update(reservations)
-              .set({ syncState: "failed", nextSyncAt: null, lastSyncError: `${CHANNEL_MISSING}: ${r.error}`, updatedAt: now.getTime() })
+              .set({ syncState: "failed", nextSyncAt: null, lastSyncError: `${CHANNEL_MISSING}: ${r.error}`, lastSyncAt: now.getTime(), updatedAt: now.getTime() })
               .where(unchanged).returning({ id: reservations.id });
             if (marked.length) await notifyStaff(deps, res.id, "staff_sync_failed", now, {}, `channel-missing:${today}`);
             out.failed++;
             continue;
           }
           await db.update(reservations)
-            .set({ smConfirmation: r.smConfirmation, syncState: "synced", nextSyncAt: null, lastSyncError: null, updatedAt: now.getTime() })
+            .set({ smConfirmation: r.smConfirmation, syncState: "synced", nextSyncAt: null, lastSyncError: null, channelSyncedAt: leaseClock(), updatedAt: now.getTime() })
             .where(unchanged);
           out.repushed++;
         } else if (l.state === "cancelled" || l.smConfirmation !== res.smConfirmation) {
@@ -125,7 +143,10 @@ export async function runChannelReconcile(
             });
         }
       } else if (l.found && l.state === "active") {
-        const r = await cancelIfActive(deps, res.code).catch((e: unknown) => ({ ok: false, retryable: true, error: errorText(e) }));
+        // Cancelled (or refunded) here, active there: cancel it under the smConfirmation the channel reported.
+        const r: CancelResult = await toChannelReservation(db, res.id)
+          .then((body) => deps.channel.cancelReservation(body, l.smConfirmation))
+          .catch((e: unknown) => ({ ok: false as const, retryable: true, error: errorText(e) }));
         budget.record(r.ok || !r.retryable);
         if (!r.ok) {
           out.failed++;
@@ -141,6 +162,8 @@ export async function runChannelReconcile(
     } catch (e) {
       log.error(`channel reconcile failed for reservation ${res.id}`, e);
       out.failed++;
+    } finally {
+      if (holder) await releasePropertyLease(db, res.propertyId, holder);
     }
   }
   // The channel would not answer for some bookings: nothing was changed for them, but staff should know the

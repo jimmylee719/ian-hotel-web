@@ -1,0 +1,11 @@
+<!-- Built from the "No Hotel Code" error example for OTA_HotelResNotifRS (https://developer.siteminder.com/siteconnect-api/guides/error-handling.md, read 2026-11-27). The example has no Code attribute. -->
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Header/>
+  <SOAP-ENV:Body>
+    <OTA_HotelResNotifRS xmlns="http://www.opentravel.org/OTA/2003/05" EchoToken="{{ECHO_TOKEN}}" TimeStamp="2026-11-27T02:00:06Z" Version="1.0">
+      <Errors>
+        <Error Type="6">No HotelCodes were found in the message payload. Authorisation cannot proceed.</Error>
+      </Errors>
+    </OTA_HotelResNotifRS>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

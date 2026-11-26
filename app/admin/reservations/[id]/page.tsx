@@ -5,10 +5,11 @@ import { DateRange } from "@/components/admin/DateRange";
 import { Money } from "@/components/admin/Money";
 import {
   CancelReservationAction, ModifyReservationAction, RecordFrontDeskPaymentAction, RecordFrontDeskRefundAction,
-  ResendNotificationAction,
+  ResendNotificationAction, RetryChannelSyncAction,
   VoidFrontDeskPaymentAction,
 } from "@/components/admin/StaffActions";
 import { StatusBadge } from "@/components/admin/StatusBadge";
+import { unsyncedWithChannel } from "@/lib/admin/channel-sync";
 import { canVoidFrontDesk, frontDeskOpen, voidableOn } from "@/lib/admin/front-desk";
 import { modifyFormOptions } from "@/lib/admin/modify";
 import { can } from "@/lib/admin/permissions";
@@ -94,6 +95,8 @@ export default async function Page({
   // The desk pays money back on an open or a cancelled booking (not mid-cancel; the server enforces the same rule).
   const canPayOut = r.frontDeskRefundDue > 0 && (deskOpen || r.status === "cancelled") && can(ctx.staff, "payments.front_desk", propertyId);
   // OTA bookings are changed through the OTA / SiteMinder, not here.
+  // Confirmed (or cancelled) here, but SiteMinder does not have it that way yet: staff see it and may retry now.
+  const unsynced = unsyncedWithChannel(r);
   const modifyOptions = deskOpen && r.channel !== "siteminder_ota" && todayInTaipei(now) <= r.checkIn
     && can(ctx.staff, "reservations.modify", propertyId)
     ? await modifyFormOptions(db, propertyId, r.id) : null;
@@ -104,6 +107,21 @@ export default async function Page({
       <h1 className="adm-h1">
         {r.code} <StatusBadge status={r.status} /> <StatusBadge status={r.syncState} kind="sync" channelConfigured={channelConfigured} />
       </h1>
+
+      {unsynced ? (
+        <div className="adm-alert" role="status">
+          <strong>尚未同步到 SiteMinder</strong>
+          <p className="adm-muted">
+            {r.status === "confirmed" ? "這筆訂單還沒（或修改還沒）送到 SiteMinder，OTA 端可能仍可售出這些房間。" : "這筆取消還沒送到 SiteMinder。"}
+            {r.syncState === "failed"
+              ? "上次的錯誤不會自動重試，請排除原因後按「重試同步」。"
+              : r.syncAttempts > 0 ? `已失敗 ${r.syncAttempts} 次，系統會繼續自動重試。` : "系統會在背景送出。"}
+            旅客的訂房與付款不受影響。
+          </p>
+          {r.lastSyncError ? <p className="adm-muted">錯誤：<code>{r.lastSyncError}</code></p> : null}
+          {can(ctx.staff, "reservations.modify", propertyId) ? <RetryChannelSyncAction reservationId={r.id} /> : null}
+        </div>
+      ) : null}
 
       <div className="adm-actions" role="group" aria-label="訂單操作">
         {cancelPreview?.modifyRefundPending ? (

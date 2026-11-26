@@ -4,7 +4,7 @@ import { paymentEvents, payments, reservations, type PaymentEventVerdict } from 
 import type { Db } from "@/lib/db/types";
 import type { Quote } from "@/lib/domain/quote";
 import type { PaymentNotice } from "@/lib/payments/types";
-import { confirmWithChannel, refundOnce } from "./confirm";
+import { confirmPaid, refundOnce } from "./confirm";
 import { notifyStaff, refundableCharges, type ChargeRow, type Deps } from "./notify";
 import { transition, type Reservation } from "./state";
 
@@ -59,7 +59,7 @@ async function logEvent(deps: Deps, verdict: PaymentEventVerdict, rawBody: strin
  * Apply an authenticated payment result: a verified notice (handlePaymentNotice), or what the gateway's
  * queryTransaction reported for a payment whose notice never came (the gateway reconcile job). Steps 2–7 of
  * the notice path, logged in payment_events with `rawBody`: dedupe by providerRef, record the charge, then
- * the amount check, re-hold and channel push (settle → confirmWithChannel).
+ * the amount check, re-hold, local confirmation and channel hand-off (settle → confirmPaid).
  */
 export async function applyPaymentNotice(deps: Deps, n: PaymentNotice, rawBody: string, now: Date): Promise<Result> {
   const { db } = deps;
@@ -94,7 +94,7 @@ export async function applyPaymentNotice(deps: Deps, n: PaymentNotice, rawBody: 
   const charge = await recordCharge(db, res.id, n, now);
   if (!charge) return reply("duplicate", res);
 
-  // 5–7. Mismatch, re-hold after expiry and the SiteMinder push all run in confirmWithChannel,
+  // 5–7. Mismatch, re-hold after expiry, confirmation and the channel hand-off all run in confirmPaid,
   //      which the retry job also runs, so a crash from here on is recovered.
   let verdict: PaymentEventVerdict = n.amount === (res.quote as Quote).payNow ? "accepted" : "amount_mismatch";
   try {
@@ -108,8 +108,8 @@ export async function applyPaymentNotice(deps: Deps, n: PaymentNotice, rawBody: 
 /**
  * Take a recorded succeeded charge as far as it can go:
  * - not the booking's paying charge (an extra payment) → refund it ("stray"), whatever the status;
- * - pending_payment / expired → paid_pending_confirm (retry job armed), then confirmWithChannel;
- * - already paid_pending_confirm → resume confirmWithChannel (lease-guarded).
+ * - pending_payment / expired → paid_pending_confirm (retry job armed), then confirmPaid;
+ * - already paid_pending_confirm → resume confirmPaid (lease-guarded).
  * Only the paying charge ever claims the booking, so two different payments racing cannot both count.
  */
 async function settle(deps: Deps, reservationId: string, charge: ChargeRow, now: Date): Promise<"settled" | "stray"> {
@@ -124,12 +124,12 @@ async function settle(deps: Deps, reservationId: string, charge: ChargeRow, now:
       // nextSyncAt = now: from this moment the retry job is the safety net.
       if (await transition(db, reservationId, res.status, "paid_pending_confirm",
         { syncState: "pending", nextSyncAt: now.getTime(), lastSyncError: null }, now)) {
-        await confirmWithChannel(deps, reservationId, now);
+        await confirmPaid(deps, reservationId, now);
         return "settled";
       }
       continue; // the status moved under us (expiry or the expire job's recovery); look again
     }
-    if (res.status === "paid_pending_confirm") await confirmWithChannel(deps, reservationId, now);
+    if (res.status === "paid_pending_confirm") await confirmPaid(deps, reservationId, now);
     return "settled";
   }
   return "settled";

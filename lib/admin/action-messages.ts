@@ -17,6 +17,8 @@ const MESSAGES: Record<string, [status: number, message: string]> = {
   REFERENCE_REQUIRED: [400, "請填寫線下退款的參考資料（例如匯款帳號末五碼、收據編號）。"],
   INVALID_REFERENCE: [400, "參考資料最多 200 字，退款方式必須是匯款、現金或刷卡機。"],
   ALREADY_SENT: [409, "這封信已經寄出，不需要重寄。"],
+  NOT_UNSYNCED: [409, "這筆訂單已經同步到 SiteMinder（或不需要同步），不需要重試。"],
+  CHANNEL_UNAVAILABLE: [503, "SiteMinder 連線未設定，無法重試同步。"],
   BAD_REQUEST: [400, "請求格式不正確。"],
   CSRF_REJECTED: [403, "請求來源不符，請從後台頁面重新操作。"],
   UNSUPPORTED_MEDIA_TYPE: [415, "請求格式不正確（需要 JSON）。"],

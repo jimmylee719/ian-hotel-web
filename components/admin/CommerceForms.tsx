@@ -169,7 +169,7 @@ export function RatePlanForm({ plan }: { plan: RatePlanValue }) {
 
   return (
     <form className="adm-form" onSubmit={(e) => { e.preventDefault(); void run(() => send("PATCH", `/api/admin/commerce/rate-plans/${encodeURIComponent(plan.id)}`, { ...v, cancelPolicy: { rules } }), "已儲存"); }}>
-      <p className="adm-muted">SiteMinder 代碼：<code>{plan.smRatePlanCode ?? "—"}</code>（由 SiteMinder 決定，這裡不能修改）。房價與庫存請在 SiteMinder 調整。</p>
+      <p className="adm-muted">房價與庫存請在 SiteMinder 調整。</p>
       <I18nField label="名稱" value={v.name} onChange={(name) => setV((s) => ({ ...s, name }))} />
       <div className="adm-form-row">
         <label>付款方式
@@ -250,9 +250,8 @@ export function PropertyForm({ property }: { property: PropertyValue }) {
       <I18nField label="交通說明" value={v.directions} onChange={(directions) => setV((s) => ({ ...s, directions }))} multiline rows={5} />
       <dl className="adm-dl adm-dl-narrow">
         <dt>永豐商店代號</dt><dd><code>{property.sinopacMerchantId ?? "—"}</code></dd>
-        <dt>SiteMinder 館別代碼</dt><dd><code>{property.smPropertyCode ?? "—"}</code></dd>
       </dl>
-      <p className="adm-muted">這兩個代碼只顯示、不能在這裡修改；要變更請走部署設定。</p>
+      <p className="adm-muted">這個代碼只顯示、不能在這裡修改；要變更請走部署設定。</p>
       <div className="adm-actions">
         <button type="submit" className="adm-btn adm-btn-primary" disabled={busy || !complete}>{busy ? "儲存中…" : "儲存"}</button>
         {!complete ? <span className="adm-form-error">各項都填好才能存檔（交通說明、館名、地址要四種語言）。</span> : null}
