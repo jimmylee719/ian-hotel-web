@@ -12,6 +12,8 @@ export const RATE = {
   cancel: 10,
   inquiry: 5,
   quote: 30,
+  /** Mock pay page outcomes (test sites only, app/dev/pay), per IP. */
+  mockPay: 10,
 } as const;
 
 const windowStartOf = (now: Date, windowSec: number) => Math.floor(now.getTime() / (windowSec * 1000)) * windowSec * 1000;

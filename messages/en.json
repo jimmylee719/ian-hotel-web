@@ -370,5 +370,18 @@
     "changePending": "A change to this booking is still being processed, so it can't be cancelled online right now. Please contact the hotel.",
     "contact": "Questions? Call {phone} or email {email}.",
     "error": "That didn't work. Please try again shortly."
+  },
+  "testMode": {
+    "banner": "Test site | Bookings and payments here are simulated (for testing only): no real booking is made and nothing is charged.",
+    "note": "For testing: payment is simulated and nothing is charged.",
+    "noEmail": "The test site does not send confirmation emails.",
+    "payTitle": "Simulated payment (test)",
+    "payLead": "This is a simulated payment page for testing. It is not connected to any real card or bank, asks for no card number and charges nothing.",
+    "payCode": "Booking code",
+    "payAmount": "Amount",
+    "payHint": "Pick an outcome and the test booking is updated just as a real payment notice would update it.",
+    "paySucceed": "Simulate a successful payment",
+    "payFail": "Simulate a failed payment",
+    "confirmedNoEmail": "This test booking is confirmed (the test site sends no confirmation email)."
   }
 }

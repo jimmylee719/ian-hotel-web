@@ -18,7 +18,7 @@ export const SETTING_NAMES = [
 ] as const satisfies readonly (keyof AppEnv)[];
 
 const KNOWN_MODES = {
-  ENVIRONMENT: ["local", "staging", "production"],
+  ENVIRONMENT: ["local", "preview", "staging", "production"],
   PAYMENT_MODE: ["mock", "sinopac"],
   CHANNEL_MODE: ["mock", "siteminder"],
 } as const;

@@ -8,3 +8,7 @@ node_modules
 tsconfig.tsbuildinfo
 # Self-hosted CJK fonts, downloaded by scripts/fetch-fonts.ts (npm prebuild)
 public/fonts/
+
+# Per-environment local vars (e.g. .dev.vars.preview for `wrangler dev --env preview`); only the example is tracked.
+.dev.vars.*
+!.dev.vars.example

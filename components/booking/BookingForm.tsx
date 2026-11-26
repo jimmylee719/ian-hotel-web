@@ -32,7 +32,10 @@ type Promo = { input: string; applied: string; state: "none" | "applied" | "inva
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Add-ons, promo code, guest details and terms; prices live from /api/quote; submits to /api/bookings. */
-export function BookingForm({ stay, addons, initialQuote, policyText }: { stay: Stay; addons: AddonOption[]; initialQuote: Quote; policyText: string }) {
+/** `testNote`: the 測試用 line a test site shows right above the pay button (components/site/TestMode.tsx). */
+export function BookingForm({ stay, addons, initialQuote, policyText, testNote }: {
+  stay: Stay; addons: AddonOption[]; initialQuote: Quote; policyText: string; testNote?: string;
+}) {
   const t = useTranslations("checkout");
   const locale = useLocale();
   const countries = useMemo(() => countryOptions(locale), [locale]);
@@ -409,6 +412,11 @@ export function BookingForm({ stay, addons, initialQuote, policyText }: { stay: 
           </dl>
           {quoting && <p className="muted small">{t("updating")}</p>}
         </div>
+        {testNote && (
+          <p className="test-note" role="note">
+            {testNote}
+          </p>
+        )}
         <button className="cta cta-block submit" type="submit" disabled={status.kind === "submitting" || !idempotencyKey}>
           {status.kind === "submitting" ? t("submitting") : `${t("submit")}  ${formatPrice(quote.payNow)}`}
         </button>

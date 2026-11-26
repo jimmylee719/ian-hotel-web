@@ -1,8 +1,9 @@
 {
-  // The top level is the local / preview environment. It sets the mock payment and channel modes, so:
+  // The top level is the local dev environment (wrangler dev, npm run preview). It sets the mock payment and channel
+  // modes, so:
   //  - workers_dev is false: a stray bare `wrangler deploy` must not publish a mock-pay Worker on workers.dev;
-  //  - ENVIRONMENT is "local": getDeps accepts the mock modes only then (lib/runtime/deps.ts), so even a
-  //    deployed copy of this env cannot take bookings anywhere but a local dev server.
+  //  - ENVIRONMENT is "local": getDeps accepts the mock modes only for "local" and "preview" (lib/runtime/deps.ts).
+  // The public test site is env.preview below (ENVIRONMENT "preview", mock modes only, every page labelled 測試用).
   // Production is env.production: no PAYMENT_MODE / CHANNEL_MODE (booking stays off until Plans 4 and 5),
   // ENVIRONMENT "production" (mock modes refused, /dev/pay 404s), served on a custom domain, not workers.dev.
   // Staging is env.staging: its own Worker, D1 and R2 bucket, the same crons, ENVIRONMENT "staging" (mock modes
@@ -81,18 +82,27 @@
       "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "nk-media-staging" }],
       "images": { "binding": "IMAGES" }
     },
-    // Preview: a public look at the site for the owner, on workers.dev, with booking closed (BOOKING_OPEN "false",
-    // and no PAYMENT_MODE / CHANNEL_MODE, so no gateway or channel is ever called). No crons, no R2 and no Images:
-    // photos ship as static assets (scripts/preview-media.ts writes the WebP variants into .open-next/assets/media
-    // during `npm run deploy:preview`). /admin stays locked (no CF_ACCESS_*). Not staging, not production.
+    // Preview: the owner's public test site on workers.dev, with the full guest booking flow on MOCKED payment
+    // (SinoPac) and channel (SiteMinder): ENVIRONMENT "preview" allows the mock modes and nothing else, and refuses any
+    // SITEMINDER_* / SINOPAC_* setting (lib/runtime/config-guard.ts). Every page shows the 測試用 banner, /dev/pay is
+    // the labelled mock pay page, and the site is noindex. MOCK_PAYMENT_SECRET must be set as a secret
+    // (`wrangler secret put MOCK_PAYMENT_SECRET --env preview`); booking stays off until it is. No RESEND_API_KEY:
+    // emails are only logged. Never set DEV_STAFF_EMAIL / STAFF_EMAILS here; /admin stays locked (no CF_ACCESS_*).
+    // Only the 5-minute cron (unpaid holds expire; mock sync retry; pre-arrival emails are only logged). No R2 and
+    // no Images: photos ship as static assets (scripts/preview-media.ts writes the WebP variants into
+    // .open-next/assets/media during `npm run deploy:preview`). Availability: scripts/seed-preview-ari.ts.
     "preview": {
       "name": "nk-booking-preview",
       "main": "worker.ts",
       "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
       "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "nk-booking-preview" }],
-      "triggers": { "crons": [] },
+      "triggers": { "crons": ["*/5 * * * *"] },
       "workers_dev": true,
-      "vars": { "ENVIRONMENT": "preview", "BOOKING_OPEN": "false", "CF_ACCESS_TEAM_DOMAIN": "", "CF_ACCESS_AUD": "" },
+      "vars": {
+        "ENVIRONMENT": "preview", "PAYMENT_MODE": "mock", "CHANNEL_MODE": "mock",
+        "BASE_URL": "https://nk-booking-preview.cardboard-vinyl.workers.dev",
+        "CF_ACCESS_TEAM_DOMAIN": "", "CF_ACCESS_AUD": ""
+      },
       "d1_databases": [
         {
           "binding": "DB",

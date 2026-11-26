@@ -77,3 +77,23 @@ test("deploy:staging mirrors deploy but targets --env staging", () => {
   const { scripts } = JSON.parse(readFileSync(path.resolve(__dirname, "../../package.json"), "utf8"));
   expect(scripts["deploy:staging"]).toBe(scripts.deploy.replaceAll("--env production", "--env staging"));
 });
+
+test("preview is the labelled test site: mock modes only, its own BASE_URL, only the 5-minute cron, admin locked", () => {
+  const pv = cfg.env.preview;
+  expect(pv.name).toBe("nk-booking-preview");
+  expect(pv.workers_dev).toBe(true);
+  expect(pv.vars).toEqual({
+    ENVIRONMENT: "preview", PAYMENT_MODE: "mock", CHANNEL_MODE: "mock",
+    BASE_URL: "https://nk-booking-preview.cardboard-vinyl.workers.dev", CF_ACCESS_TEAM_DOMAIN: "", CF_ACCESS_AUD: "",
+  });
+  // Booking is open (no BOOKING_OPEN "false"); no staff bypass, no staff list, no vendor setting, no secret in vars.
+  for (const name of ["BOOKING_OPEN", "DEV_STAFF_EMAIL", "STAFF_EMAILS", "MOCK_PAYMENT_SECRET", "RESEND_API_KEY"])
+    expect(pv.vars).not.toHaveProperty(name);
+  expect(Object.keys(pv.vars).some((k) => /^(SITEMINDER|SINOPAC)_/.test(k))).toBe(false);
+  expect(pv.triggers.crons).toEqual([CRON_EVERY_5_MIN]); // unpaid holds expire; no reconcile jobs
+  expect(pv.services[0]).toEqual({ binding: "WORKER_SELF_REFERENCE", service: pv.name }); // /dev/pay posts its notice through it
+  expect(pv.d1_databases[0]).toMatchObject({ binding: "DB", database_name: "nk-booking-preview" });
+  expect(pv.d1_databases[0].database_id).not.toBe(cfg.env.production.d1_databases[0].database_id);
+  expect(pv.d1_databases[0].database_id).not.toBe(cfg.env.staging.d1_databases[0].database_id);
+  expect(pv.d1_databases[0].database_name).not.toBe(cfg.env.staging.d1_databases[0].database_name);
+});

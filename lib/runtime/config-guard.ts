@@ -27,16 +27,23 @@ export class ConfigRefusedError extends Error {
   }
 }
 
+/** Any SiteMinder or SinoPac setting (endpoints, credentials, codes): the preview may have none of them. */
+const VENDOR_SETTING = /^(SITEMINDER|SINOPAC)_/;
+
 /**
- * Why this environment's config must not run at all, or null when it may. Rules (ENVIRONMENT):
+ * Why this environment's config must not run at all, or null when it may. Rules (ENVIRONMENT, trimmed):
  * - "local": anything goes (wrangler dev, tests, the mock pay page).
+ * - "preview" (the owner's public, labelled test site): mock is the only mode. A PAYMENT_MODE / CHANNEL_MODE other
+ *   than "mock" is refused (unset is allowed: booking then simply stays off), and so is every SITEMINDER_… /
+ *   SINOPAC_… setting that is set, endpoint or not, so the preview can never reach a real gateway or channel.
  * - "staging": no mock mode; every vendor endpoint must be https on that vendor's sandbox list (never production).
- * - "production", and anything else (unset or mistyped is treated as production: fails closed): no mock mode;
- *   every vendor endpoint must be https on that vendor's production list.
+ * - "production", and anything else (unset or mistyped, e.g. "Preview", is treated as production: fails closed):
+ *   no mock mode; every vendor endpoint must be https on that vendor's production list.
  */
 export function configRefusal(env: AppEnv & Record<string, unknown>): string | null {
   const environment = env.ENVIRONMENT?.trim();
   if (environment === "local") return null;
+  if (environment === "preview") return previewRefusal(env);
   const kind: keyof VendorHosts = environment === "staging" ? "sandbox" : "production";
   const label = environment || "(unset)";
   const reasons: string[] = [];
@@ -64,6 +71,21 @@ export function configRefusal(env: AppEnv & Record<string, unknown>): string | n
     } else if (!hosts[kind].includes(host)) {
       reasons.push(`ENDPOINT_NOT_ALLOWED: ${name} host ${host} is not on the ${m[1]} ${kind} list (ENVIRONMENT=${label})`);
     }
+  }
+  return reasons.length ? new ConfigRefusedError(reasons).message : null;
+}
+
+/** configRefusal for ENVIRONMENT=preview: mock modes only, and no vendor settings at all. */
+function previewRefusal(env: AppEnv & Record<string, unknown>): string | null {
+  const reasons: string[] = [];
+  for (const name of ["PAYMENT_MODE", "CHANNEL_MODE"] as const) {
+    const mode = env[name]?.trim();
+    if (mode && mode !== "mock") reasons.push(`REAL_MODE_IN_PREVIEW: ${name} must be mock with ENVIRONMENT=preview`);
+  }
+  for (const name of Object.keys(env).sort()) {
+    const value = env[name];
+    if (VENDOR_SETTING.test(name) && typeof value === "string" && value.trim() !== "")
+      reasons.push(`VENDOR_SETTING_IN_PREVIEW: ${name} must not be set with ENVIRONMENT=preview`);
   }
   return reasons.length ? new ConfigRefusedError(reasons).message : null;
 }

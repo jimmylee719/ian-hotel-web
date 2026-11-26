@@ -11,8 +11,9 @@ import { cancellationText } from "@/lib/booking/notify";
 import { priceStay } from "@/lib/booking/pricing";
 import { getDb } from "@/lib/db/client";
 import { addons, type Locale } from "@/lib/db/schema";
-import { bookingEnabled } from "@/lib/runtime/deps";
+import { isTestSite } from "@/lib/runtime/env";
 import { buildMetadata } from "@/lib/seo";
+import { bookingEnabled, requestEnv } from "@/lib/runtime/request-env";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,7 @@ export default async function DetailsPage({ params, searchParams }: Props) {
     );
   }
   const { offer, quote, propertyId } = priced.priced;
+  const testNote = isTestSite(await requestEnv()) ? (await getTranslations({ locale, namespace: "testMode" }))("note") : undefined;
   const extras = await db.select().from(addons).where(and(eq(addons.propertyId, propertyId), eq(addons.active, true)));
 
   return (
@@ -82,6 +84,7 @@ export default async function DetailsPage({ params, searchParams }: Props) {
         addons={extras.map((a) => ({ id: a.id, slug: a.slug, name: a.name[locale], price: a.price, unit: a.unit }))}
         initialQuote={quote}
         policyText={cancellationText(offer.ratePlan.cancelPolicy, locale)}
+        testNote={testNote}
       />
     </main>
   );

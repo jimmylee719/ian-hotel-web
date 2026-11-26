@@ -34,12 +34,16 @@ locale on purpose.
 | `inquiry.*` (Task 8, group inquiry form) | MT | MT | MT |
 | `book.*`, `checkout.*`, `bookingStatus.*`, `manage.*`, `footer.manageBooking` (Task 9, booking flow: search results, details form, payment return, manage booking) | MT | MT | MT |
 | `nav.about`, `nav.sustainability`, `nav.company`, `nav.partners`, `footer.aboutTitle`, `home.storyMore`, `pages.aboutDescription`, `pages.sustainabilityDescription`, `pages.companyDescription`, `pages.partnersDescription`, `pages.partnersMailSubject`, `pages.partnersMailLink`, `pages.partnersReviewsLink` (brand and company layer) | MT | MT | MT |
+| `testMode.*` (banner, note, noEmail, payTitle, payLead, payCode, payAmount, payHint, paySucceed, payFail, confirmedNoEmail: the 測試用 labels of the public test site and the mock pay page) | MT | MT | MT |
 
 zh-TW keys that are NEW (not on the old site): `meta.title`, `meta.description`, `home.intro`,
 `home.heroCaption`, `home.heroAlt` (from design/proposals/a.html), `footer.nearMrt`, `booking.*`,
 `notFound.*`, everything added in Task 9 (`book.*`, `checkout.*`, `bookingStatus.*`, `manage.*`), and everything added in Task 8 except `home.storyBody*` (EDIT of the old home page text).
 
 Task 8 also hard-codes, in four languages, the hotel amenity names in `lib/jsonld.ts` (`HOTEL_AMENITIES`, MT) and the PostalAddress parts there (ja/ko reuse the zh-TW/en forms; please check). The ratings in `lib/content/reviews.ts` were read off the old award images; the owner should confirm they are still current before launch.
+
+`testMode.*` is NEW in zh-TW too (the banner and the 測試用 note are the owner's requested wording; the rest written
+for the test site). It is shown only on a test site (local dev and the public preview), never in production.
 
 Task 9 notes for review: `checkout.payNote` names Bank SinoPac (永豐銀行) as the payment page; `checkout.policyNote`
 and `manage.cancelledRefund` ("7 to 14 working days") state refund rules and timing the owner must confirm.
